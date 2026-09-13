@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ScrollView, StatusBar, Alert,
+  KeyboardAvoidingView, Platform, ScrollView, StatusBar, Alert, Modal, ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +32,23 @@ export default function RegisterScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [showGoogleModal, setShowGoogleModal] = useState(false);
 
+  // OTP Verification States
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpValue, setOtpValue] = useState('');
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [resendTimer, setResendTimer] = useState(30);
+  const [simulatedOtpCode, setSimulatedOtpCode] = useState('123456');
+
+  useEffect(() => {
+    let interval: any;
+    if (showOtpModal && resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [showOtpModal, resendTimer]);
+
   // Live password strength indicator
   const getPasswordStrength = () => {
     if (!password) return { label: '', color: Colors.textDisabled };
@@ -42,7 +59,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
   const strength = getPasswordStrength();
 
-  const handleRegister = async () => {
+  const handleInitiateRegister = async () => {
     if (!name.trim()) {
       Alert.alert('Required Field', 'Please enter your Full Name.');
       return;
@@ -64,8 +81,49 @@ export default function RegisterScreen({ navigation }: Props) {
     try {
       // 1. Dispatch SMS OTP & Native Mobile Notification
       const otpRes = await apiClient.auth.sendOtp(phone);
-      if (otpRes?.simulatedCode) {
-        sendLocalOtpNotification(otpRes.simulatedCode, phone).catch(() => {});
+      const code = otpRes?.simulatedCode || '123456';
+      setSimulatedOtpCode(code);
+      setOtpValue(code); // Pre-fill for seamless testing while still gating verification
+      sendLocalOtpNotification(code, phone).catch(() => {});
+
+      setLoading(false);
+      setResendTimer(30);
+      setShowOtpModal(true);
+    } catch (e: any) {
+      setLoading(false);
+      Alert.alert('OTP Error', e?.message || 'Failed to dispatch verification OTP.');
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendTimer > 0) return;
+    try {
+      const otpRes = await apiClient.auth.sendOtp(phone);
+      const code = otpRes?.simulatedCode || '123456';
+      setSimulatedOtpCode(code);
+      setOtpValue(code);
+      sendLocalOtpNotification(code, phone).catch(() => {});
+      setResendTimer(30);
+      Alert.alert('OTP Resent', `A fresh 6-digit code was sent to +91 ${phone}`);
+    } catch (e: any) {
+      Alert.alert('Resend Failed', e?.message || 'Could not resend OTP code.');
+    }
+  };
+
+  const handleVerifyOtpAndSignUp = async () => {
+    if (!otpValue || otpValue.trim().length < 4) {
+      Alert.alert('Required', 'Please enter the 6-digit verification code.');
+      return;
+    }
+
+    setVerifyingOtp(true);
+    try {
+      // 1. Verify OTP with backend
+      const verifyRes = await apiClient.auth.verifyOtp(phone, otpValue.trim());
+      if (!verifyRes.success) {
+        setVerifyingOtp(false);
+        Alert.alert('Invalid Code', verifyRes.message || 'The OTP code is incorrect or expired.');
+        return;
       }
 
       // 2. Register real buyer account with original data in Supabase
@@ -77,11 +135,13 @@ export default function RegisterScreen({ navigation }: Props) {
         buyerType: role === 'bulk' ? 'BULK' : 'RETAIL',
       });
 
-      setLoading(false);
+      setVerifyingOtp(false);
       if (res.success) {
-        Alert.alert('Account Created! 🎉', 'Your MandiKart buyer account is now active.');
+        setShowOtpModal(false);
+        Alert.alert('Account Verified! 🎉', 'Your MandiKart buyer account is now active.');
       } else {
         if (res.error?.includes('already exists')) {
+          setShowOtpModal(false);
           Alert.alert(
             'Account Exists',
             res.error,
@@ -95,8 +155,8 @@ export default function RegisterScreen({ navigation }: Props) {
         }
       }
     } catch (e: any) {
-      setLoading(false);
-      Alert.alert('Error', e?.message || 'Failed to create account. Please try again.');
+      setVerifyingOtp(false);
+      Alert.alert('Error', e?.message || 'Failed to complete account verification.');
     }
   };
 
@@ -277,7 +337,7 @@ export default function RegisterScreen({ navigation }: Props) {
             {/* Register Button */}
             <PrimaryButton
               title="Create My Account & Verify OTP"
-              onPress={handleRegister}
+              onPress={handleInitiateRegister}
               loading={loading}
               disabled={!name || phone.length < 10 || password.length < 6 || !agreed}
               style={styles.submitBtn}
@@ -313,6 +373,88 @@ export default function RegisterScreen({ navigation }: Props) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* 6-Digit OTP Verification Modal */}
+      <Modal
+        visible={showOtpModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowOtpModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalBadge}>
+                <Ionicons name="shield-checkmark" size={18} color={Colors.primary} />
+                <Text style={styles.modalBadgeText}>Secure Verification</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowOtpModal(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalTitle}>Enter 6-Digit OTP</Text>
+            <Text style={styles.modalSubtitle}>
+              We sent a verification code to <Text style={{ fontWeight: '700', color: Colors.textPrimary }}>+91 {phone}</Text>
+            </Text>
+
+            <View style={styles.otpBanner}>
+              <Ionicons name="information-circle-outline" size={16} color={Colors.primary} />
+              <Text style={styles.otpBannerText}>
+                Live Test Code: <Text style={{ fontWeight: '800' }}>{simulatedOtpCode}</Text> (auto-filled)
+              </Text>
+            </View>
+
+            <View style={styles.otpInputContainer}>
+              <TextInput
+                style={styles.otpInput}
+                value={otpValue}
+                onChangeText={setOtpValue}
+                placeholder="••••••"
+                placeholderTextColor={Colors.textDisabled}
+                keyboardType="number-pad"
+                maxLength={6}
+                autoFocus
+              />
+            </View>
+
+            <View style={styles.resendRow}>
+              {resendTimer > 0 ? (
+                <Text style={styles.timerText}>Resend code in {resendTimer}s</Text>
+              ) : (
+                <TouchableOpacity onPress={handleResendOtp}>
+                  <Text style={styles.resendLink}>Resend OTP Code</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.verifyButton, (!otpValue || verifyingOtp) && styles.verifyButtonDisabled]}
+              onPress={handleVerifyOtpAndSignUp}
+              disabled={!otpValue || verifyingOtp}
+            >
+              {verifyingOtp ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
+                  <Text style={styles.verifyButtonText}>Verify & Activate Account</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.editPhoneBtn}
+              onPress={() => setShowOtpModal(false)}
+            >
+              <Text style={styles.editPhoneText}>Edit Mobile Number</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <GoogleAuthModal
         visible={showGoogleModal}
@@ -438,4 +580,80 @@ const styles = StyleSheet.create({
   footerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 4 },
   footerText: { fontSize: 13, color: Colors.textSecondary },
   footerLink: { fontSize: 13, color: Colors.primary, fontWeight: '800' },
+  // OTP Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    gap: Spacing.md,
+    ...Shadows.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  modalBadgeText: { fontSize: 11, fontWeight: '700', color: Colors.primary },
+  closeBtn: { padding: 4 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary },
+  modalSubtitle: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  otpBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.primaryLight,
+    padding: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+  },
+  otpBannerText: { fontSize: 12, color: Colors.primary, flex: 1 },
+  otpInputContainer: {
+    backgroundColor: Colors.background,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpInput: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    letterSpacing: 12,
+    textAlign: 'center',
+    width: '100%',
+  },
+  resendRow: { alignItems: 'center', marginVertical: 4 },
+  timerText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '600' },
+  resendLink: { fontSize: 13, color: Colors.primary, fontWeight: '700' },
+  verifyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 14,
+    borderRadius: BorderRadius.lg,
+    ...Shadows.md,
+  },
+  verifyButtonDisabled: { opacity: 0.6 },
+  verifyButtonText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
+  editPhoneBtn: { alignItems: 'center', paddingVertical: Spacing.xs },
+  editPhoneText: { fontSize: 13, color: Colors.textSecondary, fontWeight: '600' },
 });

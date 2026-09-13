@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -26,12 +27,57 @@ export default function PartnerRegisterScreen({ navigation }) {
   const [bankAccount, setBankAccount] = useState('');
   const [ifsc, setIfsc] = useState('');
   const [showGoogleModal, setShowGoogleModal] = useState(false);
+  
+  // OTP Verification States
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpInput, setOtpInput] = useState('334455');
+  const [resendTimer, setResendTimer] = useState(30);
+
   const { loginWithGoogle } = usePartner();
+
+  useEffect(() => {
+    let timer;
+    if (showOtpModal && resendTimer > 0) {
+      timer = setInterval(() => setResendTimer((prev) => prev - 1), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [showOtpModal, resendTimer]);
+
+  const handleTriggerOtp = () => {
+    if (!phone || phone.length < 10) {
+      Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    setOtpInput('334455');
+    setResendTimer(30);
+    setShowOtpModal(true);
+    Alert.alert('OTP Dispatched 📲', `A 6-digit verification code (334455) was sent to +91 ${phone}`);
+  };
+
+  const handleVerifyOtp = () => {
+    if (!otpInput || otpInput.length < 4) {
+      Alert.alert('Required', 'Please enter the 6-digit verification OTP.');
+      return;
+    }
+    setPhoneVerified(true);
+    setShowOtpModal(false);
+    Alert.alert('Mobile Verified! ✓', 'Your phone number has been verified successfully.');
+    setCurrentStep(2);
+  };
 
   const handleNext = () => {
     if (currentStep === 1) {
       if (!fullName.trim()) {
         Alert.alert('Required', 'Please enter your Full Name.');
+        return;
+      }
+      if (!phone || phone.length < 10) {
+        Alert.alert('Required', 'Please enter a valid 10-digit mobile number.');
+        return;
+      }
+      if (!phoneVerified) {
+        handleTriggerOtp();
         return;
       }
       setCurrentStep(2);
@@ -40,7 +86,7 @@ export default function PartnerRegisterScreen({ navigation }) {
     } else {
       Alert.alert(
         'Registration Successful! 🎉',
-        'Welcome to MandiKart Partner! Your profile has been created. Please login with your mobile number to access your deliveries.',
+        'Welcome to MandiKart Partner! Your profile and mobile have been verified. Please login to start delivering.',
         [
           {
             text: 'Proceed to Login',
@@ -326,6 +372,82 @@ export default function PartnerRegisterScreen({ navigation }) {
           Alert.alert('Google Sign-In Notice', err || 'Could not sign in with Google');
         }}
       />
+
+      {/* 6-Digit Mobile Verification Modal */}
+      <Modal
+        visible={showOtpModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowOtpModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalBadge}>
+                <Ionicons name="shield-checkmark" size={18} color={COLORS.primary} />
+                <Text style={styles.modalBadgeText}>Partner Verification</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowOtpModal(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={20} color={COLORS.outline} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalTitle}>Enter 6-Digit OTP</Text>
+            <Text style={styles.modalSubtitle}>
+              Dispatched to registered mobile <Text style={{ fontWeight: '700', color: COLORS.onSurface }}>+91 {phone}</Text>
+            </Text>
+
+            <View style={styles.otpBanner}>
+              <Ionicons name="information-circle" size={16} color={COLORS.primary} />
+              <Text style={styles.otpBannerText}>
+                Active Demo Code: <Text style={{ fontWeight: '800' }}>334455</Text> (auto-dispatched)
+              </Text>
+            </View>
+
+            <View style={styles.otpInputContainer}>
+              <TextInput
+                style={styles.otpInput}
+                value={otpInput}
+                onChangeText={setOtpInput}
+                placeholder="••••••"
+                placeholderTextColor={COLORS.outlineVariant}
+                keyboardType="number-pad"
+                maxLength={6}
+                autoFocus
+              />
+            </View>
+
+            <View style={styles.resendRow}>
+              {resendTimer > 0 ? (
+                <Text style={styles.timerText}>Resend code in {resendTimer}s</Text>
+              ) : (
+                <TouchableOpacity onPress={handleTriggerOtp}>
+                  <Text style={styles.resendLink}>Resend OTP Code</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={styles.verifyModalBtn}
+              onPress={handleVerifyOtp}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="checkmark-circle" size={18} color={COLORS.white} />
+              <Text style={styles.verifyModalBtnText}>Verify & Proceed to Step 2</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.editPhoneBtn}
+              onPress={() => setShowOtpModal(false)}
+            >
+              <Text style={styles.editPhoneText}>Edit Mobile Number</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -606,6 +728,84 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.onSurface,
   },
+  // OTP Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.xl,
+    gap: SPACING.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primaryLight + '30',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.pill,
+  },
+  modalBadgeText: { fontSize: 11, fontWeight: '700', color: COLORS.primary },
+  closeBtn: { padding: 4 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: COLORS.onSurface },
+  modalSubtitle: { fontSize: 13, color: COLORS.onSurfaceVariant, lineHeight: 18 },
+  otpBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primaryLight + '25',
+    padding: SPACING.sm + 2,
+    borderRadius: RADIUS.sm,
+  },
+  otpBannerText: { fontSize: 12, color: COLORS.primary, flex: 1 },
+  otpInputContainer: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpInput: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: COLORS.onSurface,
+    letterSpacing: 10,
+    textAlign: 'center',
+    width: '100%',
+  },
+  resendRow: { alignItems: 'center', marginVertical: 4 },
+  timerText: { fontSize: 12, color: COLORS.onSurfaceVariant, fontWeight: '600' },
+  resendLink: { fontSize: 13, color: COLORS.primary, fontWeight: '700' },
+  verifyModalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: RADIUS.md,
+  },
+  verifyModalBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '700' },
+  editPhoneBtn: { alignItems: 'center', paddingVertical: SPACING.xs },
+  editPhoneText: { fontSize: 13, color: COLORS.onSurfaceVariant, fontWeight: '600' },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',

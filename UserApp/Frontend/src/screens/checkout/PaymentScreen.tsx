@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, TextInput, Alert, Modal, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius } from '../../theme';
@@ -16,6 +16,13 @@ export default function PaymentScreen({ navigation, route }: any) {
   const [cardCvc, setCardCvc] = useState('123');
   const [cardName, setCardName] = useState('Aarav Sharma');
   const [loading, setLoading] = useState(false);
+
+  // Interactive Stripe Payment Gateway Modal state
+  const [showStripeModal, setShowStripeModal] = useState(false);
+  const [stripeIntentData, setStripeIntentData] = useState<any>(null);
+  const [stripeStep, setStripeStep] = useState<'CARD_CONFIRM' | '3DS_CHALLENGE' | 'PROCESSING' | 'SUCCESS'>('CARD_CONFIRM');
+  const [bankOtp, setBankOtp] = useState('489201');
+  const [pendingOrderResult, setPendingOrderResult] = useState<any>(null);
 
   const amount = route.params?.amount || route.params?.total || 155;
   const isBulk = route.params?.isBulk || false;
@@ -152,11 +159,24 @@ export default function PaymentScreen({ navigation, route }: any) {
         farmerId: items[0]?.farmerId || 'farmer_ramesh_01',
       });
 
-      // 3. Confirm Stripe Payment & Lock in Escrow
-      if (paymentIntent?.paymentIntentId) {
-        await apiClient.payments.confirm(paymentIntent.paymentIntentId, orderId);
+      const pendingData = {
+        order: res.order,
+        orderId,
+        paymentIntent,
+        items,
+      };
+      setPendingOrderResult(pendingData);
+      setStripeIntentData(paymentIntent);
+
+      // If Card or UPI, launch interactive Stripe Gateway screen
+      if (selected === 'card' || selected === 'upi') {
+        setLoading(false);
+        setStripeStep('CARD_CONFIRM');
+        setShowStripeModal(true);
+        return;
       }
 
+      // 3. If Escrow COD, complete directly
       setLoading(false);
       clearCart();
       navigation.navigate('OrderConfirmation', {
@@ -164,7 +184,7 @@ export default function PaymentScreen({ navigation, route }: any) {
         deliveryOtp: res.order?.deliveryOtp || '719284',
         order: res.order,
         stripePaymentIntentId: paymentIntent?.paymentIntentId,
-        paymentMethod: selected === 'card' ? 'STRIPE_CARD' : selected === 'upi' ? 'STRIPE_UPI' : 'ESCROW_COD',
+        paymentMethod: 'ESCROW_COD',
       });
     } catch (err: any) {
       setLoading(false);
@@ -172,6 +192,34 @@ export default function PaymentScreen({ navigation, route }: any) {
         'Payment Processing Error',
         err?.message || 'Unable to complete order transaction. Please check your network and retry.'
       );
+    }
+  };
+
+  const handleAuthorizeStripePayment = async () => {
+    if (!pendingOrderResult) return;
+    setStripeStep('PROCESSING');
+
+    try {
+      const intentId = stripeIntentData?.paymentIntentId || pendingOrderResult.paymentIntent?.paymentIntentId;
+      if (intentId) {
+        await apiClient.payments.confirm(intentId, pendingOrderResult.orderId);
+      }
+
+      setStripeStep('SUCCESS');
+      setTimeout(() => {
+        setShowStripeModal(false);
+        clearCart();
+        navigation.navigate('OrderConfirmation', {
+          orderId: pendingOrderResult.orderId,
+          deliveryOtp: pendingOrderResult.order?.deliveryOtp || '719284',
+          order: pendingOrderResult.order,
+          stripePaymentIntentId: intentId,
+          paymentMethod: selected === 'card' ? 'STRIPE_CARD' : 'STRIPE_UPI',
+        });
+      }, 1200);
+    } catch (err: any) {
+      setStripeStep('CARD_CONFIRM');
+      Alert.alert('Stripe Gateway Error', err?.message || 'Transaction authorization failed.');
     }
   };
 
@@ -381,14 +429,191 @@ export default function PaymentScreen({ navigation, route }: any) {
           <Text style={styles.footerEscrowNoteText}>Secured by Stripe 256-bit SSL & MandiKart Escrow</Text>
         </View>
         <PrimaryButton
-          title={loading ? 'Locking in Stripe Escrow...' : `Pay ₹${amount} & Confirm`}
+          title={loading ? 'Generating Stripe Intent...' : `Pay ₹${amount} & Confirm`}
           onPress={handlePayment}
           disabled={loading}
           style={{ width: '100%' }}
         />
       </View>
-    </SafeAreaView>
 
+      {/* Interactive Stripe Payment Gateway & 3D Secure Modal */}
+      <Modal
+        visible={showStripeModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (stripeStep !== 'PROCESSING') setShowStripeModal(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.stripeModalCard}>
+            {/* Top Stripe Branded Header */}
+            <View style={styles.stripeHeader}>
+              <View style={styles.stripeHeaderLeft}>
+                <View style={styles.stripeLogoBox}>
+                  <Text style={styles.stripeLogoText}>stripe</Text>
+                </View>
+                <View>
+                  <Text style={styles.stripeHeaderTitle}>SECURE PAYMENT SHEET</Text>
+                  <Text style={styles.stripeHeaderSub}>MandiKart Agri Escrow Ltd.</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  if (stripeStep !== 'PROCESSING') setShowStripeModal(false);
+                }}
+                disabled={stripeStep === 'PROCESSING'}
+                style={styles.stripeCloseBtn}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Total Amount Ribbon */}
+            <View style={styles.stripeAmountRibbon}>
+              <Text style={styles.stripePayableText}>Amount to Pay</Text>
+              <Text style={styles.stripeAmountText}>₹{amount}.00</Text>
+            </View>
+
+            {/* Step 1: Card / Method Confirmation */}
+            {stripeStep === 'CARD_CONFIRM' && (
+              <View style={styles.stripeBody}>
+                {selected === 'card' ? (
+                  <View style={styles.stripeCardVisual}>
+                    <View style={styles.stripeCardTop}>
+                      <Text style={styles.stripeChipText}>💳 EMV CHIP</Text>
+                      <Text style={styles.stripeNetworkText}>VISA / MASTERCARD</Text>
+                    </View>
+                    <Text style={styles.stripeCardDigits}>
+                      ••••  ••••  ••••  {cardNumber.replace(/\s+/g, '').slice(-4) || '4242'}
+                    </Text>
+                    <View style={styles.stripeCardBottom}>
+                      <View>
+                        <Text style={styles.stripeCardLabel}>CARDHOLDER</Text>
+                        <Text style={styles.stripeCardVal}>{cardName || 'Aarav Sharma'}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.stripeCardLabel}>EXPIRES</Text>
+                        <Text style={styles.stripeCardVal}>{cardExpiry || '12/28'}</Text>
+                      </View>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.stripeUpiVisual}>
+                    <Ionicons name="phone-portrait-outline" size={32} color="#635BFF" />
+                    <Text style={styles.stripeUpiVpa}>{upiId}</Text>
+                    <Text style={styles.stripeUpiSub}>Direct UPI Payment Request via Stripe Intent</Text>
+                  </View>
+                )}
+
+                <View style={styles.stripeIntentMeta}>
+                  <Text style={styles.stripeIntentText}>
+                    Stripe Reference: {stripeIntentData?.paymentIntentId || 'pi_mandikart_live'}
+                  </Text>
+                  <Text style={styles.stripeEscrowMeta}>
+                    🛡️ Protected by RBI E-Mandate & MandiKart 100% Buyer Escrow Guarantee
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.stripePayBtn}
+                  onPress={() => setStripeStep('3DS_CHALLENGE')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
+                  <Text style={styles.stripePayBtnText}>Proceed to 3D Secure Authentication</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Step 2: 3D Secure Bank Challenge Simulation */}
+            {stripeStep === '3DS_CHALLENGE' && (
+              <View style={styles.stripeBody}>
+                <View style={styles.bankHeaderRow}>
+                  <View style={styles.bankBadge}>
+                    <Text style={styles.bankBadgeText}>HDFC / SBI 3D SECURE</Text>
+                  </View>
+                  <Text style={styles.verifiedByText}>Verified by VISA</Text>
+                </View>
+
+                <Text style={styles.bankPromptTitle}>Issuer Bank Authentication</Text>
+                <Text style={styles.bankPromptSub}>
+                  Enter the 6-digit OTP sent to your registered mobile ending in ••84 to authorize this ₹{amount} payment.
+                </Text>
+
+                <View style={styles.bankOtpInputRow}>
+                  <TextInput
+                    style={styles.bankOtpField}
+                    value={bankOtp}
+                    onChangeText={setBankOtp}
+                    placeholder="Enter 6-digit Bank OTP"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="numeric"
+                    maxLength={6}
+                  />
+                  <TouchableOpacity
+                    style={styles.fillBankOtpBtn}
+                    onPress={() => setBankOtp('489201')}
+                  >
+                    <Text style={styles.fillBankOtpBtnText}>Auto-Fill</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.bankSecureInfo}>
+                  <Ionicons name="shield-checkmark" size={16} color="#15803D" />
+                  <Text style={styles.bankSecureInfoText}>
+                    Direct 256-bit encrypted authentication channel with issuing bank.
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.stripePayBtn, { backgroundColor: '#15803D' }]}
+                  onPress={handleAuthorizeStripePayment}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                  <Text style={styles.stripePayBtnText}>Authorize ₹{amount} & Lock Escrow</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setStripeStep('CARD_CONFIRM')}
+                  style={styles.stripeBackBtn}
+                >
+                  <Text style={styles.stripeBackBtnText}>← Back to Card Details</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Step 3: Processing */}
+            {stripeStep === 'PROCESSING' && (
+              <View style={[styles.stripeBody, { alignItems: 'center', paddingVertical: 32 }]}>
+                <ActivityIndicator size="large" color="#635BFF" />
+                <Text style={styles.processingTitle}>Authorizing with Stripe & Bank...</Text>
+                <Text style={styles.processingSub}>
+                  Securing payment token and locking ₹{amount} into MandiKart Escrow Account.
+                </Text>
+              </View>
+            )}
+
+            {/* Step 4: Success */}
+            {stripeStep === 'SUCCESS' && (
+              <View style={[styles.stripeBody, { alignItems: 'center', paddingVertical: 24 }]}>
+                <View style={styles.successCheckCircle}>
+                  <Ionicons name="checkmark" size={36} color="#15803D" />
+                </View>
+                <Text style={styles.successTitle}>Payment Authorized!</Text>
+                <Text style={styles.successSub}>
+                  Stripe PaymentIntent Succeeded. Funds safely locked in Escrow Vault.
+                </Text>
+                <Text style={styles.successRef}>
+                  Ref: {stripeIntentData?.paymentIntentId || 'pi_mandikart_success'}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
@@ -682,6 +907,300 @@ const styles = StyleSheet.create({
   cardRow: {
     flexDirection: 'row',
     gap: 8,
+    marginTop: 8,
+  },
+  // Stripe Gateway Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  stripeModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+    maxHeight: '90%',
+  },
+  stripeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FAF5FF',
+  },
+  stripeHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stripeLogoBox: {
+    backgroundColor: '#635BFF',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  stripeLogoText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 13,
+    letterSpacing: -0.5,
+  },
+  stripeHeaderTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1E293B',
+    letterSpacing: 0.5,
+  },
+  stripeHeaderSub: {
+    fontSize: 10,
+    color: '#64748B',
+  },
+  stripeCloseBtn: {
+    padding: 6,
+  },
+  stripeAmountRibbon: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  stripePayableText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  stripeAmountText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#38BDF8',
+  },
+  stripeBody: {
+    padding: 16,
+    gap: 14,
+  },
+  stripeCardVisual: {
+    backgroundColor: '#1E1B4B',
+    borderRadius: 12,
+    padding: 16,
+    gap: 14,
+    shadowColor: '#4338CA',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  stripeCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  stripeChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FCD34D',
+  },
+  stripeNetworkText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#A5B4FC',
+    letterSpacing: 1,
+  },
+  stripeCardDigits: {
+    fontSize: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 2,
+  },
+  stripeCardBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.15)',
+    paddingTop: 8,
+  },
+  stripeCardLabel: {
+    fontSize: 9,
+    color: '#94A3B8',
+    fontWeight: '700',
+  },
+  stripeCardVal: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  stripeUpiVisual: {
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 12,
+    gap: 6,
+  },
+  stripeUpiVpa: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#312E81',
+  },
+  stripeUpiSub: {
+    fontSize: 11,
+    color: '#6366F1',
+  },
+  stripeIntentMeta: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 10,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  stripeIntentText: {
+    fontSize: 10,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: '#475569',
+  },
+  stripeEscrowMeta: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#15803D',
+  },
+  stripePayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#635BFF',
+    paddingVertical: 14,
+    borderRadius: 10,
+  },
+  stripePayBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  bankHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    paddingBottom: 8,
+  },
+  bankBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  bankBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1D4ED8',
+  },
+  verifiedByText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0F766E',
+  },
+  bankPromptTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  bankPromptSub: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  bankOtpInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  bankOtpField: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#635BFF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: 4,
+    textAlign: 'center',
+  },
+  fillBankOtpBtn: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  fillBankOtpBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  bankSecureInfo: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  bankSecureInfoText: {
+    fontSize: 11,
+    color: '#15803D',
+    flex: 1,
+  },
+  stripeBackBtn: {
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  stripeBackBtnText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  processingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 12,
+  },
+  processingSub: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+    maxWidth: 260,
+  },
+  successCheckCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#15803D',
+    marginTop: 12,
+  },
+  successSub: {
+    fontSize: 12,
+    color: '#475569',
+    textAlign: 'center',
+    marginTop: 4,
+    maxWidth: 280,
+  },
+  successRef: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: '#635BFF',
     marginTop: 8,
   },
 });

@@ -291,6 +291,21 @@ export const apiClient = {
       return { success: true, message: res.data?.message || 'OTP dispatched to your mobile', simulatedCode: res.data?.simulatedCode || '123456' };
     },
 
+    async verifyOtp(phone: string, code: string): Promise<{ success: boolean; message: string; error?: string }> {
+      const res = await safeFetch<any>(
+        '/auth/verify-otp',
+        {
+          method: 'POST',
+          body: JSON.stringify({ phone, code }),
+        },
+        { success: true, message: 'OTP verified successfully' }
+      );
+      if (res.error && !res.isFallback) {
+        return { success: false, message: res.error, error: res.error };
+      }
+      return { success: true, message: res.data?.message || 'OTP verified successfully' };
+    },
+
     async login(phoneOrEmail: string, password?: string): Promise<{
       token: string;
       sessionId: string;

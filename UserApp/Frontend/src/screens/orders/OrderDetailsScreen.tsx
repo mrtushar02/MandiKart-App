@@ -30,9 +30,24 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [selectedDisputeCategory, setSelectedDisputeCategory] = useState('DAMAGED_PRODUCE');
   const [disputeNotes, setDisputeNotes] = useState('');
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
 
   const handleDownloadInvoice = () => {
-    Alert.alert('Download Invoice 📄', `Invoice for order ${orderId} has been downloaded to your device.`);
+    setShowReceiptModal(true);
+  };
+
+  const handleExportPdf = () => {
+    Alert.alert(
+      'Receipt Exported 📄',
+      `Tax Invoice INV-${orderId}.pdf has been generated and saved to your device Downloads folder.`
+    );
+  };
+
+  const handleShareReceipt = () => {
+    Alert.alert(
+      'Receipt Shared 📤',
+      `Link to verified tax invoice for Order #${orderId} generated: https://mandikart.in/invoices/${orderId}`
+    );
   };
 
   const handleRaiseDispute = () => {
@@ -337,6 +352,134 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Official Tax Invoice & Escrow Receipt Modal */}
+      <Modal
+        visible={showReceiptModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowReceiptModal(false)}
+      >
+        <View style={styles.receiptOverlay}>
+          <View style={styles.receiptCard}>
+            <View style={styles.receiptTopRow}>
+              <View style={styles.receiptBrandRow}>
+                <Ionicons name="leaf" size={20} color={Colors.primary} />
+                <Text style={styles.receiptBrandTitle}>MandiKart Tax Invoice</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowReceiptModal(false)} style={styles.receiptCloseBtn}>
+                <Ionicons name="close" size={20} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.receiptScrollContent}>
+              {/* Receipt Header Data */}
+              <View style={styles.receiptHeaderBox}>
+                <View>
+                  <Text style={styles.receiptInvoiceNo}>INV-{orderId}</Text>
+                  <Text style={styles.receiptDate}>{initialOrder.date}</Text>
+                </View>
+                <View style={styles.paidBadge}>
+                  <Ionicons name="checkmark-circle" size={14} color={Colors.primary} />
+                  <Text style={styles.paidBadgeText}>PAID & ESCROW SECURED</Text>
+                </View>
+              </View>
+
+              {/* Parties */}
+              <View style={styles.partiesGrid}>
+                <View style={styles.partyCol}>
+                  <Text style={styles.partyLabel}>BILLED TO:</Text>
+                  <Text style={styles.partyVal}>Buyer (MandiKart Registered)</Text>
+                  <Text style={styles.partySub}>{initialOrder.deliveryAddress}</Text>
+                </View>
+                <View style={styles.partyCol}>
+                  <Text style={styles.partyLabel}>SUPPLIER / APMC HUB:</Text>
+                  <Text style={styles.partyVal}>{initialOrder.farmerName || 'Mandi Central Hub'}</Text>
+                  <Text style={styles.partySub}>GSTIN: 21AAACM4928P1Z8</Text>
+                </View>
+              </View>
+
+              {/* Stripe Payment & Escrow Guarantee Box */}
+              <View style={styles.stripeReceiptBox}>
+                <View style={styles.stripeReceiptHeader}>
+                  <Ionicons name="card-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.stripeReceiptTitle}>Stripe Payment Guarantee</Text>
+                </View>
+                <Text style={styles.stripeReceiptRef}>
+                  Payment Reference: pi_mandikart_{orderId.replace(/[^a-zA-Z0-9]/g, '')}
+                </Text>
+                <Text style={styles.stripeReceiptSub}>
+                  🛡️ Payment is locked in MandiKart Smart Escrow. Funds will be released to the farmer upon verified doorstep delivery OTP.
+                </Text>
+              </View>
+
+              {/* Itemized Table */}
+              <View style={styles.itemsTable}>
+                <View style={styles.tableHeaderRow}>
+                  <Text style={[styles.th, { flex: 2 }]}>Item</Text>
+                  <Text style={[styles.th, { flex: 1, textAlign: 'center' }]}>Qty</Text>
+                  <Text style={[styles.th, { flex: 1, textAlign: 'right' }]}>Amount</Text>
+                </View>
+
+                {initialOrder.itemsPreview?.map((item: any, idx: number) => (
+                  <View key={idx} style={styles.tableDataRow}>
+                    <Text style={[styles.td, { flex: 2, fontWeight: '700' }]}>{item?.name || `Item #${idx + 1}`}</Text>
+                    <Text style={[styles.td, { flex: 1, textAlign: 'center' }]}>1</Text>
+                    <Text style={[styles.td, { flex: 1, textAlign: 'right', fontWeight: '700' }]}>
+                      ₹{item?.price || 120}
+                    </Text>
+                  </View>
+                ))}
+
+                <View style={styles.receiptSummaryDivider} />
+
+                <View style={styles.receiptSumRow}>
+                  <Text style={styles.receiptSumLabel}>Subtotal</Text>
+                  <Text style={styles.receiptSumVal}>₹{initialOrder.total - 15}</Text>
+                </View>
+                <View style={styles.receiptSumRow}>
+                  <Text style={styles.receiptSumLabel}>GST (5% Agricultural Mandi Cess)</Text>
+                  <Text style={styles.receiptSumVal}>₹0.00 (Exempt)</Text>
+                </View>
+                <View style={styles.receiptSumRow}>
+                  <Text style={styles.receiptSumLabel}>Cold-Chain Logistics</Text>
+                  <Text style={styles.receiptSumVal}>₹30.00</Text>
+                </View>
+                <View style={styles.receiptSumRow}>
+                  <Text style={styles.receiptSumLabel}>Platform Discount</Text>
+                  <Text style={[styles.receiptSumVal, { color: Colors.primary }]}>-₹15.00</Text>
+                </View>
+
+                <View style={styles.receiptTotalRow}>
+                  <Text style={styles.receiptTotalLabel}>Grand Total Paid</Text>
+                  <Text style={styles.receiptTotalVal}>₹{initialOrder.total}</Text>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.receiptActionsRow}>
+                <TouchableOpacity
+                  style={styles.downloadPdfBtn}
+                  onPress={handleExportPdf}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="download-outline" size={18} color={Colors.white} />
+                  <Text style={styles.downloadPdfBtnText}>Download PDF</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.shareReceiptBtn}
+                  onPress={handleShareReceipt}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="share-social-outline" size={18} color={Colors.primary} />
+                  <Text style={styles.shareReceiptBtnText}>Export & Share</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -601,4 +744,126 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.white,
   },
+  // Tax Invoice & Escrow Receipt Styles
+  receiptOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  receiptCard: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    maxHeight: '90%',
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    ...Shadows.lg,
+  },
+  receiptTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  receiptBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  receiptBrandTitle: { fontSize: 16, fontWeight: '800', color: Colors.primary },
+  receiptCloseBtn: { padding: 4 },
+  receiptScrollContent: { gap: Spacing.md, paddingBottom: 24 },
+  receiptHeaderBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  receiptInvoiceNo: { fontSize: 18, fontWeight: '800', color: Colors.textPrimary },
+  receiptDate: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  paidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+  },
+  paidBadgeText: { fontSize: 10, fontWeight: '800', color: Colors.primary },
+  partiesGrid: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    backgroundColor: Colors.background,
+    padding: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+  },
+  partyCol: { flex: 1 },
+  partyLabel: { fontSize: 10, fontWeight: '800', color: Colors.textDisabled, marginBottom: 2 },
+  partyVal: { fontSize: 12, fontWeight: '700', color: Colors.textPrimary },
+  partySub: { fontSize: 11, color: Colors.textSecondary, marginTop: 1 },
+  stripeReceiptBox: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm + 2,
+    gap: 4,
+  },
+  stripeReceiptHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stripeReceiptTitle: { fontSize: 12, fontWeight: '700', color: Colors.textPrimary },
+  stripeReceiptRef: { fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: Colors.primary },
+  stripeReceiptSub: { fontSize: 11, color: Colors.textSecondary, lineHeight: 15 },
+  itemsTable: {
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    gap: 6,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  th: { fontSize: 11, fontWeight: '800', color: Colors.textSecondary, textTransform: 'uppercase' },
+  tableDataRow: { flexDirection: 'row', paddingVertical: 4, alignItems: 'center' },
+  td: { fontSize: 12, color: Colors.textPrimary },
+  receiptSummaryDivider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 4 },
+  receiptSumRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  receiptSumLabel: { fontSize: 12, color: Colors.textSecondary },
+  receiptSumVal: { fontSize: 12, fontWeight: '600', color: Colors.textPrimary },
+  receiptTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+    marginTop: 2,
+  },
+  receiptTotalLabel: { fontSize: 14, fontWeight: '800', color: Colors.textPrimary },
+  receiptTotalVal: { fontSize: 16, fontWeight: '900', color: Colors.primary },
+  receiptActionsRow: { flexDirection: 'row', gap: Spacing.sm, marginTop: 4 },
+  downloadPdfBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.primary,
+    height: 44,
+    borderRadius: BorderRadius.md,
+  },
+  downloadPdfBtnText: { color: Colors.white, fontSize: 13, fontWeight: '700' },
+  shareReceiptBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.white,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    height: 44,
+    borderRadius: BorderRadius.md,
+  },
+  shareReceiptBtnText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
 });

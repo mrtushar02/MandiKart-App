@@ -17,19 +17,57 @@ import { usePartner } from '../context/PartnerContext';
 import { GoogleAuthModal } from '../components/GoogleAuthModal';
 
 export default function PartnerLoginScreen({ navigation }) {
+  const [authMode, setAuthMode] = useState('otp'); // 'otp' | 'password'
   const [mobileNumber, setMobileNumber] = useState('9876543210');
   const [password, setPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
+  const [otpCode, setOtpCode] = useState('445566');
+  const [otpSent, setOtpSent] = useState(true);
+  const [resendTimer, setResendTimer] = useState(30);
   const [showGoogleModal, setShowGoogleModal] = useState(false);
   const { login, loginWithGoogle } = usePartner();
+
+  React.useEffect(() => {
+    let timer;
+    if (otpSent && resendTimer > 0) {
+      timer = setInterval(() => {
+        setResendTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [otpSent, resendTimer]);
+
+  const handleSendOtp = () => {
+    if (!mobileNumber || mobileNumber.length < 10) {
+      Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number.');
+      return;
+    }
+    setOtpSent(true);
+    setResendTimer(30);
+    setOtpCode('445566');
+    Alert.alert('OTP Dispatched 📲', `A 6-digit verification code (445566) was sent to +91 ${mobileNumber}`);
+  };
 
   const handleLogin = () => {
     if (!mobileNumber || mobileNumber.length < 10) {
       Alert.alert('Invalid Number', 'Please enter a valid 10-digit mobile number.');
       return;
     }
+
+    if (authMode === 'otp') {
+      if (!otpCode || otpCode.length < 4) {
+        Alert.alert('Required', 'Please enter the 6-digit OTP sent to your phone.');
+        return;
+      }
+    } else {
+      if (!password || password.length < 4) {
+        Alert.alert('Password Required', 'Please enter your account password.');
+        return;
+      }
+    }
+
     // Authenticate delivery partner
-    login(mobileNumber, password);
+    login(mobileNumber, authMode === 'otp' ? 'otp_verified' : password);
 
     // Reset navigation stack to MainTabs
     navigation.reset({
@@ -74,7 +112,40 @@ export default function PartnerLoginScreen({ navigation }) {
 
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Welcome, Delivery Partner</Text>
-              <Text style={styles.cardDesc}>Login to manage your deliveries and earnings.</Text>
+              <Text style={styles.cardDesc}>Login to manage your deliveries, routes, and earnings.</Text>
+            </View>
+
+            {/* Auth Mode Toggle Tabs */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[styles.tabBtn, authMode === 'otp' && styles.tabBtnActive]}
+                onPress={() => setAuthMode('otp')}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="shield-checkmark"
+                  size={16}
+                  color={authMode === 'otp' ? COLORS.primary : COLORS.outline}
+                />
+                <Text style={[styles.tabBtnText, authMode === 'otp' && styles.tabBtnTextActive]}>
+                  OTP Login
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.tabBtn, authMode === 'password' && styles.tabBtnActive]}
+                onPress={() => setAuthMode('password')}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="key"
+                  size={16}
+                  color={authMode === 'password' ? COLORS.primary : COLORS.outline}
+                />
+                <Text style={[styles.tabBtnText, authMode === 'password' && styles.tabBtnTextActive]}>
+                  Password
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Mobile Input */}
@@ -95,41 +166,84 @@ export default function PartnerLoginScreen({ navigation }) {
               </View>
             </View>
 
-            {/* Password Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Password / OTP</Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons name="lock-closed-outline" size={20} color={COLORS.outline} style={styles.inputIcon} />
-                <TextInput
-                  style={[styles.textInput, { flex: 1 }]}
-                  placeholder="Enter password"
-                  placeholderTextColor={COLORS.outlineVariant}
-                  secureTextEntry={!showPassword}
-                  value={password}
-                  onChangeText={setPassword}
-                />
+            {authMode === 'otp' ? (
+              /* OTP Section */
+              <View style={styles.inputGroup}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={styles.inputLabel}>6-Digit Verification OTP</Text>
+                  {resendTimer > 0 ? (
+                    <Text style={{ fontSize: 11, color: COLORS.outline, fontWeight: '600' }}>
+                      Resend in {resendTimer}s
+                    </Text>
+                  ) : (
+                    <TouchableOpacity onPress={handleSendOtp}>
+                      <Text style={{ fontSize: 12, color: COLORS.primary, fontWeight: '700' }}>
+                        Resend Code
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.otpBanner}>
+                  <Ionicons name="information-circle" size={16} color={COLORS.primary} />
+                  <Text style={styles.otpBannerText}>
+                    Active Test Code: <Text style={{ fontWeight: '800' }}>445566</Text> (auto-dispatched)
+                  </Text>
+                </View>
+
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="lock-closed-outline" size={20} color={COLORS.outline} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.textInput, { letterSpacing: 6, fontWeight: '700', fontSize: 18 }]}
+                    placeholder="••••••"
+                    placeholderTextColor={COLORS.outlineVariant}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={otpCode}
+                    onChangeText={setOtpCode}
+                  />
+                </View>
+              </View>
+            ) : (
+              /* Password Input */
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="lock-closed-outline" size={20} color={COLORS.outline} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.textInput, { flex: 1 }]}
+                    placeholder="Enter password"
+                    placeholderTextColor={COLORS.outlineVariant}
+                    secureTextEntry={!showPassword}
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                      size={20}
+                      color={COLORS.outline}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Forgot Password */}
                 <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeBtn}
+                  style={styles.forgotBtn}
+                  onPress={() => {
+                    setAuthMode('otp');
+                    handleSendOtp();
+                  }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons
-                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                    size={20}
-                    color={COLORS.outline}
-                  />
+                  <Text style={styles.forgotText}>Forgot Password? Switch to OTP Login</Text>
                 </TouchableOpacity>
               </View>
-            </View>
-
-            {/* Forgot Password */}
-            <TouchableOpacity
-              style={styles.forgotBtn}
-              onPress={() => Alert.alert('OTP Sent', 'A one-time reset code has been sent to your registered number.')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.forgotText}>Forgot Password / Request OTP</Text>
-            </TouchableOpacity>
+            )}
 
             {/* Login CTA */}
             <TouchableOpacity
@@ -137,7 +251,9 @@ export default function PartnerLoginScreen({ navigation }) {
               onPress={handleLogin}
               activeOpacity={0.85}
             >
-              <Text style={styles.loginBtnText}>Login</Text>
+              <Text style={styles.loginBtnText}>
+                {authMode === 'otp' ? 'Verify OTP & Login' : 'Login'}
+              </Text>
               <Ionicons name="arrow-forward" size={18} color={COLORS.white} />
             </TouchableOpacity>
 
@@ -342,6 +458,56 @@ const styles = StyleSheet.create({
     fontSize: FONT.sm,
     color: COLORS.onSurfaceVariant,
     marginTop: 2,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    padding: 4,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+    marginBottom: SPACING.xs,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: RADIUS.sm,
+    gap: 6,
+  },
+  tabBtnActive: {
+    backgroundColor: COLORS.surfaceCard,
+    shadowColor: COLORS.shadowColor,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabBtnText: {
+    fontSize: FONT.xs,
+    fontWeight: '700',
+    color: COLORS.onSurfaceVariant,
+  },
+  tabBtnTextActive: {
+    color: COLORS.primary,
+  },
+  otpBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primaryLight + '30',
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: 6,
+    borderRadius: RADIUS.sm,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
+  },
+  otpBannerText: {
+    fontSize: 11,
+    color: COLORS.primary,
+    flex: 1,
   },
   inputGroup: {
     gap: 6,

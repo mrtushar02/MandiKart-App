@@ -329,6 +329,50 @@ export class BuyerAuthController {
   }
 
   /**
+   * Verify mobile OTP code.
+   */
+  static async verifyOtp(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone, code, otp } = req.body;
+      const targetCode = code || otp;
+
+      if (!phone || !targetCode) {
+        res.status(400).json({
+          data: null,
+          meta: null,
+          error: { code: 'VALIDATION_ERROR', message: 'Phone number and OTP code are required.' },
+        });
+        return;
+      }
+
+      const rawDigits = String(phone).replace(/\D/g, '').slice(-10);
+      const cleanPhone = `+91${rawDigits}`;
+      const verification = await OtpService.verifyOtp(cleanPhone, String(targetCode));
+
+      if (!verification.success) {
+        res.status(400).json({
+          data: null,
+          meta: null,
+          error: { code: 'INVALID_OTP', message: verification.message || 'Invalid or expired OTP code.' },
+        });
+        return;
+      }
+
+      res.status(200).json({
+        data: { success: true, message: 'OTP verified successfully' },
+        meta: null,
+        error: null,
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        data: null,
+        meta: null,
+        error: { code: 'OTP_VERIFY_ERROR', message: err?.message || 'Failed to verify OTP.' },
+      });
+    }
+  }
+
+  /**
    * Log in / authenticate with phone OTP. Strictly verifies OTP against Supabase.
    */
   static async loginWithPhoneOtp(req: Request, res: Response): Promise<void> {

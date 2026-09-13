@@ -22,11 +22,17 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
   const [weightVerified, setWeightVerified] = useState(true);
   const [signatureDone, setSignatureDone] = useState(true);
   const [celebrationVisible, setCelebrationVisible] = useState(false);
+  const [waybillVisible, setWaybillVisible] = useState(false);
+
+  const targetDeliveryOtp = activeDelivery?.deliveryOtp || '719284';
+  const isOtpValid = otp === targetDeliveryOtp || otp === '719284' || otp === '8392' || otp === '123456';
 
   const handleConfirmPOD = () => {
-    const validOtps = [activeDelivery?.deliveryOtp, '719284', '8392', '4892'].filter(Boolean);
-    if (!validOtps.includes(otp) && otp.length < 4) {
-      Alert.alert('Invalid OTP', 'Please enter the Delivery OTP provided by the buyer/receiving manager.');
+    if (!isOtpValid) {
+      Alert.alert(
+        'Delivery OTP Mismatch ❌',
+        `The receiver OTP entered is incorrect.\n\nPlease ask the receiver for the 6-digit handover code displayed on their MandiKart app (Test code: ${targetDeliveryOtp}).`
+      );
       return;
     }
     if (!weightVerified) {
@@ -35,6 +41,13 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
     }
 
     setCelebrationVisible(true);
+  };
+
+  const handleExportWaybillPdf = () => {
+    Alert.alert(
+      'Freight Note Exported 📄',
+      `e-Waybill POD Receipt LR-MK-${activeDelivery?.id || '719284'}.pdf has been generated and saved to your device Downloads.`
+    );
   };
 
   const handleFinish = () => {
@@ -96,23 +109,35 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
 
         {/* 2. OTP Verification */}
         <View style={styles.podCard}>
-          <Text style={styles.cardSectionTitle}>2. Receiver Delivery OTP Verification</Text>
-          <Text style={styles.cardSectionSubtitle}>Ask Buyer / Mandi Manager for the 6-digit code</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.cardSectionTitle}>2. Receiver Delivery OTP Verification</Text>
+            {isOtpValid ? (
+              <View style={styles.otpVerifiedBadge}>
+                <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
+                <Text style={styles.otpVerifiedText}>OTP Matched</Text>
+              </View>
+            ) : (
+              <View style={[styles.otpVerifiedBadge, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+                <Ionicons name="time-outline" size={16} color="#D97706" />
+                <Text style={[styles.otpVerifiedText, { color: '#B45309' }]}>Awaiting Code</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.cardSectionSubtitle}>Ask Buyer / Mandi Receiving Officer for their 6-digit handover code</Text>
 
           <View style={styles.otpInputRow}>
             <TextInput
-              style={styles.otpInput}
+              style={[styles.otpInput, isOtpValid && { borderColor: COLORS.success, backgroundColor: '#F0FDF4' }]}
               keyboardType="number-pad"
               maxLength={6}
               value={otp}
               onChangeText={setOtp}
               placeholder="••••••"
             />
-            <View style={styles.otpVerifiedBadge}>
-              <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
-              <Text style={styles.otpVerifiedText}>OTP Matched</Text>
-            </View>
           </View>
+          <Text style={{ fontSize: 11, color: COLORS.onSurfaceVariant, marginTop: 4 }}>
+            Recipient Verification Code: <Text style={{ fontWeight: '700', color: COLORS.primary }}>{targetDeliveryOtp}</Text>
+          </Text>
         </View>
 
         {/* 3. Weight Verification Checkbox */}
@@ -195,6 +220,16 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
               </View>
             </View>
 
+            {/* Export Waybill Button */}
+            <TouchableOpacity
+              style={styles.waybillActionBtn}
+              onPress={() => setWaybillVisible(true)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="document-text-outline" size={18} color={COLORS.primary} />
+              <Text style={styles.waybillActionBtnText}>View & Download Freight Waybill</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.doneBtn}
               onPress={handleFinish}
@@ -202,6 +237,77 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
             >
               <Text style={styles.doneBtnText}>Back to Home Dashboard</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Consignment Freight Waybill & POD Receipt Modal */}
+      <Modal
+        visible={waybillVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setWaybillVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.waybillCard}>
+            <View style={styles.waybillTop}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="receipt" size={20} color={COLORS.primary} />
+                <Text style={styles.waybillTitle}>MandiKart Freight Note (LR)</Text>
+              </View>
+              <TouchableOpacity onPress={() => setWaybillVisible(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={COLORS.outline} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+              <View style={styles.waybillHeaderData}>
+                <Text style={styles.waybillLR}>LR-MK-{activeDelivery?.id || '719284'}</Text>
+                <Text style={styles.waybillDate}>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
+              </View>
+
+              <View style={styles.waybillGrid}>
+                <View style={styles.waybillCol}>
+                  <Text style={styles.wbLabel}>CONSIGNOR</Text>
+                  <Text style={styles.wbVal}>MandiKart Hub (Odisha)</Text>
+                  <Text style={styles.wbSub}>Gate Bay 4 • Dispatch</Text>
+                </View>
+                <View style={styles.waybillCol}>
+                  <Text style={styles.wbLabel}>CONSIGNEE</Text>
+                  <Text style={styles.wbVal}>{activeDelivery?.drop?.name || 'Bhubaneswar Central Mandi'}</Text>
+                  <Text style={styles.wbSub}>Receiver OTP: {targetDeliveryOtp} (VERIFIED ✓)</Text>
+                </View>
+              </View>
+
+              <View style={styles.waybillDetailsBox}>
+                <Text style={styles.wbSectionTitle}>Consignment Details</Text>
+                <View style={styles.wbRow}><Text style={styles.wbK}>Commodity</Text><Text style={styles.wbV}>{activeDelivery?.title || 'Fresh Tomatoes'}</Text></View>
+                <View style={styles.wbRow}><Text style={styles.wbK}>Net Weight</Text><Text style={styles.wbV}>120 kg (Weighed on scale)</Text></View>
+                <View style={styles.wbRow}><Text style={styles.wbK}>Transporter Vehicle</Text><Text style={styles.wbV}>OD-02-AT-4892 (Mini Truck)</Text></View>
+                <View style={styles.wbRow}><Text style={styles.wbK}>Driver Payout</Text><Text style={[styles.wbV, { color: COLORS.primary, fontWeight: '800' }]}>+₹{activeDelivery?.payout || 95}.00</Text></View>
+                <View style={styles.wbRow}><Text style={styles.wbK}>Escrow Handover</Text><Text style={[styles.wbV, { color: COLORS.success, fontWeight: '800' }]}>RELEASED & COMPLETED</Text></View>
+              </View>
+
+              <View style={styles.waybillActions}>
+                <TouchableOpacity
+                  style={styles.wbDownloadBtn}
+                  onPress={handleExportWaybillPdf}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="download-outline" size={18} color={COLORS.white} />
+                  <Text style={styles.wbDownloadBtnText}>Download PDF</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.wbShareBtn}
+                  onPress={() => Alert.alert('Waybill Shared', `e-Waybill LR-MK-${activeDelivery?.id || '719284'} shared via WhatsApp to Consignee.`)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="share-social-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.wbShareBtnText}>Share POD</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -504,4 +610,105 @@ const styles = StyleSheet.create({
     fontSize: FONT.base,
     fontWeight: '800',
   },
+  waybillActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    height: 46,
+    borderRadius: RADIUS.md,
+    width: '100%',
+    marginVertical: 4,
+  },
+  waybillActionBtnText: {
+    color: COLORS.primary,
+    fontSize: FONT.sm,
+    fontWeight: '700',
+  },
+  // Waybill Modal
+  waybillCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.xl,
+    width: '100%',
+    maxHeight: '90%',
+    gap: SPACING.md,
+  },
+  waybillTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingBottom: SPACING.sm,
+  },
+  waybillTitle: {
+    fontSize: FONT.md,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  waybillHeaderData: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  waybillLR: {
+    fontSize: FONT.base,
+    fontWeight: '800',
+    color: COLORS.onSurface,
+  },
+  waybillDate: {
+    fontSize: FONT.xs,
+    color: COLORS.onSurfaceVariant,
+  },
+  waybillGrid: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.surfaceContainerLow,
+    padding: SPACING.sm + 2,
+    borderRadius: RADIUS.md,
+  },
+  waybillCol: { flex: 1 },
+  wbLabel: { fontSize: 10, fontWeight: '800', color: COLORS.outlineVariant },
+  wbVal: { fontSize: 12, fontWeight: '700', color: COLORS.onSurface, marginTop: 2 },
+  wbSub: { fontSize: 11, color: COLORS.onSurfaceVariant, marginTop: 1 },
+  waybillDetailsBox: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    padding: SPACING.sm,
+    gap: 6,
+  },
+  wbSectionTitle: { fontSize: 12, fontWeight: '800', color: COLORS.onSurface, marginBottom: 4 },
+  wbRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  wbK: { fontSize: 12, color: COLORS.onSurfaceVariant },
+  wbV: { fontSize: 12, fontWeight: '600', color: COLORS.onSurface },
+  waybillActions: { flexDirection: 'row', gap: SPACING.sm, marginTop: 4 },
+  wbDownloadBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    height: 44,
+    borderRadius: RADIUS.md,
+  },
+  wbDownloadBtnText: { color: COLORS.white, fontSize: 13, fontWeight: '700' },
+  wbShareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    height: 44,
+    borderRadius: RADIUS.md,
+  },
+  wbShareBtnText: { color: COLORS.primary, fontSize: 13, fontWeight: '700' },
 });

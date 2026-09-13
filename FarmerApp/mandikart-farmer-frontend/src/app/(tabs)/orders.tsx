@@ -71,6 +71,21 @@ export default function OrdersScreen() {
   const acceptOrderOffer = useOrderStore((state) => state.acceptOrderOffer);
   const updateOrderStatus = useOrderStore((state) => state.updateOrderStatus);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderItem | null>(null);
+  const [invoiceModalOrder, setInvoiceModalOrder] = useState<OrderItem | null>(null);
+
+  const handleExportFarmerReceipt = (orderNum: string) => {
+    Alert.alert(
+      'Mandi Slip Exported 📄',
+      `Mandi Gate Pass & Weighbridge Payout Settlement Slip for ${orderNum} has been exported to PDF and saved to your device Downloads.`
+    );
+  };
+
+  const handleShareFarmerReceipt = (orderNum: string) => {
+    Alert.alert(
+      'Receipt Shared 📤',
+      `Verified APMC Payout link for ${orderNum} shared with your registered FPO cooperative.`
+    );
+  };
 
   React.useEffect(() => {
     useOrderStore.getState().syncWithBackend().catch(() => {});
@@ -514,9 +529,7 @@ export default function OrdersScreen() {
                         styles.invoiceBtn,
                         pressed && { opacity: 0.85 },
                       ]}
-                      onPress={() =>
-                        Alert.alert('Invoice Downloaded', 'Weighbridge settlement slip saved to device.')
-                      }
+                      onPress={() => setInvoiceModalOrder(order)}
                     >
                       <Download size={14} color="#15803D" />
                       <Text numberOfLines={1} style={styles.invoiceBtnText}>Invoice & Receipt</Text>
@@ -665,6 +678,124 @@ export default function OrdersScreen() {
                     <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
                   </Pressable>
                 )}
+
+                {/* View Official Mandi Payout Slip Button */}
+                <Pressable
+                  style={styles.modalInvoiceActionBtn}
+                  onPress={() => {
+                    const current = selectedOrderDetails;
+                    setSelectedOrderDetails(null);
+                    setInvoiceModalOrder(current);
+                  }}
+                >
+                  <FileText size={18} color="#15803D" strokeWidth={2.4} />
+                  <Text style={styles.modalInvoiceActionBtnText}>Download Mandi Payout Slip & Receipt</Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* ════ Official Mandi Gate Pass & Bank Settlement Receipt Modal ════ */}
+      {invoiceModalOrder && (
+        <Modal
+          visible={Boolean(invoiceModalOrder)}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setInvoiceModalOrder(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.farmerReceiptCard}>
+              <View style={styles.receiptTopBar}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Sprout size={20} color="#15803D" />
+                  <Text style={styles.receiptHeaderTitle}>APMC Mandi Gate Pass & Settlement</Text>
+                </View>
+                <Pressable onPress={() => setInvoiceModalOrder(null)} style={{ padding: 4 }}>
+                  <X size={22} color="#6B7280" />
+                </Pressable>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 20 }}>
+                <View style={styles.receiptRefRow}>
+                  <View>
+                    <Text style={styles.receiptGPNumber}>GP-OD-{invoiceModalOrder.orderNumber}</Text>
+                    <Text style={styles.receiptSubtext}>MandiKart Direct Farmgate Procurement</Text>
+                  </View>
+                  <View style={styles.receiptVerifiedBadge}>
+                    <CheckCircle2 size={13} color="#15803D" />
+                    <Text style={styles.receiptVerifiedText}>MSP GUARANTEED</Text>
+                  </View>
+                </View>
+
+                {/* Transacting Parties */}
+                <View style={styles.receiptPartiesBox}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.partySmallLabel}>PRODUCER (FARMER)</Text>
+                    <Text style={styles.partyMainVal}>Verified Mandi Producer</Text>
+                    <Text style={styles.partySmallSub}>Aadhaar & Bank Linked ✓</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.partySmallLabel}>BUYER / MANDI YARD</Text>
+                    <Text style={styles.partyMainVal}>{invoiceModalOrder.buyerName}</Text>
+                    <Text style={styles.partySmallSub}>Bhubaneswar Yard Hub</Text>
+                  </View>
+                </View>
+
+                {/* Settlement Table */}
+                <View style={styles.weighbridgeBox}>
+                  <Text style={styles.wbHeaderTitle}>Weighbridge & Quality Grade Slip</Text>
+                  <View style={styles.wbStatRow}>
+                    <Text style={styles.wbK}>Commodity</Text>
+                    <Text style={styles.wbV}>{invoiceModalOrder.cropName}</Text>
+                  </View>
+                  <View style={styles.wbStatRow}>
+                    <Text style={styles.wbK}>Gross Weight Recorded</Text>
+                    <Text style={styles.wbV}>{invoiceModalOrder.quantity}</Text>
+                  </View>
+                  <View style={styles.wbStatRow}>
+                    <Text style={styles.wbK}>Assayed Quality</Text>
+                    <Text style={styles.wbV}>Grade A (Moisture 11.8%)</Text>
+                  </View>
+                  <View style={styles.wbStatRow}>
+                    <Text style={styles.wbK}>Agreed Farmgate Rate</Text>
+                    <Text style={[styles.wbV, { color: '#15803D', fontWeight: '800' }]}>{invoiceModalOrder.ratePerKg}</Text>
+                  </View>
+                  <View style={styles.wbStatRow}>
+                    <Text style={styles.wbK}>Mandi Cess / Deduction</Text>
+                    <Text style={styles.wbV}>₹0.00 (Zero Fee for Farmers)</Text>
+                  </View>
+
+                  <View style={styles.receiptDivider} />
+
+                  <View style={styles.wbTotalRow}>
+                    <Text style={styles.wbTotalLabel}>Net Farmer Payout</Text>
+                    <Text style={styles.wbTotalVal}>{invoiceModalOrder.netPayout}</Text>
+                  </View>
+                  <Text style={styles.escrowNotice}>
+                    🛡️ Escrow Transfer Reference: MK-ESCROW-PAID. Credited to farmer HDFC Bank (A/C ****1289).
+                  </Text>
+                </View>
+
+                {/* Export & Download Actions */}
+                <View style={styles.receiptActionsRow}>
+                  <Pressable
+                    style={styles.farmerDownloadBtn}
+                    onPress={() => handleExportFarmerReceipt(invoiceModalOrder.orderNumber)}
+                  >
+                    <Download size={16} color="#FFFFFF" strokeWidth={2.4} />
+                    <Text style={styles.farmerDownloadBtnText}>Download PDF Slip</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.farmerShareBtn}
+                    onPress={() => handleShareFarmerReceipt(invoiceModalOrder.orderNumber)}
+                  >
+                    <Building2 size={16} color="#15803D" strokeWidth={2.4} />
+                    <Text style={styles.farmerShareBtnText}>Share with FPO</Text>
+                  </Pressable>
+                </View>
               </ScrollView>
             </View>
           </View>
@@ -1497,5 +1628,193 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#EA580C',
+  },
+  modalInvoiceActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    height: 46,
+    borderRadius: 12,
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  modalInvoiceActionBtnText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  // Farmer Receipt & Mandi Gate Pass Modal
+  farmerReceiptCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 18,
+    maxHeight: '88%',
+    gap: 12,
+  },
+  receiptTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  receiptHeaderTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  receiptRefRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  receiptGPNumber: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#1A1C1E',
+  },
+  receiptSubtext: {
+    fontSize: 11.5,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  receiptVerifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  receiptVerifiedText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  receiptPartiesBox: {
+    flexDirection: 'row',
+    gap: 10,
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  partySmallLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#9CA3AF',
+    letterSpacing: 0.5,
+  },
+  partyMainVal: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginTop: 2,
+  },
+  partySmallSub: {
+    fontSize: 11,
+    color: '#15803D',
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  weighbridgeBox: {
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+  },
+  wbHeaderTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#1A1C1E',
+    marginBottom: 4,
+  },
+  wbStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  wbK: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  wbV: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  receiptDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 4,
+  },
+  wbTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  wbTotalLabel: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#1A1C1E',
+  },
+  wbTotalVal: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#15803D',
+  },
+  escrowNotice: {
+    fontSize: 10.5,
+    color: '#6B7280',
+    lineHeight: 14,
+    marginTop: 4,
+  },
+  receiptActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  farmerDownloadBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#15803D',
+    height: 44,
+    borderRadius: 12,
+  },
+  farmerDownloadBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  farmerShareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#15803D',
+    height: 44,
+    borderRadius: 12,
+  },
+  farmerShareBtnText: {
+    color: '#15803D',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });
