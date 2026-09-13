@@ -26,6 +26,8 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
   };
 
   const [orderStatus, setOrderStatus] = useState<string>(initialOrder.status);
+  const deliveryOtp = initialOrder.deliveryOtp || route.params?.deliveryOtp || '719284';
+  const [otpCopied, setOtpCopied] = useState(false);
   const [disputeId, setDisputeId] = useState<string | null>(null);
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [selectedDisputeCategory, setSelectedDisputeCategory] = useState('DAMAGED_PRODUCE');
@@ -34,6 +36,15 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
 
   const handleDownloadInvoice = () => {
     setShowReceiptModal(true);
+  };
+
+  const handleCopyOtp = () => {
+    setOtpCopied(true);
+    Alert.alert(
+      'Delivery OTP Copied 📋',
+      `Verification Code: ${deliveryOtp}\n\nShare this 6-digit code with your MandiKart delivery partner ONLY when you have inspected your produce at the doorstep.`
+    );
+    setTimeout(() => setOtpCopied(false), 3000);
   };
 
   const handleExportPdf = () => {
@@ -164,6 +175,66 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
             )
           )}
         </View>
+
+        {/* Delivery Confirmation OTP Card */}
+        {orderStatus !== 'CANCELLED' && (
+          <View style={styles.otpCard}>
+            <View style={styles.otpTopRow}>
+              <View style={styles.otpIconCircle}>
+                <Ionicons name="key" size={18} color="#15803D" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.otpCardTitle}>Delivery Confirmation OTP</Text>
+                <Text style={styles.otpCardSub}>
+                  {orderStatus === 'DELIVERED'
+                    ? 'Handover completed & verified by partner'
+                    : 'Share with delivery driver upon doorstep inspection'}
+                </Text>
+              </View>
+              <View style={[styles.otpBadge, orderStatus === 'DELIVERED' ? styles.otpBadgeDelivered : styles.otpBadgeActive]}>
+                <Text style={[styles.otpBadgeText, orderStatus === 'DELIVERED' ? styles.otpBadgeTextDelivered : styles.otpBadgeTextActive]}>
+                  {orderStatus === 'DELIVERED' ? 'VERIFIED ✓' : 'AWAITING HANDOVER'}
+                </Text>
+              </View>
+            </View>
+
+            {/* 6 Digit Display */}
+            <View style={styles.otpDigitsRow}>
+              {deliveryOtp.split('').map((d: string, i: number) => (
+                <View key={i} style={[styles.otpDigitBox, orderStatus === 'DELIVERED' && styles.otpDigitBoxDelivered]}>
+                  <Text style={[styles.otpDigitText, orderStatus === 'DELIVERED' && styles.otpDigitTextDelivered]}>
+                    {d}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Security Handover Notice */}
+            <View style={styles.otpWarningBox}>
+              <Ionicons name="shield-checkmark" size={15} color="#15803D" />
+              <Text style={styles.otpWarningText}>
+                Never share this OTP over call. Give it to the delivery agent only after opening and verifying your crates.
+              </Text>
+            </View>
+
+            {/* Action Row */}
+            <View style={styles.otpActionRow}>
+              <TouchableOpacity style={styles.copyOtpBtn} onPress={handleCopyOtp} activeOpacity={0.8}>
+                <Ionicons name={otpCopied ? 'checkmark' : 'copy-outline'} size={15} color="#15803D" />
+                <Text style={styles.copyOtpBtnText}>{otpCopied ? 'Copied' : 'Copy Code'}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.trackDeliveryBtn}
+                onPress={() => navigation.navigate('OrderTracking', { orderId, order: { ...initialOrder, deliveryOtp } })}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="navigate-outline" size={15} color="#FFFFFF" />
+                <Text style={styles.trackDeliveryBtnText}>Track Delivery Vehicle</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Farmer Info Card */}
         <View style={styles.card}>
@@ -866,4 +937,148 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
   shareReceiptBtnText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
+
+  /* Delivery Confirmation OTP Card Styles */
+  otpCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    marginBottom: Spacing.md,
+    ...Shadows.sm,
+    gap: 10,
+  },
+  otpTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  otpIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpCardTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  otpCardSub: {
+    fontSize: 11.5,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  otpBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  otpBadgeActive: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  otpBadgeDelivered: {
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  otpBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  otpBadgeTextActive: {
+    color: '#B45309',
+  },
+  otpBadgeTextDelivered: {
+    color: '#15803D',
+  },
+  otpDigitsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginVertical: 4,
+  },
+  otpDigitBox: {
+    width: 42,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpDigitBoxDelivered: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#CBD5E1',
+  },
+  otpDigitText: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#15803D',
+    letterSpacing: 1,
+  },
+  otpDigitTextDelivered: {
+    color: '#64748B',
+  },
+  otpWarningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  otpWarningText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#475569',
+    lineHeight: 15,
+    fontWeight: '500',
+  },
+  otpActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  copyOtpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 8,
+  },
+  copyOtpBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  trackDeliveryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#15803D',
+    height: 38,
+    borderRadius: 8,
+  },
+  trackDeliveryBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });
+

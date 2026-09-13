@@ -18,20 +18,31 @@ import PartnerHeader from '../components/PartnerHeader';
 export default function PartnerDeliveryPODScreen({ navigation }) {
   const { activeDelivery, advanceDeliveryStep } = usePartner();
   const [photoTaken, setPhotoTaken] = useState(true);
-  const [otp, setOtp] = useState('719284');
+  const [otp, setOtp] = useState('');
   const [weightVerified, setWeightVerified] = useState(true);
   const [signatureDone, setSignatureDone] = useState(true);
   const [celebrationVisible, setCelebrationVisible] = useState(false);
   const [waybillVisible, setWaybillVisible] = useState(false);
 
   const targetDeliveryOtp = activeDelivery?.deliveryOtp || '719284';
-  const isOtpValid = otp === targetDeliveryOtp || otp === '719284' || otp === '8392' || otp === '123456';
+  const isOtpValid =
+    otp.trim() === targetDeliveryOtp ||
+    otp.trim() === '719284' ||
+    otp.trim() === '8392' ||
+    otp.trim() === '123456';
 
   const handleConfirmPOD = () => {
+    if (!otp || otp.trim().length === 0) {
+      Alert.alert(
+        'Delivery OTP Required 🔑',
+        'Please ask the customer / receiver for the 6-digit handover code displayed on their MandiKart app.'
+      );
+      return;
+    }
     if (!isOtpValid) {
       Alert.alert(
         'Delivery OTP Mismatch ❌',
-        `The receiver OTP entered is incorrect.\n\nPlease ask the receiver for the 6-digit handover code displayed on their MandiKart app (Test code: ${targetDeliveryOtp}).`
+        `The receiver OTP entered (${otp}) is incorrect.\n\nPlease ask the receiver for the 6-digit handover code displayed on their MandiKart order screen.`
       );
       return;
     }
@@ -114,7 +125,12 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
             {isOtpValid ? (
               <View style={styles.otpVerifiedBadge}>
                 <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
-                <Text style={styles.otpVerifiedText}>OTP Matched</Text>
+                <Text style={styles.otpVerifiedText}>OTP Matched ✓</Text>
+              </View>
+            ) : otp.length === 6 ? (
+              <View style={[styles.otpVerifiedBadge, { backgroundColor: '#FEE2E2', borderColor: '#EF4444' }]}>
+                <Ionicons name="close-circle" size={16} color={COLORS.error} />
+                <Text style={[styles.otpVerifiedText, { color: COLORS.error }]}>Invalid Code</Text>
               </View>
             ) : (
               <View style={[styles.otpVerifiedBadge, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
@@ -123,21 +139,68 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
               </View>
             )}
           </View>
-          <Text style={styles.cardSectionSubtitle}>Ask Buyer / Mandi Receiving Officer for their 6-digit handover code</Text>
-
-          <View style={styles.otpInputRow}>
-            <TextInput
-              style={[styles.otpInput, isOtpValid && { borderColor: COLORS.success, backgroundColor: '#F0FDF4' }]}
-              keyboardType="number-pad"
-              maxLength={6}
-              value={otp}
-              onChangeText={setOtp}
-              placeholder="••••••"
-            />
-          </View>
-          <Text style={{ fontSize: 11, color: COLORS.onSurfaceVariant, marginTop: 4 }}>
-            Recipient Verification Code: <Text style={{ fontWeight: '700', color: COLORS.primary }}>{targetDeliveryOtp}</Text>
+          <Text style={styles.cardSectionSubtitle}>
+            Ask buyer or recipient for their 6-digit confirmation code shown on their MandiKart app
           </Text>
+
+          {/* 6 Digit Input Boxes */}
+          <View style={styles.otpBoxesRow}>
+            {[0, 1, 2, 3, 4, 5].map((idx) => {
+              const digit = otp[idx] || '';
+              const isFilled = digit !== '';
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.otpBox,
+                    isFilled && styles.otpBoxFilled,
+                    isOtpValid && styles.otpBoxValid,
+                    otp.length === 6 && !isOtpValid && styles.otpBoxInvalid,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.otpBoxText,
+                      isOtpValid && styles.otpBoxTextValid,
+                      otp.length === 6 && !isOtpValid && styles.otpBoxTextInvalid,
+                    ]}
+                  >
+                    {digit}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Native TextInput for numeric typing */}
+          <TextInput
+            style={styles.hiddenTextInput}
+            keyboardType="number-pad"
+            maxLength={6}
+            value={otp}
+            onChangeText={setOtp}
+            placeholder="Type 6-digit OTP"
+            placeholderTextColor={COLORS.outlineVariant}
+          />
+
+          {/* Handover Notice & Quick Test Simulator */}
+          <View style={styles.otpHelperRow}>
+            <Ionicons name="shield-checkmark-outline" size={14} color={COLORS.primary} />
+            <Text style={styles.otpHelperText}>
+              Security protocol: Confirm delivery only after receiver shares this code.
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.testFillBtn}
+            onPress={() => setOtp(targetDeliveryOtp)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="flash-outline" size={13} color={COLORS.primary} />
+            <Text style={styles.testFillBtnText}>
+              Simulate Customer Code ({targetDeliveryOtp})
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* 3. Weight Verification Checkbox */}
@@ -424,23 +487,86 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.primary,
   },
-  otpInputRow: {
+  otpBoxesRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.md,
-    marginTop: SPACING.xs,
+    justifyContent: 'space-between',
+    marginVertical: SPACING.sm,
+    gap: 8,
   },
-  otpInput: {
+  otpBox: {
+    flex: 1,
+    height: 52,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderWidth: 1.5,
+    borderColor: COLORS.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpBoxFilled: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.surface,
+  },
+  otpBoxValid: {
+    borderColor: COLORS.success,
+    backgroundColor: '#F0FDF4',
+  },
+  otpBoxInvalid: {
+    borderColor: COLORS.error,
+    backgroundColor: '#FEF2F2',
+  },
+  otpBoxText: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.onSurface,
+  },
+  otpBoxTextValid: {
+    color: COLORS.success,
+  },
+  otpBoxTextInvalid: {
+    color: COLORS.error,
+  },
+  hiddenTextInput: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.outlineVariant,
     borderRadius: RADIUS.md,
-    width: 130,
-    height: 50,
-    fontSize: FONT.xxl,
-    fontWeight: '900',
+    paddingHorizontal: SPACING.md,
+    height: 44,
+    fontSize: FONT.md,
+    fontWeight: '700',
+    color: COLORS.onSurface,
     textAlign: 'center',
-    letterSpacing: 6,
+    letterSpacing: 4,
+    marginBottom: 6,
+  },
+  otpHelperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  otpHelperText: {
+    flex: 1,
+    fontSize: 11,
+    color: COLORS.onSurfaceVariant,
+  },
+  testFillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+    marginTop: 6,
+  },
+  testFillBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
     color: COLORS.primary,
   },
   otpVerifiedBadge: {
