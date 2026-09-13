@@ -7,7 +7,6 @@
  * with clean fallback handling.
  */
 
-import { Platform } from 'react-native';
 
 export type SupportedLanguage = 'en' | 'hi' | 'or' | 'te' | 'bn';
 
