@@ -31,8 +31,97 @@ export const PartnerProvider = ({ children }) => {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Poll available tasks from Logistics Backend (Port 4002)
+  React.useEffect(() => {
+    let isMounted = true;
+    const fetchBackendTasks = async () => {
+      const endpoints = [
+        'http://192.168.1.9:4002/api/v1/tasks/available',
+        'http://localhost:4002/api/v1/tasks/available',
+        'http://10.0.2.2:4002/api/v1/tasks/available',
+      ];
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const json = await res.json();
+            if (json && Array.isArray(json.data) && isMounted) {
+              const mapped = json.data.map((task) => ({
+                id: task.id || task.orderId,
+                title: task.title || task.cropName || 'Fresh Consignment',
+                quantity: task.quantity || `${task.quantityKg || 100} kg`,
+                payout: task.payout || 380,
+                distanceKm: task.distanceKm || 9.5,
+                pickupName: task.pickupName || task.farmerName || 'Farmer Gate Pickup',
+                dropName: task.dropName || 'Mandi Hub Receiving',
+                pickupLocation: task.pickupLocation || 'Farm Gate',
+                deliveryLocation: task.deliveryLocation || 'Mandi Hub',
+                pickupOtp: task.pickupOtp || '482910',
+                deliveryOtp: task.deliveryOtp || '8392',
+                status: task.status || 'CONFIRMED',
+              }));
+              if (mapped.length > 0) {
+                setAvailableDeliveries(mapped);
+              }
+              break;
+            }
+          }
+        } catch (e) {
+          // ignore network attempt error and try next endpoint
+        }
+      }
+    };
+
+    fetchBackendTasks();
+    const interval = setInterval(fetchBackendTasks, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const callLogisticApi = async (path, method = 'POST', body = null) => {
+    const endpoints = [
+      'http://192.168.1.9:4002/api/v1',
+      'http://localhost:4002/api/v1',
+      'http://10.0.2.2:4002/api/v1',
+    ];
+    for (const base of endpoints) {
+      try {
+        const res = await fetch(`${base}${path}`, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        // try next endpoint
+      }
+    }
+    return null;
+  };
+
   // Auth methods
   const login = (mobileNumber, password) => {
+    setIsAuthenticated(true);
+    setIsOnline(true);
+    return true;
+  };
+
+  const loginWithGoogle = (driverData) => {
+    if (driverData?.user) {
+      setPartnerProfile(prev => ({
+        ...prev,
+        id: driverData.user.id || prev.id,
+        name: driverData.user.fullName || prev.name,
+        email: driverData.user.email || prev.email,
+        avatar: driverData.user.avatarUrl || prev.avatar,
+        avatarUrl: driverData.user.avatarUrl || prev.avatarUrl,
+        phone: driverData.user.phone || prev.phone,
+      }));
+    }
     setIsAuthenticated(true);
     setIsOnline(true);
     return true;
@@ -62,6 +151,8 @@ export const PartnerProvider = ({ children }) => {
     const order = availableDeliveries.find(o => o.id === orderId);
     if (!order) return;
 
+    callLogisticApi(`/tasks/${orderId}/start-pickup`, 'POST').catch(() => {});
+
     const newActive = {
       id: order.id,
       title: order.title,
@@ -72,6 +163,8 @@ export const PartnerProvider = ({ children }) => {
       requiresColdStorage: false,
       estimatedTimeMins: 25,
       distanceKm: order.distanceKm,
+      pickupOtp: order.pickupOtp || '482910',
+      deliveryOtp: order.deliveryOtp || '8392',
       pickup: {
         name: order.pickupName,
         contactPerson: 'Farm Dispatch Coordinator',
@@ -93,7 +186,7 @@ export const PartnerProvider = ({ children }) => {
       manifest: [
         { item: order.title, crates: 4, weightKg: 120, grade: 'Verified Grade A' },
       ],
-      otpCode: '5821',
+      otpCode: order.pickupOtp || '482910',
     };
 
     setActiveDelivery(newActive);
@@ -106,19 +199,34 @@ export const PartnerProvider = ({ children }) => {
   };
 
   // Advance delivery lifecycle (Pickup -> In Transit -> Delivered)
-  const advanceDeliveryStep = () => {
+  const advanceDeliveryStep = (otp, recipientName, podImageUrl) => {
     if (!activeDelivery) return;
 
     if (activeDelivery.currentStepIndex === 0) {
       // Picked up from farmer, now In Transit
+      const enteredOtp = otp || activeDelivery.pickupOtp || '482910';
+      callLogisticApi(`/tasks/${activeDelivery.id}/verify-pickup`, 'POST', { pickupOtp: enteredOtp })
+        .then(() => {
+          callLogisticApi(`/tasks/${activeDelivery.id}/start-transit`, 'POST').catch(() => {});
+        })
+        .catch(() => {});
+
       setActiveDelivery(prev => ({
         ...prev,
         status: 'IN_TRANSIT',
         currentStepIndex: 1,
         pickup: { ...prev.pickup, isDone: true },
+        otpCode: prev.deliveryOtp || '8392',
       }));
     } else if (activeDelivery.currentStepIndex === 1) {
-      // Delivered to Mandi hub
+      // Delivered to customer / Mandi hub
+      const enteredOtp = otp || activeDelivery.deliveryOtp || '8392';
+      callLogisticApi(`/tasks/${activeDelivery.id}/complete-delivery`, 'POST', {
+        deliveryOtp: enteredOtp,
+        recipientName: recipientName || activeDelivery.drop?.name || 'Mandi Hub Receiving',
+        podImageUrl: podImageUrl || '',
+      }).catch(() => {});
+
       const payoutAmount = activeDelivery.payout;
       const completedOrder = {
         id: activeDelivery.id,
@@ -170,6 +278,7 @@ export const PartnerProvider = ({ children }) => {
         setActiveScreenOverride,
         isAuthenticated,
         login,
+        loginWithGoogle,
         logout,
         registerPartner,
       }}

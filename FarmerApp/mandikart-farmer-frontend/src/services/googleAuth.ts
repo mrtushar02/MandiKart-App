@@ -60,7 +60,10 @@ export function getHostIp(): string {
     }
   } catch {}
 
-  return '10.179.209.101';
+  if (Platform.OS === 'android') {
+    return Constants.isDevice ? '192.168.1.9' : '10.0.2.2';
+  }
+  return '192.168.1.9';
 }
 
 export function getAppDeepLinkUri(): string {

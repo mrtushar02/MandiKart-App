@@ -78,7 +78,7 @@ const CROPS_LIST: CropOption[] = [
 
 export default function FarmDetailsScreen() {
   const router = useRouter();
-  const { user, setUser, setIsAuthenticated, setOnboarded } = useAuthStore();
+  const { user, setUser, setIsAuthenticated, setOnboarded, completeOnboarding } = useAuthStore();
 
   const defaultLocation = user?.village
     ? `${user.village}${user.district ? `, ${user.district}` : ''}`
@@ -243,6 +243,23 @@ export default function FarmDetailsScreen() {
       setSaving(false);
     }
 
+    await completeOnboarding(
+      {
+        farmSizeAcres: numSize,
+        farmLocation,
+        isVerified: true,
+        crops: mappedCrops,
+        isOnboarded: true,
+        isProfileCompleted: true,
+      },
+      {
+        farmSizeAcres: numSize,
+        village: farmLocation.split(',')[0]?.trim() || user?.village || 'Bareilly',
+        primaryCrops: mappedCrops,
+        isProfileCompleted: true,
+      } as any
+    );
+
     setIsAuthenticated(true);
     setOnboarded(true);
     setCelebrationVisible(true);
@@ -274,7 +291,7 @@ export default function FarmDetailsScreen() {
                   router.replace('/onboarding/farmer-profile');
                 }
               }}
-              step={{ current: 2, total: 3, label: 'Farm Details' }}
+              step={{ current: 3, total: 3, label: 'Farm Details' }}
               style={styles.headerRow}
             />
 
@@ -688,7 +705,7 @@ export default function FarmDetailsScreen() {
         visible={celebrationVisible}
         onContinue={() => {
           setCelebrationVisible(false);
-          router.replace('/onboarding/permissions');
+          router.replace('/(tabs)/home');
         }}
         farmerName={user?.firstName || user?.fullName || 'Farmer'}
         farmLocation={farmLocation}

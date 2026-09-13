@@ -98,6 +98,78 @@ export const LogisticsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_exceptions`, JSON.stringify(exceptions));
   }, [vehicles, drivers, orders, routes, exceptions]);
 
+  // Sync available orders from Logistics Backend (Port 4002)
+  useEffect(() => {
+    let isMounted = true;
+    const fetchBackendOrders = async () => {
+      try {
+        const res = await fetch('http://localhost:4002/api/v1/tasks/available');
+        if (res.ok) {
+          const json = await res.json();
+          if (json && Array.isArray(json.data) && json.data.length > 0 && isMounted) {
+            const mappedOrders: LogisticsOrder[] = json.data.map((raw: any) => ({
+              id: raw.id || raw.orderId,
+              orderNumber: raw.orderNumber || `#MK-${String(raw.id).slice(-4)}`,
+              buyerId: raw.buyerId || 'byr-301',
+              buyerName: raw.buyerName || 'MandiKart Retail Partner',
+              buyerPhone: raw.buyerPhone || '+91 98221 34567',
+              deliveryAddress: raw.deliveryLocation || raw.deliveryAddress || 'Central Hub Depot, Saheed Nagar, Bhubaneswar',
+              status: (raw.status as OrderStatus) || 'CONFIRMED',
+              isBulk: true,
+              totalQuantityKg: Number(raw.quantityKg || 120),
+              totalAmount: Number(raw.totalAmount || raw.payout || 420),
+              assignedVehicleId: raw.assignedVehicleId,
+              assignedDriverId: raw.assignedDriverId,
+              routeId: raw.routeId,
+              pickups: [
+                {
+                  id: `pk_${raw.id}_0`,
+                  orderId: raw.id,
+                  farmerId: raw.farmerId || 'frm-101',
+                  farmerName: raw.farmerName || 'Ramesh Patel',
+                  farmerPhone: raw.farmerPhone || '+91 98230 41122',
+                  farmLocation: raw.pickupLocation || 'Farm Gate, Khordha',
+                  cropName: raw.title || raw.cropName || 'Fresh Produce',
+                  quantityKg: Number(raw.quantityKg || 120),
+                  qualityGrade: 'A',
+                  pickupStatus: 'CONFIRMED',
+                  scheduledTime: raw.locationCapturedAt || 'Today, 08:00 AM',
+                  pickupToken: raw.pickupOtp || '482910',
+                  lat: 20.1584,
+                  lng: 85.7042,
+                },
+              ],
+              deliveryLat: 20.2961,
+              deliveryLng: 85.8245,
+              deliveryEta: 'Today, 04:00 PM',
+              proofOfDelivery: {
+                otp: raw.deliveryOtp || '8392',
+              },
+              createdAt: raw.createdAt || new Date().toISOString(),
+              updatedAt: raw.timestamp || new Date().toISOString(),
+            }));
+
+            setOrders(prev => {
+              const existingIds = new Set(prev.map(o => o.id));
+              const newItems = mappedOrders.filter(mo => !existingIds.has(mo.id));
+              if (newItems.length === 0) return prev;
+              return [...newItems, ...prev];
+            });
+          }
+        }
+      } catch (err) {
+        // ignore network error
+      }
+    };
+
+    fetchBackendOrders();
+    const interval = setInterval(fetchBackendOrders, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Fleet Actions
   const addVehicle = (vehicle: Omit<Vehicle, 'id'>) => {
     const newVehicle: Vehicle = {

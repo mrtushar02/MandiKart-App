@@ -423,7 +423,12 @@ export default function ChatScreen({ navigation, route }: any) {
       >
         {loading ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={Colors.primary} />
+            <ActivityIndicator
+              size="large"
+              color={Colors.primary}
+              aria-label="Loading chat history"
+              accessibilityLabel="Loading chat history"
+            />
             <Text style={styles.loadingText}>Connecting to negotiation thread...</Text>
           </View>
         ) : (
@@ -575,7 +580,7 @@ const styles = StyleSheet.create({
   },
   headerAvatarText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
   headerName: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
-  headerStatus: { fontSize: 11, color: '#15803D', marginTop: 1 },
+  headerStatus: { fontSize: 11, color: '#047857', marginTop: 1 },
   callBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: Colors.primaryLight,

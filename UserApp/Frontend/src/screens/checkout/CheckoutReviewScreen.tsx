@@ -6,8 +6,10 @@ import { Colors, Spacing, BorderRadius } from '../../theme';
 import PrimaryButton from '../../components/PrimaryButton';
 import { useCart } from '../../context/CartContext';
 import { useLocation } from '../../context/LocationContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function CheckoutReviewScreen({ navigation, route }: any) {
+  const { user } = useAuth();
   const { items: cartItems, subtotal: cartSubtotal, deliveryFee: cartDeliveryFee, handlingFee: cartHandlingFee, couponSavings: cartCouponSavings, total: cartTotal } = useCart();
   const { currentAddress } = useLocation();
 
@@ -73,9 +75,9 @@ export default function CheckoutReviewScreen({ navigation, route }: any) {
               <Text style={styles.changeBtnText}>Change Address</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.textBold}>Ramesh Sharma</Text>
+          <Text style={styles.textBold}>{user?.fullName || 'Valued Buyer'}</Text>
           <Text style={styles.textSub}>{formattedAddress}</Text>
-          <Text style={styles.phoneText}>📞 +91 98765 43210</Text>
+          <Text style={styles.phoneText}>📞 {user?.phone || '+91 98765 43210'}</Text>
         </View>
 
         {/* Order Items Section */}

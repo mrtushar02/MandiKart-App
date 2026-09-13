@@ -45,12 +45,12 @@ export class AuthController {
       id: `farmer_${Date.now()}`,
       full_name: fullName || `Farmer ${cleanDigits.slice(-4)}`,
       phone: formattedPhone,
-      state: 'Maharashtra',
-      district: 'Nashik',
-      taluka: 'Dindori',
-      village: 'Palsan',
-      farm_size_acres: 5.0,
-      primary_crops: ['Tomato', 'Onion'],
+      state: null,
+      district: null,
+      taluka: null,
+      village: null,
+      farm_size_acres: null,
+      primary_crops: null,
       preferred_language: 'en',
       is_verified: true,
     };
@@ -75,12 +75,12 @@ export class AuthController {
     const formattedPhone = `+91${phone}`;
 
     try {
-      const state = req.body.state || 'Maharashtra';
-      const district = req.body.district || 'Nashik';
-      const taluka = req.body.taluka || 'Dindori';
-      const village = req.body.village || 'Palsan';
-      const farmSize = parseFloat(req.body.farmSizeAcres) || 5.0;
-      const primaryCrops = Array.isArray(req.body.primaryCrops) ? req.body.primaryCrops : ['Tomato', 'Onion'];
+      const state = req.body.state || null;
+      const district = req.body.district || null;
+      const taluka = req.body.taluka || null;
+      const village = req.body.village || null;
+      const farmSize = req.body.farmSizeAcres ? parseFloat(req.body.farmSizeAcres) : null;
+      const primaryCrops = Array.isArray(req.body.primaryCrops) ? req.body.primaryCrops : null;
 
       if (isSupabaseConfigured()) {
         try {
@@ -213,6 +213,7 @@ export class AuthController {
 
       // 2. Fetch or create farmer record
       let farmer: any = null;
+      let isNewUser = false;
 
       if (isSupabaseConfigured()) {
         try {
@@ -227,17 +228,19 @@ export class AuthController {
           farmer = data;
 
           if (!farmer) {
+            isNewUser = true;
             const { data: newFarmer } = await supabase
               .from('farmers')
               .insert({
-                phone: isEmail ? `+919876543210` : identifier,
-                email: isEmail ? identifier : undefined,
+                phone: isEmail ? (req.body.phone ? `+91${req.body.phone.replace(/\D/g, '').slice(-10)}` : undefined) : identifier,
+                email: isEmail ? identifier : (req.body.email || undefined),
                 full_name: req.body.name || req.body.fullName || (isEmail ? identifier.split('@')[0] : `Farmer ${cleanDigits.slice(-4)}`),
                 preferred_language: 'en',
-                state: 'Maharashtra',
-                district: 'Nashik',
-                farm_size_acres: 5.0,
-                primary_crops: ['Tomato', 'Onion'],
+                state: null,
+                district: null,
+                village: null,
+                farm_size_acres: null,
+                primary_crops: null,
                 is_verified: true,
               })
               .select()
@@ -251,8 +254,9 @@ export class AuthController {
       }
 
       if (!farmer) {
+        isNewUser = true;
         farmer = AuthController.getOrProvisionFarmer(
-          isEmail ? `+919876543210` : identifier,
+          isEmail ? (req.body.phone ? `+91${req.body.phone.replace(/\D/g, '').slice(-10)}` : `+919999999999`) : identifier,
           req.body.name || req.body.fullName || (isEmail ? identifier.split('@')[0] : undefined)
         );
       }
@@ -280,14 +284,20 @@ export class AuthController {
             id: farmer.id,
             fullName: farmer.full_name,
             phone: farmer.phone,
+            email: farmer.email,
             state: farmer.state,
             district: farmer.district,
-            preferredLanguage: farmer.preferred_language,
+            taluka: farmer.taluka,
+            village: farmer.village,
+            farmSizeAcres: farmer.farm_size_acres ? Number(farmer.farm_size_acres) : undefined,
+            primaryCrops: farmer.primary_crops,
+            preferredLanguage: farmer.preferred_language || 'en',
             isVerified: farmer.is_verified,
             role: 'FARMER',
             hasAcceptedConsent: ConsentService.hasUserConsented(farmer.id),
             requiresConsent: !ConsentService.hasUserConsented(farmer.id),
           },
+          isNewUser: isNewUser || !farmer.village || !farmer.farm_size_acres,
         },
         meta: null,
         error: null,
@@ -441,14 +451,20 @@ export class AuthController {
             id: farmer.id,
             fullName: farmer.full_name,
             phone: farmer.phone,
+            email: farmer.email,
             state: farmer.state,
             district: farmer.district,
-            preferredLanguage: farmer.preferred_language,
+            taluka: farmer.taluka,
+            village: farmer.village,
+            farmSizeAcres: farmer.farm_size_acres ? Number(farmer.farm_size_acres) : undefined,
+            primaryCrops: farmer.primary_crops,
+            preferredLanguage: farmer.preferred_language || 'en',
             isVerified: farmer.is_verified,
             role: 'FARMER',
             hasAcceptedConsent: ConsentService.hasUserConsented(farmer.id),
             requiresConsent: !ConsentService.hasUserConsented(farmer.id),
           },
+          isNewUser: !farmer.village || !farmer.farm_size_acres,
         },
         meta: null,
         error: null,
@@ -481,6 +497,9 @@ export class AuthController {
         role: UserRole.FARMER,
       });
 
+      const userFarmer = session.user as any;
+      const isNewUser = session.isNewUser || !userFarmer.village || !userFarmer.farmSizeAcres;
+
       res.status(200).json({
         data: {
           token: session.token,
@@ -490,14 +509,20 @@ export class AuthController {
             id: session.user.id,
             fullName: session.user.fullName,
             phone: session.user.phone,
-            state: (session.user as any).state || 'Maharashtra',
-            district: (session.user as any).district || 'Nashik',
+            email: session.user.email,
+            avatarUrl: session.user.avatarUrl,
+            state: userFarmer.state || null,
+            district: userFarmer.district || null,
+            village: userFarmer.village || null,
+            farmSizeAcres: userFarmer.farmSizeAcres,
+            primaryCrops: userFarmer.primaryCrops,
             preferredLanguage: 'en',
             isVerified: true,
             role: 'FARMER',
             hasAcceptedConsent: ConsentService.hasUserConsented(session.user.id),
             requiresConsent: !ConsentService.hasUserConsented(session.user.id),
           },
+          isNewUser,
         },
         meta: null,
         error: null,

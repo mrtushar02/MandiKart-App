@@ -11,10 +11,12 @@ const env = getValidatedEnv();
 const app = express();
 const PORT = env.ADMIN_BACKEND_PORT || 4003;
 
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
-    origin: env.CORS_ORIGIN || '*',
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     credentials: true,
   })
 );

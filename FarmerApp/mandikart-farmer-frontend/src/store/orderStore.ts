@@ -11,6 +11,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeAsyncStorage } from '@/utils/safeStorage';
 
 export type OrderTab = 'All' | 'Active' | 'Pending' | 'Completed';
 export type OrderStatusType = 'en_route' | 'scheduled' | 'pending' | 'completed';
@@ -73,16 +74,16 @@ interface OrderStoreState {
 }
 
 const ONION_CROP_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuC5juCGxLQ_5fyI4TU5ZyfZdhObSJDnZM42ZAzHiJlSBs31EGGnUyK0QRdyoFAXloh0SkLFb_apbQR_O0o3CiqCV8ckf9U5kVPC_outsYrPisSJV7GpxGLs2L-xGzfoEsXeXb0RDHma0B3LZpqIpwp37q8QDENvGkvpIupjr3XK_RaWZAC1mYGgc0fh9NxnbqD6YkA-qI6_ktMQlwdFD5eo5P3iTDMZmUTjkFoBSsrDOCIoRU8BehqDTw';
+  'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=400&auto=format&fit=crop&q=80';
 
 const TOMATO_CROP_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuAQ3ecH_gXE_S9dnNXqZtMNZsTsKwUugK5npqrXQo96EGz87CNfJWQR-HFQcD_gqEoawXV7pG5-hAyd6KZco66Pdavo3jYBsP6NadIKCnghQ8lYLYXnuyMeQuBB2LxBykis0pTs786s14moakUB0ZH0QgH7VlNElFN4Ns5uWVxgvecQv248hBqi_2ENXcSCSj6gx8CL7fz5xwRqaIpshL2s-Xue0Qb10lRmnHBlDimQ82nr7RG_vmqfBw';
+  'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&auto=format&fit=crop&q=80';
 
 const POTATO_CROP_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuC10xdTnKHpvZre-LhDKBTaZdjrNRAMZKasKH7sJK1nrX10RGhhP2dGCyuePJimnKwCfuueO0HuC0216Hy6PAuxsQXjsHtSvKxV7SDDJosrU95YRzT4oVRjJqioCNfX15LiH_iPMrU7YeT2od9_cv81dzfyjd6LRPtPRGTt1AbXyWGTo6qD1K7KloqXwfi7HTDD6X5PP72m_RLR77_lBfwoQWyjBj1HvTxGZsl55rQEEpNHyiMzAeHoHQ';
+  'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&auto=format&fit=crop&q=80';
 
 const WHEAT_CROP_URI =
-  'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=300&auto=format&fit=crop&q=80';
+  'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&auto=format&fit=crop&q=80';
 
 const INITIAL_ORDERS: OrderItem[] = [];
 
@@ -142,11 +143,29 @@ export const useOrderStore = create<OrderStoreState>()(
                 stepIndex = statusStr === 'CONFIRMED' ? 2 : 3;
               }
 
-              const firstItem = bo.items?.[0] || {};
-              const cropName = bo.cropName || firstItem.cropName || 'Fresh Produce';
-              const qty = bo.quantity || (firstItem.quantity ? `${firstItem.quantity} KG` : '100 KG');
-              const totalValue = bo.totalAmount ? `₹${Number(bo.totalAmount).toLocaleString()}` : (bo.totalValue || '₹3,000');
-              const netPayout = bo.farmerPayoutAmount ? `₹${Number(bo.farmerPayoutAmount).toLocaleString()}` : (bo.netPayout || '₹2,925');
+              const firstItem = (bo.items && bo.items[0]) || (bo.order_items && bo.order_items[0]) || {};
+              const cropName = bo.cropName || bo.produceName || bo.crop_name || firstItem.cropName || firstItem.crop_name || 'Fresh Produce';
+              const rawQty = bo.quantity || bo.quantityKg || bo.quantity_kg || firstItem.quantity || 100;
+              const qtyStr = typeof rawQty === 'number' ? `${rawQty} KG` : String(rawQty);
+
+              const totalAmtNum = bo.totalAmount ?? bo.total_amount ?? bo.totalPrice ?? (typeof rawQty === 'number' && firstItem.pricePerUnit ? rawQty * firstItem.pricePerUnit : null);
+              const totalValue = totalAmtNum ? `₹${Number(totalAmtNum).toLocaleString('en-IN')}` : (bo.totalValue || '₹3,000');
+
+              const netPayoutNum = bo.farmerPayoutAmount ?? bo.farmer_payout_amount ?? (totalAmtNum ? Math.round(Number(totalAmtNum) * 0.975) : null);
+              const netPayout = netPayoutNum ? `₹${Number(netPayoutNum).toLocaleString('en-IN')}` : (bo.netPayout || '₹2,925');
+
+              const orderNumber = bo.orderNumber || bo.order_number || `#MK-${String(bo.id).slice(-4)}`;
+              const buyerName = bo.buyerName || bo.buyer_name || 'MandiKart Buyer';
+              const ratePerKgVal = firstItem.pricePerUnit || firstItem.price_per_unit || bo.pricePerKg || bo.price_per_kg || 30;
+
+              let cropImage = bo.cropImage || bo.imageUrl || firstItem.imageUrl || firstItem.image;
+              if (!cropImage) {
+                const nameLower = cropName.toLowerCase();
+                if (nameLower.includes('tomato')) cropImage = TOMATO_CROP_URI;
+                else if (nameLower.includes('potato')) cropImage = POTATO_CROP_URI;
+                else if (nameLower.includes('wheat') || nameLower.includes('grain')) cropImage = WHEAT_CROP_URI;
+                else cropImage = ONION_CROP_URI;
+              }
 
               const existing = orderMap.get(bo.id);
               if (existing) {
@@ -156,52 +175,49 @@ export const useOrderStore = create<OrderStoreState>()(
                   statusLabel,
                   statusType,
                   stepIndex,
+                  cropName,
+                  quantity: qtyStr,
                   totalValue,
                   netPayout,
-                  driverName: bo.driverName || existing.driverName,
-                  driverPhone: bo.driverPhone || existing.driverPhone,
-                  vehicleNumber: bo.vehicleNumber || existing.vehicleNumber,
+                  orderNumber,
+                  buyerName,
+                  cropImage,
+                  driverName: bo.driverName || bo.driver_name || existing.driverName,
+                  driverPhone: bo.driverPhone || bo.driver_phone || existing.driverPhone,
+                  vehicleNumber: bo.vehicleNumber || bo.vehicle_number || existing.vehicleNumber,
                 });
               } else {
                 orderMap.set(bo.id, {
                   id: bo.id,
-                  orderNumber: bo.orderNumber || `#MK-${bo.id.slice(0, 5)}`,
+                  orderNumber,
                   tab,
                   cropName,
                   cropVariety: firstItem.variety || 'Harvest Batch',
                   grade: firstItem.grade ? `Grade ${firstItem.grade}` : 'Grade A',
-                  quantity: String(qty),
-                  cropImage: ONION_CROP_URI,
-                  buyerName: bo.buyerName || 'MandiKart Buyer',
+                  quantity: qtyStr,
+                  cropImage,
+                  buyerName,
                   buyerType: 'Verified Agro Buyer',
                   totalValue,
-                  ratePerKg: firstItem.pricePerUnit ? `₹${firstItem.pricePerUnit}/kg` : '₹30.00/kg',
+                  ratePerKg: `₹${ratePerKgVal}/kg`,
                   netPayout,
                   transportDeduction: '₹0',
                   pickupDate: 'Today',
                   pickupTime: '10:00 AM - 12:00 PM',
-                  location: 'Farmgate, Main Storage',
+                  location: bo.deliveryAddress || bo.delivery_address || 'Farmgate, Main Storage',
                   statusLabel,
                   statusType,
                   stepIndex,
-                  driverName: bo.driverName || undefined,
-                  driverPhone: bo.driverPhone || undefined,
-                  vehicleNumber: bo.vehicleNumber || undefined,
-                  createdAt: bo.createdAt || new Date().toISOString(),
+                  driverName: bo.driverName || bo.driver_name || undefined,
+                  driverPhone: bo.driverPhone || bo.driver_phone || undefined,
+                  vehicleNumber: bo.vehicleNumber || bo.vehicle_number || undefined,
+                  createdAt: bo.createdAt || bo.created_at || new Date().toISOString(),
                 });
               }
             }
 
             const newOrders = Array.from(orderMap.values());
-            const isChanged = newOrders.length !== state.orders.length ||
-              newOrders.some((no, idx) => {
-                const oo = state.orders[idx];
-                return !oo || oo.id !== no.id || oo.tab !== no.tab || oo.statusLabel !== no.statusLabel;
-              });
-
-            if (!isChanged) {
-              return state;
-            }
+            newOrders.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
             return { orders: newOrders };
           });
         } catch {
@@ -292,7 +308,7 @@ export const useOrderStore = create<OrderStoreState>()(
     }),
     {
       name: 'mandikart_farmer_orders_storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => safeAsyncStorage),
       partialize: (state) => ({ orders: state.orders }),
     }
   )

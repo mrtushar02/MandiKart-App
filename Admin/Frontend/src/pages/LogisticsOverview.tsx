@@ -35,6 +35,26 @@ export const LogisticsOverview: React.FC<LogisticsOverviewProps> = ({
     setTimeout(() => setToastMessage(null), 5000);
   };
 
+  // Sync with live Admin backend (port 4003) for real-time shipment updates
+  React.useEffect(() => {
+    const fetchShipments = () => {
+      fetch('http://localhost:4003/api/v1/admin/shipments')
+        .then((res) => res.json())
+        .then((result) => {
+          if (Array.isArray(result?.data) && result.data.length > 0) {
+            setShipments(result.data);
+            try {
+              localStorage.setItem('mandikart_admin_shipments', JSON.stringify(result.data));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    };
+    fetchShipments();
+    const interval = setInterval(fetchShipments, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   const syncShipments = (updated: LogisticsShipment[]) => {
     setShipments(updated);
     try {
@@ -101,6 +121,15 @@ export const LogisticsOverview: React.FC<LogisticsOverviewProps> = ({
     const matchesStatus = statusFilter === 'ALL' || s.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const formatDest = (hub: any): string => {
+    if (!hub) return 'Central Hub, Mumbai';
+    if (typeof hub === 'string') return hub;
+    if (typeof hub === 'object') {
+      return [hub.line1, hub.city, hub.state, hub.pincode].filter(Boolean).join(', ') || hub.city || 'Central Distribution Hub';
+    }
+    return String(hub);
+  };
 
   // Metrics
   const activeTransits = shipments.filter(s => s.status === 'IN_TRANSIT' || s.status === 'LOADING').length;
@@ -283,13 +312,13 @@ export const LogisticsOverview: React.FC<LogisticsOverviewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800">
-                    {filteredShipments.map(shipment => {
+                    {filteredShipments.map((shipment, sIdx) => {
                       const tempDiff = Math.abs(shipment.currentTempCelsius - shipment.targetTempCelsius);
                       const isTempWarning = tempDiff > 2.0;
 
                       return (
                         <tr 
-                          key={shipment.id}
+                          key={`${shipment.id}-${sIdx}`}
                           className={`hover:bg-zinc-900/60 transition-colors ${selectedShipment?.id === shipment.id ? 'bg-zinc-900 border-l-4 border-l-white' : ''}`}
                         >
                           <td className="p-3 font-mono">
@@ -302,7 +331,7 @@ export const LogisticsOverview: React.FC<LogisticsOverviewProps> = ({
                           </td>
                           <td className="p-3 text-xs">
                             <div className="text-emerald-400 font-bold">{shipment.originMandi}</div>
-                            <div className="text-zinc-400">→ {shipment.destinationHub}</div>
+                            <div className="text-zinc-400">→ {formatDest(shipment.destinationHub)}</div>
                           </td>
                           <td className="p-3 text-xs">
                             <div className="text-white font-medium">{shipment.produceName}</div>
@@ -412,7 +441,7 @@ export const LogisticsOverview: React.FC<LogisticsOverviewProps> = ({
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-400">Destination:</span>
-                        <span className="text-white">{selectedShipment.destinationHub}</span>
+                        <span className="text-white">{formatDest(selectedShipment.destinationHub)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-400">Est Arrival:</span>

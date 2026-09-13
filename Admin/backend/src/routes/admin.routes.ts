@@ -10,6 +10,7 @@ adminRouter.get('/audit-logs', AdminController.getAuditLogs);
 adminRouter.post('/farmers/:farmerId/verify', AdminController.verifyFarmerKyc);
 adminRouter.get('/farmers', AdminController.getAllFarmers);
 adminRouter.get('/users', AdminController.getAllUsers);
+adminRouter.get('/ai-insights', AdminController.getAiInsights);
 
 // Produce moderation routes
 adminRouter.get('/produce', AdminController.getAllProduce);
@@ -24,5 +25,9 @@ adminRouter.post('/orders/:orderId/status', AdminController.updateOrderStatus);
 adminRouter.post('/orders/:orderId/release-escrow', AdminController.releaseEscrow);
 adminRouter.post('/orders/:orderId/refund-buyer', AdminController.refundBuyer);
 
+// Logistics and shipments
+adminRouter.get('/shipments', AdminController.getAllShipments);
+
 // Dispute resolution
+adminRouter.get('/disputes', AdminController.getAllDisputes);
 adminRouter.post('/disputes/:orderId/resolve', AdminController.resolveDispute);

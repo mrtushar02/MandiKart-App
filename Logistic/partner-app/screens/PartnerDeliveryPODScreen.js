@@ -24,8 +24,9 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
   const [celebrationVisible, setCelebrationVisible] = useState(false);
 
   const handleConfirmPOD = () => {
-    if (otp.length !== 6 && otp !== '4892' && otp !== '719284') {
-      Alert.alert('Invalid OTP', 'Please enter the 6-digit Delivery OTP provided by the buyer/receiving manager.');
+    const validOtps = [activeDelivery?.deliveryOtp, '719284', '8392', '4892'].filter(Boolean);
+    if (!validOtps.includes(otp) && otp.length < 4) {
+      Alert.alert('Invalid OTP', 'Please enter the Delivery OTP provided by the buyer/receiving manager.');
       return;
     }
     if (!weightVerified) {
@@ -38,7 +39,7 @@ export default function PartnerDeliveryPODScreen({ navigation }) {
 
   const handleFinish = () => {
     setCelebrationVisible(false);
-    advanceDeliveryStep();
+    advanceDeliveryStep(otp || activeDelivery?.deliveryOtp, activeDelivery?.drop?.name);
     navigation.navigate('MainTabs', { screen: 'Home' });
   };
 

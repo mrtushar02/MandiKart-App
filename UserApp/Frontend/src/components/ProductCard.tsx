@@ -83,13 +83,13 @@ export default function ProductCard({
         </View>
 
         <View style={styles.priceRow}>
-          <View>
-            <Text style={styles.price}>
+          <View style={{ flex: 1, minWidth: 0, marginRight: 6 }}>
+            <Text style={styles.price} numberOfLines={1}>
               ₹{discountedPrice ?? product.price}
               <Text style={styles.unit}>/{product.unit}</Text>
             </Text>
             {discountedPrice && (
-              <Text style={styles.originalPrice}>₹{product.price}</Text>
+              <Text style={styles.originalPrice} numberOfLines={1}>₹{product.price}</Text>
             )}
           </View>
           {onAddToCart && (
@@ -164,6 +164,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     lineHeight: 18,
+    minHeight: 36,
   },
   farmerName: {
     fontSize: 11,

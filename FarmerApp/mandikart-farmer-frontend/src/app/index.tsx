@@ -22,7 +22,7 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  const { isAuthenticated, farmer, hydrateAuth } = useAuthStore();
+  const { isAuthenticated, isOnboarded, user, farmer, hydrateAuth } = useAuthStore();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -31,12 +31,21 @@ export default function WelcomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated && farmer) {
-      if (farmer.village || farmer.farmSizeAcres || farmer.state) {
+    if (isAuthenticated) {
+      const isComplete = Boolean(
+        isOnboarded ||
+        user?.isOnboarded ||
+        user?.isProfileCompleted ||
+        (user?.role === 'FPO' && (user?.fpoDetails?.fpoName || user?.village)) ||
+        ((farmer?.village || user?.village) && (farmer?.farmSizeAcres || user?.farmSizeAcres || (farmer as any)?.farm_size_acres))
+      );
+      if (isComplete) {
         router.replace('/(tabs)/home');
+      } else {
+        router.replace('/onboarding/permissions');
       }
     }
-  }, [isAuthenticated, farmer, router]);
+  }, [isAuthenticated, isOnboarded, user, farmer, router]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {

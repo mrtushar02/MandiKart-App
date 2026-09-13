@@ -76,10 +76,10 @@ export const RecentOrdersTable: React.FC<RecentOrdersTableProps> = ({ orders, on
                 </td>
                 <td className="px-5 py-3.5">
                   <span className="font-extrabold text-white block">{order.produceName}</span>
-                  <span className="text-[11px] text-slate-300 font-mono block">{order.quantityKg.toLocaleString()} kg</span>
+                  <span className="text-[11px] text-slate-300 font-mono block">{(Number(order.quantityKg) || 0).toLocaleString()} kg</span>
                 </td>
                 <td className="px-5 py-3.5 font-black text-white font-mono text-sm">
-                  ₹{order.totalAmount.toLocaleString('en-IN')}
+                  ₹{(Number(order.totalAmount) || 0).toLocaleString('en-IN')}
                 </td>
                 <td className="px-5 py-3.5">
                   <span

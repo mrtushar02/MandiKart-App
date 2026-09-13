@@ -220,99 +220,11 @@ const INITIAL_BUYERS: BuyerProfile[] = [
 // Initial Incoming Buyer Requests (Empty by default — populated live from real buyer submissions)
 const INITIAL_REQUESTS: BuyerRequest[] = [];
 
-// Initial Listings
-const INITIAL_LISTINGS: SellingListing[] = [
-  {
-    id: 'list_1',
-    cropId: 'crop_1',
-    cropName: 'Red Onion',
-    variety: 'Nashik Red Garwa',
-    totalKg: 1000,
-    availableKg: 800,
-    grade: 'Grade A',
-    targetPricePerKg: 24.0,
-    availableFrom: 'Immediate',
-    pickupLocation: 'Dindori Farm Shed #2',
-    notes: 'Well cured neck, dry storage in wooden slatted chawl.',
-    status: 'Buyer Interested',
-    createdAt: '02 Sep 2026',
-    interestedBuyersCount: 6,
-  },
-  {
-    id: 'list_2',
-    cropId: 'crop_4',
-    cropName: 'Lokwan Wheat',
-    variety: 'Clean Dried Grain',
-    totalKg: 300,
-    availableKg: 300,
-    grade: 'Grade A',
-    targetPricePerKg: 29.0,
-    availableFrom: 'Within 3 Days',
-    pickupLocation: 'Farm Granary Silo #1',
-    notes: 'Moisture < 12%, stored with organic neem leaves.',
-    status: 'Available',
-    createdAt: '03 Sep 2026',
-    interestedBuyersCount: 2,
-  },
-];
+// Initial Listings (Populated dynamically from farmer's active produce inventory)
+const INITIAL_LISTINGS: SellingListing[] = [];
 
-// Initial Sales History
-const INITIAL_SALES: CompletedSale[] = [
-  {
-    id: 'sale_801',
-    orderId: 'MK-ORD-9021',
-    cropName: 'Red Onion',
-    variety: 'Nashik Red Garwa',
-    quantityKg: 1000,
-    agreedPricePerKg: 24.0,
-    grossAmount: 24000,
-    transportCost: 1200,
-    platformFee: 0,
-    netPayout: 22800,
-    buyerName: 'ABC Foods & Agro Procurements',
-    buyerType: 'Food Processor',
-    saleDate: '28 Aug 2026',
-    status: 'Completed',
-    paymentMethod: 'Instant Bank Transfer (IMPS)',
-    transactionRef: 'IMPS-MK-90218844',
-  },
-  {
-    id: 'sale_802',
-    orderId: 'MK-ORD-8944',
-    cropName: 'Jyoti Potato',
-    variety: 'Table Grade A',
-    quantityKg: 500,
-    agreedPricePerKg: 21.0,
-    grossAmount: 10500,
-    transportCost: 600,
-    platformFee: 0,
-    netPayout: 9900,
-    buyerName: 'Kalyan Wholesale APMC Traders',
-    buyerType: 'Wholesale Buyer',
-    saleDate: '22 Aug 2026',
-    status: 'Completed',
-    paymentMethod: 'Bank Transfer (NEFT)',
-    transactionRef: 'NEFT-MK-89441029',
-  },
-  {
-    id: 'sale_803',
-    orderId: 'MK-ORD-9102',
-    cropName: 'Hybrid Tomato',
-    variety: 'Semi-Ripe Fresh Harvest',
-    quantityKg: 250,
-    agreedPricePerKg: 19.5,
-    grossAmount: 4875,
-    transportCost: 350,
-    platformFee: 0,
-    netPayout: 4525,
-    buyerName: 'FreshMart Supermarkets',
-    buyerType: 'Retail Chain Hub',
-    saleDate: '01 Sep 2026',
-    status: 'Completed',
-    paymentMethod: 'MandiKart Escrow',
-    transactionRef: 'ESCROW-MK-910234',
-  },
-];
+// Initial Sales History (Populated dynamically from completed orders)
+const INITIAL_SALES: CompletedSale[] = [];
 
 export const useSellStore = create<SellStoreState>((set, get) => ({
   buyers: INITIAL_BUYERS,

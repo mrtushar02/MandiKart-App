@@ -13,5 +13,8 @@ authRouter.post('/login',      strictRateLimit, AuthController.login);
 // Register new partner → saves to database, returns JWT + profile
 authRouter.post('/register',   generalRateLimit, AuthController.register);
 
+// Google OAuth Login for Delivery Partners
+authRouter.post('/google',     generalRateLimit, AuthController.loginWithGoogle);
+
 // Logout → clears server-side session
 authRouter.post('/logout',     generalRateLimit, AuthController.logout);

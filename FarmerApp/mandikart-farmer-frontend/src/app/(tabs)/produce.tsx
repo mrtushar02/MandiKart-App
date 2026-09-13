@@ -54,11 +54,22 @@ import {
   Layers,
   Lock,
   Edit3,
+  Trash2,
+  Check,
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import { useProduceStore, CropItem, CropCondition } from '@/store/produceStore';
+import { useAuthStore } from '@/store/authStore';
+import FPOInventoryScreen from '@/components/fpo/FPOInventoryScreen';
 
 export default function ProduceScreen() {
+  const user = useAuthStore((state) => state.user);
+
+  // ── FPO BRANCH: Return dedicated bulk lot aggregation & grading screen ──
+  if (user?.role === 'FPO') {
+    return <FPOInventoryScreen />;
+  }
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const crops = useProduceStore((state) => state.crops);
@@ -109,9 +120,69 @@ export default function ProduceScreen() {
   ).length;
   const pendingCropsCount = crops.filter((c) => c.status === 'PENDING_APPROVAL').length;
 
-  // Filtered crops based on active search and activeFilter
+  // Quick-Edit Modal State
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingCrop, setEditingCrop] = useState<CropItem | null>(null);
+  const [editQuantity, setEditQuantity] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editVariety, setEditVariety] = useState('');
+  const [editCondition, setEditCondition] = useState<CropCondition>('Good');
+
+  const handleOpenEditModal = (crop: CropItem) => {
+    setEditingCrop(crop);
+    setEditQuantity((crop.availableKg || 0).toString());
+    setEditPrice((crop.expectedPricePerKg || crop.referencePricePerKg || 30).toString());
+    setEditVariety(crop.variety || '');
+    setEditCondition(crop.condition || 'Good');
+    setEditModalVisible(true);
+  };
+
+  const handleSaveQuickEdit = () => {
+    if (!editingCrop) return;
+    const qty = parseFloat(editQuantity);
+    const prc = parseFloat(editPrice);
+    if (isNaN(qty) || qty < 0) {
+      Alert.alert('Invalid Quantity', 'Please enter a valid stock quantity in kg.');
+      return;
+    }
+    if (isNaN(prc) || prc < 0) {
+      Alert.alert('Invalid Price', 'Please enter a valid expected price per kg.');
+      return;
+    }
+
+    useProduceStore.getState().updateCropDetails(editingCrop.id, {
+      availableKg: qty,
+      expectedPricePerKg: prc,
+      variety: editVariety.trim() || editingCrop.variety,
+      condition: editCondition,
+      conditionUpdatedAt: 'Today',
+    });
+
+    setEditModalVisible(false);
+    Alert.alert('Produce Updated 🌾', `${editingCrop.cropName} details have been saved.`);
+  };
+
+  const handleDeleteCrop = (crop: CropItem) => {
+    Alert.alert(
+      'Delete Produce Listing',
+      `Are you sure you want to remove ${crop.cropName} from your inventory? This action is permanent.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            useProduceStore.getState().deleteCrop(crop.id);
+            Alert.alert('Produce Deleted', `${crop.cropName} has been removed from your inventory.`);
+          },
+        },
+      ]
+    );
+  };
+
+  // Filtered crops based on active search and activeFilter (Always sorted newest first)
   const filteredCrops = useMemo(() => {
-    return crops.filter((crop) => {
+    const list = crops.filter((crop) => {
       const matchesSearch =
         crop.cropName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (crop.variety && crop.variety.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -135,6 +206,12 @@ export default function ProduceScreen() {
         return crop.marketDemand === 'High';
       }
       return true;
+    });
+
+    return list.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
     });
   }, [crops, searchQuery, activeFilter]);
 
@@ -532,7 +609,7 @@ export default function ProduceScreen() {
               <View key={`${crop.id || 'crop'}_${idx}`} style={styles.cropCard}>
                 {/* Crop Top Info */}
                 <View style={styles.cropCardTopRow}>
-                  <Image source={{ uri: crop.imageUri }} style={styles.cropThumbnail} />
+                  <Image source={{ uri: crop.imageUri || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }} style={styles.cropThumbnail} />
                   <View style={styles.cropMetaInfo}>
                     <View style={styles.cropTitleBadgeRow}>
                       <Text style={styles.cropCardTitle} numberOfLines={1} ellipsizeMode="tail">
@@ -696,24 +773,38 @@ export default function ProduceScreen() {
                 <View style={styles.cropCardActionRow}>
                   <Pressable
                     style={({ pressed }) => [
+                      styles.cardEditBtn,
+                      pressed && styles.pressedButton,
+                    ]}
+                    onPress={() => handleOpenEditModal(crop)}
+                    hitSlop={6}
+                    accessibilityLabel="Edit Crop"
+                  >
+                    <Edit3 size={13} color={MKColors.primaryGreen} />
+                    <Text style={styles.cardEditBtnText} numberOfLines={1}>Edit</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.cardDeleteBtn,
+                      pressed && styles.pressedButton,
+                    ]}
+                    onPress={() => handleDeleteCrop(crop)}
+                    hitSlop={6}
+                    accessibilityLabel="Delete Crop"
+                  >
+                    <Trash2 size={13} color="#DC2626" />
+                    <Text style={styles.cardDeleteBtnText} numberOfLines={1}>Delete</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={({ pressed }) => [
                       styles.detailsButton,
                       pressed && styles.pressedButton,
                     ]}
                     onPress={() => router.push(`/produce/${crop.id}` as any)}
                   >
-                    <Text style={styles.detailsButtonText} numberOfLines={1}>View Intel</Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.cardEditBtn,
-                      pressed && styles.pressedButton,
-                    ]}
-                    onPress={() => router.push(`/produce/${crop.id}` as any)}
-                    hitSlop={6}
-                  >
-                    <Edit3 size={13} color={MKColors.primaryGreen} />
-                    <Text style={styles.cardEditBtnText} numberOfLines={1}>Edit</Text>
+                    <Text style={styles.detailsButtonText} numberOfLines={1}>Intel</Text>
                   </Pressable>
 
                   {crop.status === 'REJECTED' ? (
@@ -958,6 +1049,115 @@ export default function ProduceScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Quick-Edit Produce Modal ────────────────────────────── */}
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Edit3 size={18} color={MKColors.primaryGreen} />
+                <Text style={styles.modalTitle}>Quick Edit Produce</Text>
+              </View>
+              <Pressable onPress={() => setEditModalVisible(false)} hitSlop={8}>
+                <X size={20} color={MKColors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalCropTitle}>
+              {editingCrop?.cropName} {editingCrop?.grade ? `• ${editingCrop.grade}` : ''}
+            </Text>
+
+            {/* Variety */}
+            <View style={styles.editInputGroup}>
+              <Text style={styles.editInputLabel}>Variety / Batch Name</Text>
+              <TextInput
+                style={styles.editTextInput}
+                placeholder="e.g. Hybrid Garva, Grade A Fresh"
+                placeholderTextColor={MKColors.textMuted}
+                value={editVariety}
+                onChangeText={setEditVariety}
+              />
+            </View>
+
+            {/* Available Quantity */}
+            <View style={styles.editInputGroup}>
+              <Text style={styles.editInputLabel}>Available Stock (kg)</Text>
+              <TextInput
+                style={styles.editTextInput}
+                keyboardType="numeric"
+                placeholder="e.g. 500"
+                placeholderTextColor={MKColors.textMuted}
+                value={editQuantity}
+                onChangeText={setEditQuantity}
+              />
+            </View>
+
+            {/* Expected Price per kg */}
+            <View style={styles.editInputGroup}>
+              <Text style={styles.editInputLabel}>Expected Price (₹ / kg)</Text>
+              <TextInput
+                style={styles.editTextInput}
+                keyboardType="numeric"
+                placeholder="e.g. 28"
+                placeholderTextColor={MKColors.textMuted}
+                value={editPrice}
+                onChangeText={setEditPrice}
+              />
+            </View>
+
+            {/* Condition Chips */}
+            <Text style={[styles.editInputLabel, { marginTop: 6, marginBottom: 6 }]}>Produce Quality Condition</Text>
+            <View style={styles.editConditionRow}>
+              {(['Good', 'Needs Attention', 'Deteriorating'] as CropCondition[]).map((cond) => {
+                const isSelected = editCondition === cond;
+                return (
+                  <Pressable
+                    key={cond}
+                    style={[
+                      styles.editConditionChip,
+                      isSelected && styles.editConditionChipSelected,
+                    ]}
+                    onPress={() => setEditCondition(cond)}
+                  >
+                    <Text
+                      style={[
+                        styles.editConditionText,
+                        isSelected && styles.editConditionTextSelected,
+                      ]}
+                    >
+                      {cond === 'Good' ? '🟢 Good' : cond === 'Needs Attention' ? '🟡 Attention' : '🔴 Deteriorating'}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Actions */}
+            <View style={styles.editActionRow}>
+              <Pressable
+                style={styles.editCancelBtn}
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Text style={styles.editCancelBtnText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.editSaveBtn}
+                onPress={handleSaveQuickEdit}
+              >
+                <Check size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.editSaveBtnText}>Save Changes</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1055,20 +1255,20 @@ const styles = StyleSheet.create({
   metricCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 10,
+    borderRadius: 18,
+    paddingVertical: 12,
     paddingHorizontal: 6,
-    marginHorizontal: 3,
-    borderWidth: 1.5,
-    borderColor: MKColors.border,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     position: 'relative',
     overflow: 'hidden',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+    shadowColor: '#0F2C56',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
   metricCardActive: {
     borderColor: MKColors.primaryGreen,
@@ -1120,20 +1320,20 @@ const styles = StyleSheet.create({
   // ── Add Produce CTA ───────────────────────────────────────────────
   addProduceCta: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 14,
-    borderWidth: 2,
-    borderColor: MKColors.primaryGreen,
-    elevation: 2,
-    shadowColor: MKColors.primaryGreen,
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    elevation: 4,
+    shadowColor: '#15803D',
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
   pressedCard: {
     opacity: 0.9,
-    transform: [{ scale: 0.99 }],
+    transform: [{ scale: 0.98 }],
   },
   addCtaContent: {
     flexDirection: 'row',
@@ -1143,10 +1343,15 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: MKColors.primaryGreen,
+    backgroundColor: '#15803D',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 14,
+    elevation: 3,
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   addCtaTextGroup: {
     flex: 1,
@@ -1157,29 +1362,30 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   addCtaTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: MKColors.primaryGreenDark,
+    fontSize: 16.5,
+    fontWeight: '900',
+    color: '#0F172A',
     marginRight: 8,
+    letterSpacing: -0.2,
   },
   quickAddBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: MKColors.accentOrange,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
+    backgroundColor: '#EA580C',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 8,
     gap: 3,
   },
   quickAddBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 9.5,
+    fontWeight: '800',
     color: '#FFFFFF',
   },
   addCtaSubtitle: {
     fontSize: 12,
-    color: MKColors.textSecondary,
-    lineHeight: 16,
+    color: '#64748B',
+    lineHeight: 17,
   },
 
   // ── Search & Filter ───────────────────────────────────────────────
@@ -1190,17 +1396,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 46,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    height: 48,
     borderWidth: 1,
-    borderColor: MKColors.border,
+    borderColor: '#E2E8F0',
     marginBottom: 10,
+    elevation: 3,
+    shadowColor: '#0F2C56',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: MKColors.textPrimary,
+    color: '#0F172A',
     height: '100%',
   },
   filterChipRow: {
@@ -1211,16 +1422,21 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: MKColors.border,
+    borderColor: '#E2E8F0',
+    elevation: 2,
+    shadowColor: '#0F2C56',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
   },
   filterChipActive: {
-    backgroundColor: MKColors.primaryGreen,
-    borderColor: MKColors.primaryGreen,
+    backgroundColor: '#15803D',
+    borderColor: '#15803D',
   },
   filterChipActiveAlert: {
     backgroundColor: '#FEE2E2',
@@ -1229,15 +1445,15 @@ const styles = StyleSheet.create({
   filterChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: MKColors.textSecondary,
+    color: '#64748B',
   },
   filterChipTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '800',
   },
   filterChipTextActiveAlert: {
     color: '#DC2626',
-    fontWeight: '700',
+    fontWeight: '800',
   },
 
   // ── Section Titles ────────────────────────────────────────────────
@@ -1245,33 +1461,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 10,
+    marginTop: 10,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: MKColors.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
   },
   sectionCountText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: MKColors.textSecondary,
+    fontWeight: '700',
+    color: '#64748B',
   },
 
   // ── Crop Card ─────────────────────────────────────────────────────
   cropCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 14,
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: MKColors.border,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    borderColor: '#E2E8F0',
+    elevation: 5,
+    shadowColor: '#0F2C56',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
   },
   cropCardTopRow: {
     flexDirection: 'row',
@@ -1279,11 +1496,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cropThumbnail: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    marginRight: 12,
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    marginRight: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   cropMetaInfo: {
     flex: 1,
@@ -1505,6 +1724,107 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: MKColors.primaryGreen,
+  },
+  cardDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  cardDeleteBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  editInputGroup: {
+    marginBottom: 12,
+  },
+  editInputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: MKColors.textSecondary,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  editTextInput: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: MKColors.border,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: MKColors.textPrimary,
+    backgroundColor: '#F9FAFB',
+  },
+  editConditionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  editConditionChip: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: MKColors.border,
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editConditionChipSelected: {
+    borderColor: MKColors.primaryGreen,
+    backgroundColor: '#E8F5E9',
+  },
+  editConditionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: MKColors.textSecondary,
+  },
+  editConditionTextSelected: {
+    fontWeight: '800',
+    color: MKColors.primaryGreenDark,
+  },
+  editActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  editCancelBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: MKColors.border,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editCancelBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: MKColors.textSecondary,
+  },
+  editSaveBtn: {
+    flex: 1.5,
+    height: 46,
+    borderRadius: 10,
+    backgroundColor: MKColors.primaryGreen,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+  },
+  editSaveBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   sellCropButton: {
     flex: 1.2,

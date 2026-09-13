@@ -255,7 +255,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           {/* MandiKart Synchronizing Overlay (Active ONLY after account is picked and token intercepted) */}
           {authenticating && (
             <View style={styles.authenticatingOverlay}>
-              <ActivityIndicator size="large" color="#1B5E20" />
+              <ActivityIndicator
+                size="large"
+                color="#1B5E20"
+                aria-label="Connecting Google account"
+                accessibilityLabel="Connecting Google account"
+              />
               <Text style={styles.loadingStatusText}>
                 Connecting your account with MandiKart...
               </Text>
@@ -265,7 +270,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           {/* Initial Brief Loading Overlay (Disappears as soon as Google loads, never blocks user interaction) */}
           {!initialLoaded && !authenticating && (
             <View style={styles.initialLoadingOverlay} pointerEvents="none">
-              <ActivityIndicator size="large" color="#1B5E20" />
+              <ActivityIndicator
+                size="large"
+                color="#1B5E20"
+                aria-label="Opening Google Sign-In"
+                accessibilityLabel="Opening Google Sign-In"
+              />
               <Text style={styles.loadingStatusText}>
                 Opening Google Sign-In...
               </Text>

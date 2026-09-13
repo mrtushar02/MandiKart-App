@@ -29,7 +29,7 @@ export async function pickImageFromGallery(): Promise<ImagePickerResult> {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.4,
       base64: true,
     });
 
@@ -38,13 +38,28 @@ export async function pickImageFromGallery(): Promise<ImagePickerResult> {
     }
 
     const asset = result.assets[0];
-    const resolvedUri = asset.base64
-      ? `data:image/jpeg;base64,${asset.base64}`
-      : asset.uri;
+    let finalUri = asset.uri;
+
+    if (asset.base64) {
+      finalUri = `data:image/jpeg;base64,${asset.base64}`;
+    } else if (Platform.OS === 'web' && asset.uri && (asset.uri.startsWith('blob:') || asset.uri.startsWith('http'))) {
+      try {
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+        finalUri = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (blobErr) {
+        console.warn('Could not convert web blob to data URL, using asset.uri:', blobErr);
+      }
+    }
 
     return {
       cancelled: false,
-      uri: resolvedUri,
+      uri: finalUri,
     };
   } catch (err: any) {
     console.error('Error picking image from gallery:', err);
@@ -70,7 +85,7 @@ export async function takePhotoWithCamera(): Promise<ImagePickerResult> {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.35,
       base64: true,
     });
 
@@ -79,13 +94,28 @@ export async function takePhotoWithCamera(): Promise<ImagePickerResult> {
     }
 
     const asset = result.assets[0];
-    const resolvedUri = asset.base64
-      ? `data:image/jpeg;base64,${asset.base64}`
-      : asset.uri;
+    let finalUri = asset.uri;
+
+    if (asset.base64) {
+      finalUri = `data:image/jpeg;base64,${asset.base64}`;
+    } else if (Platform.OS === 'web' && asset.uri && (asset.uri.startsWith('blob:') || asset.uri.startsWith('http'))) {
+      try {
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+        finalUri = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (blobErr) {
+        console.warn('Could not convert web camera blob to data URL, using asset.uri:', blobErr);
+      }
+    }
 
     return {
       cancelled: false,
-      uri: resolvedUri,
+      uri: finalUri,
     };
   } catch (err: any) {
     console.error('Error taking photo:', err);

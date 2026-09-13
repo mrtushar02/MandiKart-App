@@ -24,55 +24,93 @@ import { Platform, NativeModules } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from './supabaseClient';
 
-export function resolveApiBaseUrl(): string {
-  // 1. Explicitly configured env URL
-  const envUrl = process.env.EXPO_PUBLIC_USER_API_URL || process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl && envUrl.trim().length > 0) {
-    return envUrl.trim();
-  }
+const PRIMARY_LAN_IP = '192.168.1.9';
 
-  // 2. On web, use the browser's own hostname so it works in all environments
+function isValidIpOrHost(host: string | undefined): boolean {
+  if (!host) return false;
+  const h = host.toLowerCase().trim();
+  if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '10.67.75.101') return false;
+  if (h.includes('exp.direct') || h.includes('ngrok') || h.includes('localtunnel') || h.includes('tunnel')) return false;
+  return true;
+}
+
+export function getUserApiCandidates(): string[] {
+  const candidates: string[] = [];
+
+  // 1. Web
   if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && window.location?.hostname && window.location.hostname !== 'localhost') {
-      return `http://${window.location.hostname}:4001/api/v1`;
+    if (typeof window !== 'undefined' && window.location?.hostname) {
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return ['http://localhost:4001/api/v1'];
+      }
+      if (isValidIpOrHost(host)) {
+        return [`http://${host}:4001/api/v1`, 'http://localhost:4001/api/v1'];
+      }
     }
-    return 'http://localhost:4001/api/v1';
+    return ['http://localhost:4001/api/v1'];
   }
 
-  // 3. On native (Expo Go / standalone) — check hostUri, debuggerHost, scriptURL
+  // 2. Native devices (Android / iOS): Detect packager host IP dynamically from Expo
   try {
-    const hostUri = Constants.expoConfig?.hostUri;
-    if (hostUri) {
-      const host = hostUri.split(':')[0];
-      if (host && host !== 'localhost' && host !== '127.0.0.1') {
-        return `http://${host}:4001/api/v1`;
-      }
-    }
+    const candidateHosts: (string | undefined)[] = [
+      Constants.expoConfig?.hostUri,
+      (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost,
+      (Constants as any)?.manifest?.debuggerHost,
+      (NativeModules as any)?.SourceCode?.scriptURL,
+    ];
 
-    const debuggerHost =
-      (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost ||
-      (Constants as any)?.manifest?.debuggerHost;
-    if (debuggerHost) {
-      const host = debuggerHost.split(':')[0];
-      if (host && host !== 'localhost' && host !== '127.0.0.1') {
-        return `http://${host}:4001/api/v1`;
+    for (const raw of candidateHosts) {
+      if (!raw) continue;
+      let host = raw;
+      if (host.includes('://')) {
+        host = host.split('://')[1] || '';
       }
-    }
-
-    const scriptURL: string = (NativeModules as any)?.SourceCode?.scriptURL || '';
-    if (scriptURL) {
-      const host = scriptURL.split('://')[1]?.split('/')[0]?.split(':')[0];
-      if (host && host !== 'localhost' && host !== '127.0.0.1') {
-        return `http://${host}:4001/api/v1`;
+      host = host.split('/')[0]?.split(':')[0] || '';
+      if (isValidIpOrHost(host)) {
+        candidates.push(`http://${host}:4001/api/v1`);
       }
     }
   } catch {}
 
-  // 4. Default to current Wi-Fi LAN IP (port 4001 for UserApp Backend)
-  return 'http://10.179.209.101:4001/api/v1';
+  // 3. Configured environment URL
+  const envUrl = process.env.EXPO_PUBLIC_USER_API_URL || process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl && envUrl.trim().length > 0) {
+    const cleanedEnv = envUrl.trim();
+    if (!cleanedEnv.includes('10.67.75.101')) {
+      const hostPart = cleanedEnv.replace('http://', '').replace('https://', '').split('/')[0].split(':')[0];
+      if (isValidIpOrHost(hostPart) || hostPart === 'localhost') {
+        candidates.push(cleanedEnv);
+      }
+    }
+  }
+
+  // 4. Active Wi-Fi LAN IP fallback
+  candidates.push(`http://${PRIMARY_LAN_IP}:4001/api/v1`);
+
+  // 5. Android Emulator loopback (strictly only when NOT running on a physical phone)
+  const isPhysicalPhone = Constants.isDevice === true;
+  if (Platform.OS === 'android' && !isPhysicalPhone) {
+    candidates.push('http://10.0.2.2:4001/api/v1');
+  }
+
+  // 6. Localhost (works when USB tethering has `adb reverse tcp:4001 tcp:4001`)
+  candidates.push('http://localhost:4001/api/v1');
+
+  return Array.from(new Set(candidates));
 }
 
-const REQUEST_TIMEOUT_MS = 15000;
+let cachedUserApiBaseUrl: string | null = null;
+
+export function resolveApiBaseUrl(): string {
+  if (cachedUserApiBaseUrl) {
+    return cachedUserApiBaseUrl;
+  }
+  const candidates = getUserApiCandidates();
+  return candidates[0] || `http://${PRIMARY_LAN_IP}:4001/api/v1`;
+}
+
+const REQUEST_TIMEOUT_MS = 12000;
 
 // Internal token memory
 let activeAuthToken: string | null = null;
@@ -86,25 +124,27 @@ export function getApiAuthToken(): string | null {
 }
 
 /**
- * Universal safe fetch with timeout and fallback
+ * Universal safe fetch with timeout, automatic multi-candidate failover and mock fallback
  */
 async function safeFetch<T>(
   endpoint: string,
   options: RequestInit = {},
   fallbackData: T
 ): Promise<{ data: T; isFallback: boolean; error?: string }> {
-  const baseUrl = resolveApiBaseUrl();
-  const url = `${baseUrl}${endpoint}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const candidates = getUserApiCandidates();
+  const orderedList = cachedUserApiBaseUrl
+    ? [cachedUserApiBaseUrl, ...candidates.filter((c) => c !== cachedUserApiBaseUrl)]
+    : candidates;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
-  // Attach auth token, or fallback mock token so authenticated backend routes allow requests
-  headers['Authorization'] = headers['Authorization'] || `Bearer ${activeAuthToken || 'mock_jwt_token_buyer_1'}`;
+  // Attach active authenticated buyer token if present
+  if (activeAuthToken) {
+    headers['Authorization'] = headers['Authorization'] || `Bearer ${activeAuthToken}`;
+  }
 
   // Attach idempotency key on mutating HTTP requests
   const method = (options.method || 'GET').toUpperCase();
@@ -112,39 +152,64 @@ async function safeFetch<T>(
     headers['Idempotency-Key'] = `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   }
 
+  let lastErrorMessage = '';
 
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+  for (const baseUrl of orderedList) {
+    const url = `${baseUrl}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-    if (!response.ok) {
-      const errText = await response.text();
-      let parsedErrorMessage = `HTTP ${response.status}`;
-      try {
-        const errJson = JSON.parse(errText);
-        if (errJson?.error?.message) {
-          parsedErrorMessage = errJson.error.message;
-        } else if (typeof errJson?.message === 'string') {
-          parsedErrorMessage = errJson.message;
-        } else if (typeof errJson?.error === 'string') {
-          parsedErrorMessage = errJson.error;
-        }
-      } catch {}
-      console.log(`[API] HTTP ${response.status} from ${endpoint}:`, parsedErrorMessage);
-      return { data: fallbackData, isFallback: true, error: parsedErrorMessage };
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errText = await response.text();
+        let parsedErrorMessage = `HTTP ${response.status}`;
+        try {
+          const errJson = JSON.parse(errText);
+          if (errJson?.error?.message) {
+            parsedErrorMessage = errJson.error.message;
+          } else if (typeof errJson?.message === 'string') {
+            parsedErrorMessage = errJson.message;
+          } else if (typeof errJson?.error === 'string') {
+            parsedErrorMessage = errJson.error;
+          }
+        } catch {}
+        console.log(`[API] HTTP ${response.status} from ${endpoint}:`, parsedErrorMessage);
+        cachedUserApiBaseUrl = baseUrl;
+        return { data: fallbackData, isFallback: true, error: parsedErrorMessage };
+      }
+
+      const json = await response.json();
+      cachedUserApiBaseUrl = baseUrl;
+      return { data: json.data !== undefined ? json.data : json, isFallback: false };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      lastErrorMessage = err?.message || 'network timeout';
+      const msg = (err?.message || '').toLowerCase();
+      const isNetworkFail =
+        err?.name === 'AbortError' ||
+        msg.includes('abort') ||
+        msg.includes('time') ||
+        msg.includes('cancel') ||
+        msg.includes('failed to fetch') ||
+        msg.includes('network request failed') ||
+        msg.includes('econnrefused');
+
+      if (!isNetworkFail) {
+        return { data: fallbackData, isFallback: true, error: err.message };
+      }
+      // If network unreachable, try next candidate
     }
-
-    const json = await response.json();
-    return { data: json.data !== undefined ? json.data : json, isFallback: false };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    console.log(`[API] Network error for ${endpoint} (${err.message || 'offline'})`);
-    return { data: fallbackData, isFallback: true, error: err.message };
   }
+
+  console.log(`[API] Network error for ${endpoint} across all candidates (${lastErrorMessage || 'offline'})`);
+  return { data: fallbackData, isFallback: true, error: lastErrorMessage };
 }
 
 // ─────────────────────────────────────────────
@@ -449,9 +514,10 @@ export const apiClient = {
       if (!rawData || rawData.length === 0) {
         try {
           console.log('[Catalog] Querying Supabase live products table directly...');
+          // NOTE: omit farmers(*) JOIN to avoid Supabase statement timeout (error 57014)
           let sbQuery = supabase
             .from('products')
-            .select('*, farmers(*)')
+            .select('*')
             // Same dual-gate as backend: only farmer-confirmed global listings
             .eq('is_active', true)
             .eq('target_buyer', 'BOTH')
@@ -499,18 +565,25 @@ export const apiClient = {
         const c = (category || '').toLowerCase();
         if (n.includes('tomato'))      return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80';
         if (n.includes('onion'))       return 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('potato'))      return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('mango'))       return 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('apple'))       return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('wheat'))       return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('rice') || n.includes('basmati')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('pomegranate')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('banana'))      return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('grapes') || n.includes('grape')) return 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('carrot'))      return 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('chilli') || n.includes('chili')) return 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('garlic'))      return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('ginger'))      return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('potato') || n.includes('alu') || n.includes('aloo')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('wheat') || n.includes('gehu')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('rice') || n.includes('basmati') || n.includes('paddy') || n.includes('chawal')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('soybean') || n.includes('soya')) return 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('corn') || n.includes('maize') || n.includes('makka')) return 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('mango') || n.includes('aam')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('apple') || n.includes('seb')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('banana') || n.includes('kela')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('pomegranate') || n.includes('anar')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('grapes') || n.includes('grape') || n.includes('angoor')) return 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('orange') || n.includes('santra')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('carrot') || n.includes('gajar')) return 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('chilli') || n.includes('chili') || n.includes('mirchi')) return 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('garlic') || n.includes('lahsun')) return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('ginger') || n.includes('adrak')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('cabbage') || n.includes('patta gobi')) return 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('cauliflower') || n.includes('phool gobi')) return 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('peas') || n.includes('matar')) return 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=500&auto=format&fit=crop&q=80';
+        if (n.includes('cucumber') || n.includes('kheera')) return 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=500&auto=format&fit=crop&q=80';
         if (c.includes('fruit'))       return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=500&auto=format&fit=crop&q=80';
         if (c.includes('grain') || c.includes('pulse')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
         return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500&auto=format&fit=crop&q=80';
@@ -519,6 +592,8 @@ export const apiClient = {
       const sanitizeImg = (imgUrl: string | null | undefined, cropName: string, category: string): string => {
         if (!imgUrl || typeof imgUrl !== 'string' || imgUrl.trim() === '') return getCropFallbackUrl(cropName, category);
         if (imgUrl.startsWith('file://')) return getCropFallbackUrl(cropName, category); // local device path — useless remotely
+        const isOldHardcodedOnion = imgUrl.includes('AB6AXuC5ju') && !(cropName || '').toLowerCase().includes('onion');
+        if (isOldHardcodedOnion) return getCropFallbackUrl(cropName, category);
         if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://') || imgUrl.startsWith('data:image/')) {
           return imgUrl; // valid HTTP URL or base64 data URI — keep as-is
         }
@@ -629,9 +704,9 @@ export const apiClient = {
               grade: it.grade || 'A',
               farmer: {
                 id: o.farmerId || it.farmerId || 'farmer-1',
-                name: o.farmerName || it.farmerName || 'Ramesh Patel',
-                phone: '+91 98220 11111',
-                location: 'Nashik',
+                name: o.farmerName || it.farmerName || 'Registered Farmer',
+                phone: o.farmerPhone || it.farmerPhone || '',
+                location: o.farmerLocation || 'Local Mandi',
                 verified: true
               }
             },
@@ -643,29 +718,29 @@ export const apiClient = {
           label: 'Delivery',
           fullName: o.buyerName || o.buyer_name || 'Buyer',
           phone: o.buyerPhone || o.buyer_phone || '',
-          line1: typeof o.deliveryAddress === 'string' ? o.deliveryAddress : (o.deliveryAddress?.line1 || '123 Market Road'),
-          city: o.city || 'Pune',
-          state: o.state || 'Maharashtra',
-          pincode: o.pincode || '411001',
+          line1: typeof o.deliveryAddress === 'string' ? o.deliveryAddress : (o.deliveryAddress?.line1 || 'Delivery Address'),
+          city: o.city || 'Local',
+          state: o.state || 'India',
+          pincode: o.pincode || '',
           isDefault: true,
         },
         paymentMethod: 'UPI' as const,
-        subtotal: o.totalAmount || o.total || 350,
+        subtotal: o.totalAmount || o.total || 0,
         deliveryCharge: 25,
-        total: (o.totalAmount || o.total || 350) + 25,
+        total: (o.totalAmount || o.total || 0) + 25,
         placedAt: o.createdAt || o.placedAt || new Date().toISOString(),
-        estimatedDelivery: 'Today by 5:30 PM',
+        estimatedDelivery: 'Expected in 2 hours',
         farmer: {
           id: o.farmerId || 'farmer-1',
-          name: o.farmerName || 'Ramesh Patel',
-          phone: o.farmerPhone || '+91 98220 11111',
-          location: 'Nashik, Maharashtra',
-          state: 'Maharashtra',
-          rating: 4.9,
-          reviewCount: 120,
+          name: o.farmerName || 'Registered Farmer',
+          phone: o.farmerPhone || '',
+          location: o.farmerLocation || 'Local Mandi',
+          state: o.state || 'India',
+          rating: 4.8,
+          reviewCount: 45,
           isVerified: true,
-          totalProducts: 10,
-          memberSince: '2023',
+          totalProducts: 5,
+          memberSince: '2024',
         },
         deliveryOtp: o.deliveryOtp || '719284',
         pickupOtp: o.pickupOtp || '482910',
@@ -724,6 +799,18 @@ export const apiClient = {
       return { success: true, message: res.data?.message || 'Delivery confirmed.' };
     },
 
+    async cancelOrder(orderId: string, reason?: string): Promise<{ success: boolean; message: string }> {
+      const res = await safeFetch<any>(
+        `/orders/${orderId}/cancel`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        },
+        { success: true, message: 'Order cancelled successfully.' }
+      );
+      return { success: true, message: res.data?.message || 'Order cancelled.' };
+    },
+
     async raiseDispute(
       orderId: string,
       reason: string,
@@ -748,6 +835,73 @@ export const apiClient = {
         disputeId: res.data?.disputeId || `disp_${Date.now()}`,
         message: res.data?.message || 'Dispute registered.',
       };
+    },
+  },
+
+  // 3b. Stripe Escrow & Payments Service
+  payments: {
+    async createIntent(params: {
+      orderId: string;
+      amount: number;
+      currency?: string;
+      buyerId?: string;
+      farmerId?: string;
+    }): Promise<{
+      clientSecret: string;
+      paymentIntentId: string;
+      amount: number;
+      currency: string;
+      status: string;
+      escrowStatus: 'HELD';
+      isSimulated: boolean;
+    }> {
+      const fallback = {
+        clientSecret: `pi_mandikart_${Date.now()}_secret_${Math.random().toString(36).substring(2, 9)}`,
+        paymentIntentId: `pi_mandikart_${Date.now()}`,
+        amount: params.amount,
+        currency: (params.currency || 'INR').toUpperCase(),
+        status: 'requires_payment_method',
+        escrowStatus: 'HELD' as const,
+        isSimulated: true,
+      };
+
+      const res = await safeFetch<any>(
+        '/payments/create-intent',
+        {
+          method: 'POST',
+          body: JSON.stringify(params),
+        },
+        fallback
+      );
+      return res.data || fallback;
+    },
+
+    async confirm(paymentIntentId: string, orderId: string): Promise<{
+      success: boolean;
+      orderId: string;
+      paymentIntentId: string;
+      status: string;
+      escrowStatus: 'HELD';
+      message: string;
+    }> {
+      const fallback = {
+        success: true,
+        orderId,
+        paymentIntentId,
+        status: 'SUCCEEDED',
+        escrowStatus: 'HELD' as const,
+        message: 'Payment received. Funds securely locked in MandiKart Escrow until delivery OTP verification.',
+      };
+
+      const res = await safeFetch<any>(
+        '/payments/confirm',
+        {
+          method: 'POST',
+          body: JSON.stringify({ paymentIntentId, orderId }),
+        },
+        fallback
+      );
+      return res.data || fallback;
     },
   },
 
@@ -1048,57 +1202,6 @@ export const apiClient = {
         savingsPercent: 83,
         mimeType: 'image/webp',
       };
-    },
-  },
-
-  // Stripe Payment Gateway & Escrow
-  payments: {
-    async createIntent(params: {
-      orderId: string;
-      amount: number;
-      buyerId?: string;
-      currency?: string;
-    }) {
-      const res = await safeFetch<any>(
-        '/payments/create-intent',
-        {
-          method: 'POST',
-          body: JSON.stringify(params),
-        },
-        {
-          success: true,
-          data: {
-            clientSecret: `pi_mock_${Date.now()}_secret_test`,
-            paymentIntentId: `pi_mock_${Date.now()}`,
-            amount: params.amount,
-            currency: params.currency || 'INR',
-            status: 'requires_payment_method',
-            escrowStatus: 'HELD',
-            isSimulated: true,
-          },
-        }
-      );
-      return res.data?.data || res.data;
-    },
-
-    async confirm(paymentIntentId: string, orderId: string) {
-      const res = await safeFetch<any>(
-        '/payments/confirm',
-        {
-          method: 'POST',
-          body: JSON.stringify({ paymentIntentId, orderId }),
-        },
-        {
-          success: true,
-          data: {
-            status: 'SUCCEEDED',
-            escrowStatus: 'HELD',
-            orderId,
-            message: 'Payment received. Funds securely locked in MandiKart Escrow.',
-          },
-        }
-      );
-      return res.data?.data || res.data;
     },
   },
 

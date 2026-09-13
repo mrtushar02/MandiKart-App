@@ -266,7 +266,7 @@ export const PushNotifications: React.FC<PushNotificationsProps> = ({
                       <td className="p-3 text-zinc-300">{item.sentAt}</td>
 
                       <td className="p-3 text-white font-bold">
-                        {item.recipientCount.toLocaleString()} devices
+                        {(Number(item.recipientCount) || 0).toLocaleString()} devices
                       </td>
 
                       <td className="p-3">

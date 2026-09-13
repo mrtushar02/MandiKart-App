@@ -29,10 +29,12 @@ DispatchService.startAutoDispatchCron();
 
 const PORT = env.LOGISTIC_BACKEND_PORT || 4002;
 
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
-    origin: env.CORS_ORIGIN || '*',
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     credentials: true,
   })
 );

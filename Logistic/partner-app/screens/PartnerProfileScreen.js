@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -16,6 +17,14 @@ import PartnerHeader from '../components/PartnerHeader';
 export default function PartnerProfileScreen({ navigation }) {
   const { partnerProfile, logout } = usePartner();
   const [selectedLang, setSelectedLang] = useState('English');
+
+  const initials = (partnerProfile.name || 'D P')
+    .split(' ')
+    .map(n => n[0])
+    .filter(Boolean)
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'DP';
 
   const handleLogout = () => {
     Alert.alert(
@@ -53,16 +62,25 @@ export default function PartnerProfileScreen({ navigation }) {
         <View style={styles.profileCard}>
           <View style={styles.avatarRow}>
             <View style={styles.avatarCircle}>
-              <Text style={styles.avatarInitials}>RS</Text>
+              {partnerProfile.avatarUrl || (partnerProfile.avatar && partnerProfile.avatar.startsWith('http')) ? (
+                <Image
+                  source={{ uri: partnerProfile.avatarUrl || partnerProfile.avatar }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Text style={styles.avatarInitials}>{initials}</Text>
+              )}
               <View style={styles.onlineBadge} />
             </View>
 
             <View style={styles.profileMeta}>
               <Text style={styles.partnerName}>{partnerProfile.name}</Text>
-              <Text style={styles.partnerId}>{partnerProfile.id} • {partnerProfile.role}</Text>
+              <Text style={styles.partnerId}>
+                {partnerProfile.email || partnerProfile.phone || partnerProfile.id} • {partnerProfile.role}
+              </Text>
               <View style={styles.tierPill}>
                 <Ionicons name="ribbon" size={14} color={COLORS.accentDark} />
-                <Text style={styles.tierPillText}>{partnerProfile.badge}</Text>
+                <Text style={styles.tierPillText}>{partnerProfile.badge || 'Verified Driver'}</Text>
               </View>
             </View>
           </View>
@@ -299,6 +317,11 @@ const styles = StyleSheet.create({
     fontSize: FONT.xxl,
     fontWeight: '900',
     color: COLORS.primary,
+  },
+  avatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   onlineBadge: {
     position: 'absolute',

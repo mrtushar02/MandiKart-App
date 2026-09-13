@@ -24,7 +24,8 @@ export class FarmerNegotiationsController {
       if (n.farmerId === farmerId) return true;
       // Direct FPO bulk requirements or open buyer offers are broadcast to all farmers
       if (n.id?.startsWith('breq_') || n.buyerCompany?.includes('FPO')) return true;
-      if (isDemo && (demoFarmerIds.includes(n.farmerId) || n.farmerId.includes('farmer') || n.farmerId.includes('d1111111'))) return true;
+      if (isDemo) return true;
+      if (demoFarmerIds.includes(n.farmerId) || n.farmerId.includes('farmer') || n.farmerId.includes('d1111111')) return true;
       return false;
     });
     res.status(200).json({

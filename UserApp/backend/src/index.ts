@@ -21,10 +21,13 @@ const env = getValidatedEnv();
 const app = express();
 const PORT = env.USER_BACKEND_PORT || 4001;
 
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
-    origin: env.CORS_ORIGIN || '*',
+    origin: (origin, callback) => {
+      // Allow any origin or non-browser requests
+      callback(null, true);
+    },
     credentials: true,
   })
 );

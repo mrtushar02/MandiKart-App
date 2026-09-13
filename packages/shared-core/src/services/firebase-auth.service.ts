@@ -33,8 +33,8 @@ export interface FirebaseSyncResponse {
     phone?: string;
     email?: string;
     avatarUrl?: string;
-    state: string;
-    district: string;
+    state?: string;
+    district?: string;
     taluka?: string;
     village?: string;
     farmSizeAcres?: number;
@@ -138,10 +138,11 @@ export class FirebaseAuthService {
               email: userEmail,
               full_name: userFullName,
               avatar_url: userAvatarUrl,
-              state: 'Maharashtra',
-              district: 'Nashik',
-              farm_size_acres: 5.0,
-              primary_crops: ['Tomato', 'Onion'],
+              state: null,
+              district: null,
+              village: null,
+              farm_size_acres: null,
+              primary_crops: null,
               is_verified: true,
               preferred_language: 'en',
             })
@@ -164,8 +165,11 @@ export class FirebaseAuthService {
         full_name: userFullName,
         phone: formattedPhone || '+919876543210',
         email: userEmail,
-        state: 'Maharashtra',
-        district: 'Nashik',
+        state: null,
+        district: null,
+        village: null,
+        farm_size_acres: null,
+        primary_crops: null,
         preferred_language: 'en',
         is_verified: true,
         role: 'FARMER',
@@ -198,12 +202,12 @@ export class FirebaseAuthService {
         phone: farmerRecord.phone || formattedPhone,
         email: farmerRecord.email || userEmail,
         avatarUrl: farmerRecord.avatar_url || userAvatarUrl,
-        state: farmerRecord.state || 'Maharashtra',
-        district: farmerRecord.district || 'Nashik',
-        taluka: farmerRecord.taluka,
-        village: farmerRecord.village,
+        state: farmerRecord.state || undefined,
+        district: farmerRecord.district || undefined,
+        taluka: farmerRecord.taluka || undefined,
+        village: farmerRecord.village || undefined,
         farmSizeAcres: farmerRecord.farm_size_acres ? Number(farmerRecord.farm_size_acres) : undefined,
-        primaryCrops: farmerRecord.primary_crops,
+        primaryCrops: farmerRecord.primary_crops || undefined,
         ownershipType: farmerRecord.ownership_type,
         preferredLanguage: farmerRecord.preferred_language || 'en',
         isVerified: true,

@@ -38,11 +38,7 @@ export const appStorage = {
 };
 
 export function getApiBaseUrl(): string {
-  try {
-    return resolveFarmerApiBaseUrl();
-  } catch {
-    return process.env.EXPO_PUBLIC_API_URL || 'http://10.179.209.101:4000/api/v1';
-  }
+  return resolveFarmerApiBaseUrl();
 }
 
 export class FrontendConsentService {
@@ -151,7 +147,12 @@ export class FrontendConsentService {
 
     // 4. Submit to Backend
     const baseUrl = getApiBaseUrl();
-    const token = (await appStorage.getItem(SESSION_TOKEN_KEY)) || 'mock_farmer_token_01';
+    const { useAuthStore } = require('../store/authStore');
+    const token =
+      useAuthStore.getState().token ||
+      (await appStorage.getItem(SESSION_TOKEN_KEY)) ||
+      (await appStorage.getItem('mandikart_farmer_token')) ||
+      '';
 
     try {
       await fetch(`${baseUrl}/consent/agree`, {

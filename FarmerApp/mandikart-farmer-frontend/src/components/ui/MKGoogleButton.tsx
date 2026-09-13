@@ -88,7 +88,13 @@ export function MKGoogleButton({
       ]}
     >
       {loading ? (
-        <ActivityIndicator size="small" color="#4285F4" style={styles.loader} />
+        <ActivityIndicator
+          size="small"
+          color="#4285F4"
+          style={styles.loader}
+          aria-label="Loading Google authentication"
+          accessibilityLabel="Loading Google authentication"
+        />
       ) : (
         <GoogleLogo size={20} />
       )}

@@ -150,7 +150,7 @@ export default function AuthCallbackScreen() {
         setStatusMessage(`Welcome, ${farmer.fullName || 'Farmer'}!`);
         setTimeout(() => {
           if (isNew) {
-            router.replace('/onboarding/farmer-profile');
+            router.replace('/onboarding/permissions');
           } else {
             router.replace('/(tabs)/home');
           }
@@ -239,7 +239,7 @@ export default function AuthCallbackScreen() {
 
             setTimeout(() => {
               if (isNewParam || (!farmer.village && !farmer.farmSizeAcres)) {
-                router.replace('/onboarding/farmer-profile');
+                router.replace('/onboarding/permissions');
               } else {
                 router.replace('/(tabs)/home');
               }
@@ -261,7 +261,7 @@ export default function AuthCallbackScreen() {
             if (user.village || user.farmSizeAcres) {
               router.replace('/(tabs)/home');
             } else {
-              router.replace('/onboarding/farmer-profile');
+              router.replace('/onboarding/permissions');
             }
             return;
           }
@@ -394,7 +394,7 @@ export default function AuthCallbackScreen() {
     if (user?.village || user?.farmSizeAcres) {
       router.replace('/(tabs)/home');
     } else {
-      router.replace('/onboarding/farmer-profile');
+      router.replace('/onboarding/permissions');
     }
   };
 

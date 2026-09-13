@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, ActivityIndicator, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius } from '../../theme';
@@ -10,7 +10,11 @@ import { useCart } from '../../context/CartContext';
 export default function PaymentScreen({ navigation, route }: any) {
   const { items: cartItems, clearCart } = useCart();
   const [selected, setSelected] = useState('upi');
-  const [upiId, setUpiId] = useState('');
+  const [upiId, setUpiId] = useState('9876543210@oksbi');
+  const [cardNumber, setCardNumber] = useState('4242 4242 4242 4242');
+  const [cardExpiry, setCardExpiry] = useState('12/28');
+  const [cardCvc, setCardCvc] = useState('123');
+  const [cardName, setCardName] = useState('Aarav Sharma');
   const [loading, setLoading] = useState(false);
 
   const amount = route.params?.amount || route.params?.total || 155;
@@ -20,12 +24,50 @@ export default function PaymentScreen({ navigation, route }: any) {
   const negotiation = route.params?.negotiation;
 
   const methods = [
-    { id: 'upi', label: 'UPI (GPay, PhonePe, Paytm)', icon: 'phone-portrait-outline', desc: 'Fast & Instant' },
-    { id: 'card', label: 'Credit / Debit Card', icon: 'card-outline', desc: 'Visa, MasterCard, RuPay' },
-    { id: 'cod', label: 'Cash / Escrow on Delivery', icon: 'cash-outline', desc: 'Pay upon verified delivery' },
+    { id: 'upi', label: 'UPI (GPay, PhonePe, Paytm)', icon: 'phone-portrait-outline', desc: 'Fast & Instant • Zero Surcharge', badge: 'POPULAR' },
+    { id: 'card', label: 'Credit / Debit Card', icon: 'card-outline', desc: 'Stripe Protected • Visa, MC, RuPay', badge: 'STRIPE' },
+    { id: 'cod', label: 'Cash / Escrow on Delivery', icon: 'cash-outline', desc: 'Verified 6-digit OTP on handover', badge: 'ESCROW' },
   ];
 
+  const upiSuffixes = ['@oksbi', '@okhdfcbank', '@paytm', '@ybl'];
+
+  const handleSelectUpiSuffix = (suffix: string) => {
+    const prefix = upiId.includes('@') ? upiId.split('@')[0] : upiId || '9876543210';
+    setUpiId(`${prefix}${suffix}`);
+  };
+
+  const fillTestCard = () => {
+    setCardNumber('4242 4242 4242 4242');
+    setCardExpiry('12/28');
+    setCardCvc('123');
+    setCardName('Aarav Sharma');
+  };
+
+  const handleCardNumberChange = (text: string) => {
+    const clean = text.replace(/\D/g, '').slice(0, 16);
+    const parts = clean.match(/[\s\S]{1,4}/g) || [];
+    setCardNumber(parts.join(' '));
+  };
+
+  const handleExpiryChange = (text: string) => {
+    const clean = text.replace(/\D/g, '').slice(0, 4);
+    if (clean.length >= 3) {
+      setCardExpiry(`${clean.slice(0, 2)}/${clean.slice(2)}`);
+    } else {
+      setCardExpiry(clean);
+    }
+  };
+
   const handlePayment = async () => {
+    if (selected === 'upi' && !upiId.trim()) {
+      Alert.alert('UPI Required', 'Please enter a valid UPI Virtual Payment Address (e.g. mobile@upi).');
+      return;
+    }
+    if (selected === 'card' && cardNumber.replace(/\s+/g, '').length < 14) {
+      Alert.alert('Card Incomplete', 'Please enter a valid 16-digit card number or tap "Use Test Card".');
+      return;
+    }
+
     setLoading(true);
     try {
       const items = route.params?.items && route.params.items.length > 0
@@ -87,19 +129,27 @@ export default function PaymentScreen({ navigation, route }: any) {
             },
           ];
 
+      const resolvedAddress =
+        route.params?.address?.formattedAddress ||
+        (typeof route.params?.address === 'string' ? route.params.address : null) ||
+        route.params?.deliveryAddress ||
+        'Pune APMC Zone, Maharashtra';
+
       const res = await apiClient.orders.placeOrder({
         items,
-        deliveryAddress: '123, Model Town, Pune, MH - 411016',
+        deliveryAddress: resolvedAddress,
         targetBuyerType: isBulk ? 'BULK' : 'RETAIL',
       });
 
-      const orderId = res.order?.orderNumber || 'MK-ORD-2026-9041';
+      const orderId = res.order?.orderNumber || res.order?.id || `MK-ORD-${Date.now()}`;
 
       // 2. Create Stripe PaymentIntent with Escrow hold tags
       const paymentIntent = await apiClient.payments.createIntent({
         orderId,
         amount,
         currency: 'INR',
+        buyerId: res.order?.buyerId || 'buyer_default_01',
+        farmerId: items[0]?.farmerId || 'farmer_ramesh_01',
       });
 
       // 3. Confirm Stripe Payment & Lock in Escrow
@@ -114,14 +164,14 @@ export default function PaymentScreen({ navigation, route }: any) {
         deliveryOtp: res.order?.deliveryOtp || '719284',
         order: res.order,
         stripePaymentIntentId: paymentIntent?.paymentIntentId,
+        paymentMethod: selected === 'card' ? 'STRIPE_CARD' : selected === 'upi' ? 'STRIPE_UPI' : 'ESCROW_COD',
       });
     } catch (err: any) {
       setLoading(false);
-      clearCart();
-      navigation.navigate('OrderConfirmation', {
-        orderId: 'MK-ORD-2026-9041',
-        deliveryOtp: '719284',
-      });
+      Alert.alert(
+        'Payment Processing Error',
+        err?.message || 'Unable to complete order transaction. Please check your network and retry.'
+      );
     }
   };
 
@@ -139,11 +189,16 @@ export default function PaymentScreen({ navigation, route }: any) {
       <ScrollView contentContainerStyle={styles.content}>
         {/* Safe Escrow Guarantee */}
         <View style={styles.escrowCard}>
-          <Ionicons name="shield-checkmark" size={20} color="#15803D" />
+          <Ionicons name="shield-checkmark" size={22} color="#15803D" />
           <View style={styles.escrowTextWrap}>
-            <Text style={styles.escrowTitle}>MandiKart Safe Escrow (Powered by Stripe)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.escrowTitle}>MandiKart Safe Escrow</Text>
+              <View style={styles.stripeBadge}>
+                <Text style={styles.stripeBadgeText}>Powered by Stripe</Text>
+              </View>
+            </View>
             <Text style={styles.escrowSub}>
-              Payment is held securely in Stripe Escrow. Farmer is paid only after you inspect produce and verify your secret 6-digit delivery OTP.
+              Funds held securely in Stripe Escrow. Farmer is paid only after you inspect produce upon delivery and share your secret 6-digit OTP.
             </Text>
           </View>
         </View>
@@ -151,19 +206,19 @@ export default function PaymentScreen({ navigation, route }: any) {
         {/* Order Amount Summary Card */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Produce Total</Text>
+            <Text style={styles.summaryLabel}>Produce Subtotal</Text>
             <Text style={styles.summaryValue}>₹{amount}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Escrow Protection Fee</Text>
+            <Text style={styles.summaryLabel}>Stripe Escrow Protection</Text>
             <Text style={[styles.summaryValue, { color: '#15803D' }]}>FREE (₹0)</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Mandi Yard Logistics</Text>
+            <Text style={styles.summaryLabel}>Direct Mandi Logistics</Text>
             <Text style={styles.summaryValue}>Included</Text>
           </View>
           <View style={[styles.summaryRow, styles.summaryTotalRow]}>
-            <Text style={styles.totalLabel}>Total Payable Amount</Text>
+            <Text style={styles.totalLabel}>Total Payable</Text>
             <Text style={styles.totalValue}>₹{amount}</Text>
           </View>
         </View>
@@ -183,7 +238,16 @@ export default function PaymentScreen({ navigation, route }: any) {
                 color={selected === m.id ? Colors.primary : Colors.textSecondary}
               />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.label, selected === m.id && styles.labelSelected]}>{m.label}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.label, selected === m.id && styles.labelSelected]}>{m.label}</Text>
+                  {m.badge && (
+                    <View style={[styles.methodBadge, m.id === 'card' && styles.stripeMethodBadge]}>
+                      <Text style={[styles.methodBadgeText, m.id === 'card' && styles.stripeMethodBadgeText]}>
+                        {m.badge}
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.subLabel}>{m.desc}</Text>
               </View>
               <View style={[styles.radio, selected === m.id && styles.radioSelected]}>
@@ -194,29 +258,105 @@ export default function PaymentScreen({ navigation, route }: any) {
             {/* Dynamic Interactive Fields per method */}
             {selected === 'upi' && m.id === 'upi' && (
               <View style={styles.expandedSection}>
-                <Text style={styles.inputPrompt}>Enter Virtual Payment Address (VPA)</Text>
+                <Text style={styles.inputPrompt}>Virtual Payment Address (VPA / UPI ID)</Text>
                 <View style={styles.upiInputWrap}>
                   <Text style={styles.upiIconText}>@</Text>
                   <TextInput
                     style={styles.upiInputField}
                     value={upiId}
                     onChangeText={setUpiId}
-                    placeholder="e.g. mobile@upi or username@okaxis"
+                    placeholder="e.g. 9876543210@oksbi"
                     placeholderTextColor={Colors.textSecondary}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="checkmark-circle" size={14} color="#15803D" />
+                    <Text style={styles.verifiedText}>Verified</Text>
+                  </View>
+                </View>
+
+                {/* Quick UPI Handle Chips */}
+                <View style={styles.upiSuffixRow}>
+                  {upiSuffixes.map((suffix) => (
+                    <TouchableOpacity
+                      key={suffix}
+                      style={styles.suffixChip}
+                      onPress={() => handleSelectUpiSuffix(suffix)}
+                    >
+                      <Text style={styles.suffixChipText}>{suffix}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
             )}
 
             {selected === 'card' && m.id === 'card' && (
               <View style={styles.expandedSection}>
-                <Text style={styles.inputPrompt}>Stripe Secure Card Element</Text>
-                <View style={styles.cardSimulator}>
-                  <Ionicons name="card" size={18} color={Colors.textSecondary} />
-                  <Text style={styles.cardSimText}>•••• •••• •••• 4242</Text>
-                  <Text style={styles.cardSimExpiry}>12/28</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={styles.inputPrompt}>Stripe Secure Card Details</Text>
+                  <TouchableOpacity style={styles.testCardChip} onPress={fillTestCard}>
+                    <Ionicons name="flash" size={12} color="#4338CA" />
+                    <Text style={styles.testCardChipText}>Auto-Fill Demo Card</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Card Number */}
+                <View style={styles.cardInputWrap}>
+                  <Ionicons name="card-outline" size={18} color="#6366F1" />
+                  <TextInput
+                    style={styles.cardInputField}
+                    value={cardNumber}
+                    onChangeText={handleCardNumberChange}
+                    placeholder="16-digit card number"
+                    placeholderTextColor={Colors.textSecondary}
+                    keyboardType="numeric"
+                    maxLength={19}
+                  />
+                  <Text style={styles.cardBrandText}>VISA / MC</Text>
+                </View>
+
+                {/* Row: Expiry + CVC */}
+                <View style={styles.cardRow}>
+                  <View style={[styles.cardInputWrap, { flex: 1 }]}>
+                    <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
+                    <TextInput
+                      style={styles.cardInputField}
+                      value={cardExpiry}
+                      onChangeText={handleExpiryChange}
+                      placeholder="MM/YY"
+                      placeholderTextColor={Colors.textSecondary}
+                      keyboardType="numeric"
+                      maxLength={5}
+                    />
+                  </View>
+
+                  <View style={[styles.cardInputWrap, { width: 100 }]}>
+                    <Ionicons name="lock-closed-outline" size={16} color={Colors.textSecondary} />
+                    <TextInput
+                      style={styles.cardInputField}
+                      value={cardCvc}
+                      onChangeText={setCardCvc}
+                      placeholder="CVC"
+                      placeholderTextColor={Colors.textSecondary}
+                      keyboardType="numeric"
+                      maxLength={4}
+                      secureTextEntry
+                    />
+                  </View>
+                </View>
+
+                {/* Cardholder Name */}
+                <View style={[styles.cardInputWrap, { marginTop: 8 }]}>
+                  <Ionicons name="person-outline" size={16} color={Colors.textSecondary} />
+                  <TextInput
+                    style={styles.cardInputField}
+                    value={cardName}
+                    onChangeText={setCardName}
+                    placeholder="Cardholder Name"
+                    placeholderTextColor={Colors.textSecondary}
+                    autoCapitalize="words"
+                  />
                 </View>
               </View>
             )}
@@ -224,9 +364,9 @@ export default function PaymentScreen({ navigation, route }: any) {
             {selected === 'cod' && m.id === 'cod' && (
               <View style={styles.expandedSection}>
                 <View style={styles.codNote}>
-                  <Ionicons name="information-circle" size={16} color="#B45309" />
+                  <Ionicons name="information-circle" size={18} color="#B45309" />
                   <Text style={styles.codNoteText}>
-                    Deliveries require the 6-digit delivery OTP before crates are released from the EV van.
+                    Deliveries require the secret 6-digit delivery OTP before produce is unloaded from the cold-chain transport.
                   </Text>
                 </View>
               </View>
@@ -237,17 +377,18 @@ export default function PaymentScreen({ navigation, route }: any) {
 
       <View style={styles.footer}>
         <View style={styles.footerEscrowNote}>
-          <Ionicons name="lock-closed" size={12} color="#059669" />
-          <Text style={styles.footerEscrowNoteText}>Funds safe in Stripe Escrow until verified delivery</Text>
+          <Ionicons name="lock-closed" size={13} color="#059669" />
+          <Text style={styles.footerEscrowNoteText}>Secured by Stripe 256-bit SSL & MandiKart Escrow</Text>
         </View>
         <PrimaryButton
-          title={loading ? 'Locking in Escrow...' : `Pay ₹${amount} & Confirm`}
+          title={loading ? 'Locking in Stripe Escrow...' : `Pay ₹${amount} & Confirm`}
           onPress={handlePayment}
           disabled={loading}
           style={{ width: '100%' }}
         />
       </View>
     </SafeAreaView>
+
   );
 }
 
@@ -452,4 +593,96 @@ const styles = StyleSheet.create({
     color: '#059669',
     fontWeight: '600',
   },
+  stripeBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  stripeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  methodBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  methodBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  stripeMethodBadge: {
+    backgroundColor: '#EEF2FF',
+  },
+  stripeMethodBadgeText: {
+    color: '#4F46E5',
+  },
+  upiSuffixRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  suffixChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  suffixChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  testCardChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  testCardChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4338CA',
+  },
+  cardInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  cardInputField: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    padding: 0,
+  },
+  cardBrandText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6366F1',
+  },
+  cardRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
 });
+

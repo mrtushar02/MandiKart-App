@@ -10,6 +10,7 @@ import { canTransition, getSupabaseAdmin, isSupabaseConfigured, auditLog, OrderR
 import { InventoryService } from '../services/inventory.service.js';
 import { NegotiationService } from '../services/negotiation.service.js';
 import { DashboardService } from '../services/dashboard.service.js';
+import { toUuid } from './products.controller.js';
 
 function mapRegisteredOrderToFarmerOrder(reg: any, fallbackFarmerId: string) {
   const cropName = reg.cropName || reg.produceName || 'Fresh Produce';
@@ -70,15 +71,17 @@ function mapRegisteredOrderToFarmerOrder(reg: any, fallbackFarmerId: string) {
 
 export class OrdersController {
   static async listOrders(req: Request, res: Response): Promise<void> {
-    const farmerId = req.user?.id || 'farmer_ramesh_01';
+    const farmerId = toUuid(req.user?.id);
     const statusFilter = req.query.status as string;
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
     const offset = (page - 1) * limit;
 
     try {
-      // 1. Fetch cross-app registered orders
-      const rawRegOrders = OrderRegistryService.getRegisteredOrders();
+      // 1. Fetch cross-app registered orders strictly for this farmer
+      const rawRegOrders = OrderRegistryService.getRegisteredOrders().filter(
+        (r) => r.farmerId === farmerId
+      );
       const mappedRegOrders = rawRegOrders.map((r) => mapRegisteredOrderToFarmerOrder(r, farmerId));
 
       if (!isSupabaseConfigured()) {
@@ -100,7 +103,7 @@ export class OrdersController {
       let query = supabase
         .from('orders')
         .select('*, order_items(*)', { count: 'exact' })
-        .or(`farmer_id.eq.${farmerId},farmer_id.eq.d1111111-1111-1111-1111-111111111111`)
+        .eq('farmer_id', farmerId)
         .order('created_at', { ascending: false });
 
       if (statusFilter) {

@@ -66,9 +66,17 @@ import { useProduceStore, CropItem } from '@/store/produceStore';
 import { useSellStore, BuyerRequest, CompletedSale } from '@/store/sellStore';
 import { useOrderStore } from '@/store/orderStore';
 import { useAuthStore } from '@/store/authStore';
-import { apiClient } from '@/services/apiClient';
+import { apiClient, resolveFarmerApiBaseUrl } from '@/services/apiClient';
+import FPOBuyersScreen from '@/components/fpo/FPOBuyersScreen';
 
 export default function SellHomeScreen() {
+  const user = useAuthStore((state) => state.user);
+
+  // ── FPO BRANCH: Return institutional B2B buyers & tender marketplace ──
+  if (user?.role === 'FPO') {
+    return <FPOBuyersScreen />;
+  }
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -88,12 +96,27 @@ export default function SellHomeScreen() {
   //  update, which re-fires useFocusEffect and creates an infinite re-render loop)
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const fetchNegotiations = async () => {
+    try {
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json && json.data && Array.isArray(json.data)) {
+        useSellStore.getState().mergeBackendNegotiations(json.data);
+      }
+    } catch (e) {}
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
       await Promise.all([
         useProduceStore.getState().syncWithBackend(),
         useOrderStore.getState().syncWithBackend(),
+        fetchNegotiations(),
       ]);
     } catch {}
     finally {
@@ -101,16 +124,18 @@ export default function SellHomeScreen() {
     }
   };
 
-  // Continuous 4-second real-time auto-refresh across Farmer Sell screen
+  // Continuous 2.5-second real-time auto-refresh across Farmer Sell screen
   useEffect(() => {
     // Initial fetch on mount
     useProduceStore.getState().syncWithBackend().catch(() => {});
     useOrderStore.getState().syncWithBackend().catch(() => {});
+    fetchNegotiations();
 
     const timer = setInterval(() => {
       useProduceStore.getState().syncWithBackend().catch(() => {});
       useOrderStore.getState().syncWithBackend().catch(() => {});
-    }, 4000);
+      fetchNegotiations();
+    }, 2500);
     return () => clearInterval(timer);
   }, []);
 
@@ -122,6 +147,15 @@ export default function SellHomeScreen() {
   const activeSales = useMemo(() => {
     return salesHistory.filter((s) => s.status === 'In Transit' || s.status === 'Payment Pending');
   }, [salesHistory]);
+
+  // Sorted crops for Sell section (Always newest recent crop first)
+  const sortedCrops = useMemo(() => {
+    return [...crops].sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [crops]);
 
   // Modals state
   const [selectedCropForSell, setSelectedCropForSell] = useState<CropItem | null>(null);
@@ -373,9 +407,23 @@ export default function SellHomeScreen() {
         {
           text: 'Accept Offer',
           style: 'default',
-          onPress: () => {
+          onPress: async () => {
             const res = acceptRequest(req.id);
             if (res.success) {
+              try {
+                const apiBase = resolveFarmerApiBaseUrl();
+                const token = useAuthStore.getState().token || '';
+                await fetch(`${apiBase}/negotiations/${req.id}/accept`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                    'Idempotency-Key': `idemp-acc-${Date.now()}`,
+                  },
+                  body: JSON.stringify({ action: 'ACCEPT' }),
+                });
+              } catch (e) {}
+
               Alert.alert(
                 'Sale Confirmed!',
                 `Your order (${res.orderId}) has been created. The vehicle pickup and logistics tracking are now active in the Orders module.`,
@@ -404,7 +452,7 @@ export default function SellHomeScreen() {
     setCounterModalVisible(true);
   };
 
-  const handleSendCounter = () => {
+  const handleSendCounter = async () => {
     if (!selectedRequestForCounter) return;
     const price = parseFloat(counterPriceInput);
     if (isNaN(price) || price <= 0) {
@@ -418,6 +466,25 @@ export default function SellHomeScreen() {
       selectedRequestForCounter.quantityKg,
       counterMessageInput.trim() || undefined
     );
+
+    try {
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      await fetch(`${apiBase}/negotiations/${selectedRequestForCounter.id}/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Idempotency-Key': `idemp-cnt-${Date.now()}`,
+        },
+        body: JSON.stringify({
+          action: 'COUNTER',
+          counterPrice: price,
+          counterQty: selectedRequestForCounter.quantityKg,
+          message: counterMessageInput.trim() || undefined,
+        }),
+      });
+    } catch (e) {}
 
     setCounterModalVisible(false);
     Alert.alert('Counter Offer Sent', `Your counter offer of ₹${price}/kg has been submitted to ${selectedRequestForCounter.buyerName}.`);
@@ -433,7 +500,25 @@ export default function SellHomeScreen() {
         {
           text: 'Decline',
           style: 'destructive',
-          onPress: () => rejectRequest(req.id, 'Price not aligned with farmer target'),
+          onPress: async () => {
+            rejectRequest(req.id, 'Price not aligned with farmer target');
+            try {
+              const apiBase = resolveFarmerApiBaseUrl();
+              const token = useAuthStore.getState().token || '';
+              await fetch(`${apiBase}/negotiations/${req.id}/respond`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                  'Idempotency-Key': `idemp-dec-${Date.now()}`,
+                },
+                body: JSON.stringify({
+                  action: 'REJECT',
+                  rejectionReason: 'Price not aligned with farmer target',
+                }),
+              });
+            } catch (e) {}
+          },
         },
       ]
     );
@@ -505,7 +590,7 @@ export default function SellHomeScreen() {
 
           <Pressable
             style={styles.quickActionItem}
-            onPress={() => router.push('/sell/market')}
+            onPress={() => router.push('/market-prices')}
           >
             <View style={[styles.quickActionIconWrap, { backgroundColor: '#F0FDF4' }]}>
               <TrendingUp size={18} color={MKColors.primaryGreenDark} />
@@ -561,12 +646,12 @@ export default function SellHomeScreen() {
             </Pressable>
           </View>
         ) : (
-          crops.map((crop) => {
+          sortedCrops.map((crop) => {
             const isAvailable = crop.availableKg > 0;
             return (
               <View key={crop.id} style={styles.produceSellCard}>
                 <View style={styles.produceTopRow}>
-                  <Image source={{ uri: crop.imageUri }} style={styles.produceThumb} />
+                  <Image source={{ uri: crop.imageUri || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }} style={styles.produceThumb} />
                   <View style={styles.produceMetaCol}>
                     <View style={styles.produceTitleBadgeRow}>
                       <Text style={styles.produceName} numberOfLines={1}>
@@ -768,7 +853,7 @@ export default function SellHomeScreen() {
           newRequests.slice(0, 2).map((req) => (
             <View key={req.id} style={styles.requestSpotlightCard}>
               <View style={styles.requestCardHeader}>
-                <Image source={{ uri: req.avatar }} style={styles.buyerAvatar} />
+                <Image source={{ uri: req.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200' }} style={styles.buyerAvatar} />
                 <View style={{ flex: 1, marginLeft: 10 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={styles.buyerNameText} numberOfLines={1}>
@@ -942,7 +1027,7 @@ export default function SellHomeScreen() {
             <Text style={styles.sectionTitle}>Market Today</Text>
             <Text style={styles.sectionSubtitle}>AGMARKNET official mandi benchmark prices</Text>
           </View>
-          <Pressable onPress={() => router.push('/sell/market')}>
+          <Pressable onPress={() => router.push('/market-prices')}>
             <Text style={styles.sectionActionLink}>Full Market →</Text>
           </Pressable>
         </View>
@@ -1468,17 +1553,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    marginVertical: 12,
+    borderRadius: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    marginVertical: 14,
     borderWidth: 1,
-    borderColor: MKColors.border,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    borderColor: '#E2E8F0',
+    elevation: 5,
+    shadowColor: '#0F2C56',
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
   },
   quickActionItem: {
     flex: 1,
@@ -1486,13 +1571,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   quickActionIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
     position: 'relative',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   miniDot: {
     position: 'absolute',
@@ -1502,11 +1589,13 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#DC2626',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   quickActionText: {
     fontSize: 11,
     fontWeight: '700',
-    color: MKColors.textPrimary,
+    color: '#0F172A',
     textAlign: 'center',
   },
 
@@ -1515,50 +1604,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginTop: 12,
-    marginBottom: 10,
+    marginTop: 14,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: MKColors.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
   },
   sectionSubtitle: {
-    fontSize: 11,
-    color: MKColors.textSecondary,
+    fontSize: 11.5,
+    color: '#64748B',
+    fontWeight: '500',
     marginTop: 1,
   },
   sectionActionLink: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
-    color: MKColors.primaryGreen,
+    color: '#15803D',
   },
   sectionCountPill: {
     backgroundColor: '#FEE2E2',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
     borderRadius: 10,
     marginLeft: 6,
   },
   sectionCountPillText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#DC2626',
   },
 
   // ── Produce Sell Card ─────────────────────────────────────────────
   produceSellCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 16,
-    marginBottom: 14,
-    borderWidth: 1.5,
-    borderColor: '#E2D9CC',
-    elevation: 2,
-    shadowColor: '#1A1C1E',
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: 5,
+    shadowColor: '#0F2C56',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
   },
   produceTopRow: {
     flexDirection: 'row',
@@ -1566,13 +1657,13 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   produceThumb: {
-    width: 64,
-    height: 64,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
+    width: 68,
+    height: 68,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
     marginRight: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#E2E8F0',
   },
   produceMetaCol: {
     flex: 1,
@@ -1583,9 +1674,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   produceName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#111827',
+    fontSize: 16.5,
+    fontWeight: '900',
+    color: '#0F172A',
     flex: 1,
     marginRight: 6,
     letterSpacing: -0.2,
@@ -1594,7 +1685,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#86EFAC',
   },
@@ -1604,49 +1695,52 @@ const styles = StyleSheet.create({
     color: '#15803D',
   },
   produceSubtext: {
-    fontSize: 11,
-    color: MKColors.textSecondary,
+    fontSize: 11.5,
+    color: '#64748B',
     marginVertical: 2,
+    fontWeight: '500',
   },
   stockQuantityPill: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     alignSelf: 'flex-start',
-    marginTop: 2,
-    gap: 4,
+    marginTop: 4,
+    gap: 5,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   stockQuantityText: {
-    fontSize: 11,
-    color: MKColors.textPrimary,
+    fontSize: 11.5,
+    color: '#334155',
   },
 
   marketPriceStrip: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FAFAF8',
-    borderRadius: 10,
-    padding: 8,
-    marginBottom: 10,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: MKColors.borderLight,
+    borderColor: '#E2E8F0',
   },
   mandiRefPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
   },
   mandiRefText: {
-    fontSize: 11,
-    color: MKColors.textSecondary,
+    fontSize: 11.5,
+    color: '#64748B',
   },
   mandiRefBold: {
     fontWeight: '800',
-    color: MKColors.primaryGreenDark,
+    color: '#0F172A',
   },
   demandTrendRow: {
     flexDirection: 'row',
@@ -1654,55 +1748,60 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   demandLabel: {
-    fontSize: 11,
-    color: MKColors.textSecondary,
+    fontSize: 11.5,
+    color: '#64748B',
   },
   trendChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2.5,
+    borderRadius: 6,
   },
   trendChipUp: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#DCFCE7',
   },
   trendChipDown: {
     backgroundColor: '#FEE2E2',
   },
   trendChipText: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '800',
     marginLeft: 2,
   },
 
   cardActionsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   listForSaleBtn: {
     flex: 1,
-    height: 42,
-    borderRadius: 10,
+    height: 44,
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: MKColors.primaryGreen,
+    borderColor: '#15803D',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   listForSaleBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: MKColors.primaryGreen,
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#15803D',
   },
   sellThisCropBtn: {
     flex: 1.3,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: MKColors.primaryGreen,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#15803D',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 3,
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   sellThisCropBtnText: {
     fontSize: 13,
@@ -1710,22 +1809,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   btnDisabled: {
-    backgroundColor: '#D1D5DB',
+    backgroundColor: '#94A3B8',
   },
 
   // ── Request Spotlight Card ────────────────────────────────────────
   requestSpotlightCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 16,
-    marginBottom: 14,
-    borderWidth: 1.5,
+    marginBottom: 16,
+    borderWidth: 1,
     borderColor: '#FED7AA',
-    elevation: 2,
+    elevation: 5,
     shadowColor: '#EA580C',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
   },
   requestCardHeader: {
     flexDirection: 'row',

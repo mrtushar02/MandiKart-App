@@ -28,7 +28,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import {
   ArrowLeft,
   Send,
@@ -49,6 +49,7 @@ import {
 } from 'lucide-react-native';
 import { useSellStore } from '../../store/sellStore';
 import { useProduceStore } from '../../store/produceStore';
+import { useAuthStore } from '../../store/authStore';
 import { resolveFarmerApiBaseUrl } from '../../services/apiClient';
 
 
@@ -116,20 +117,16 @@ export default function FarmerNegotiationChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const isFetchingRef = useRef(false);
 
-  const getApiHost = () => {
-    const base = resolveFarmerApiBaseUrl();
-    return base.replace(/\/api\/v1\/?$/, '');
-  };
-
-
   // Fetch negotiation details & messages
   const fetchNegotiation = async (silent = false) => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const res = await fetch(`${getApiHost()}/api/v1/negotiations/${negotiationId}`, {
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}`, {
         headers: {
-          Authorization: 'Bearer mock_jwt_token_farmer_1',
+          Authorization: `Bearer ${token}`,
         },
       });
       const json = await res.json();
@@ -162,10 +159,11 @@ export default function FarmerNegotiationChatScreen() {
     if (!trimmed || submitting) return;
 
     const tempMsgId = `msg_f_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const currentFarmerId = useAuthStore.getState().user?.id || useAuthStore.getState().farmer?.id || 'farmer_primary';
     const optimisticMsg: ChatMessage = {
       id: tempMsgId,
       negotiationId,
-      senderId: 'd1111111-1111-1111-1111-111111111111',
+      senderId: currentFarmerId,
       senderRole: 'FARMER',
       senderName: 'Farmer (You)',
       messageType: 'TEXT',
@@ -180,11 +178,13 @@ export default function FarmerNegotiationChatScreen() {
 
     try {
       setSubmitting(true);
-      const res = await fetch(`${getApiHost()}/api/v1/negotiations/${negotiationId}/messages`, {
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer mock_jwt_token_farmer_1',
+          Authorization: `Bearer ${token}`,
           'Idempotency-Key': `idemp-msg-${Date.now()}`,
         },
         body: JSON.stringify({
@@ -220,11 +220,13 @@ export default function FarmerNegotiationChatScreen() {
 
     try {
       setSubmitting(true);
-      const res = await fetch(`${getApiHost()}/api/v1/negotiations/${negotiationId}/respond`, {
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/respond`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer mock_jwt_token_farmer_1',
+          Authorization: `Bearer ${token}`,
           'Idempotency-Key': `idemp-cnt-${Date.now()}`,
         },
         body: JSON.stringify({
@@ -268,11 +270,13 @@ export default function FarmerNegotiationChatScreen() {
           onPress: async () => {
             try {
               setSubmitting(true);
-              const res = await fetch(`${getApiHost()}/api/v1/negotiations/${negotiationId}/accept`, {
+              const apiBase = resolveFarmerApiBaseUrl();
+              const token = useAuthStore.getState().token || '';
+              const res = await fetch(`${apiBase}/negotiations/${negotiationId}/accept`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: 'Bearer mock_jwt_token_farmer_1',
+                  Authorization: `Bearer ${token}`,
                   'Idempotency-Key': `idemp-acc-${Date.now()}`,
                 },
                 body: JSON.stringify({
@@ -450,8 +454,16 @@ export default function FarmerNegotiationChatScreen() {
     );
   };
 
+  const buyerDisplayName = negotiation?.buyerName || params.buyerName || 'Buyer';
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <Stack.Screen
+        options={{
+          title: `Chat with ${buyerDisplayName} | Sell`,
+          headerShown: false,
+        }}
+      />
       {/* Top Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -555,7 +567,12 @@ export default function FarmerNegotiationChatScreen() {
       >
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#15803D" />
+            <ActivityIndicator
+              size="large"
+              color="#15803D"
+              aria-label="Loading chat history"
+              accessibilityLabel="Loading chat history"
+            />
             <Text style={styles.loadingText}>Loading conversation...</Text>
           </View>
         ) : (
@@ -778,7 +795,7 @@ const styles = StyleSheet.create({
   },
   onlineStatus: {
     fontSize: 11,
-    color: '#059669',
+    color: '#047857',
     marginTop: 1,
   },
   callBtn: {

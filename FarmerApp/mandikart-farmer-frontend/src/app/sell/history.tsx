@@ -41,7 +41,8 @@ import {
   Layers,
   Filter,
 } from 'lucide-react-native';
-import { useSellStore, CompletedSale } from '../../store/sellStore';
+import { useSellStore, CompletedSale, BuyerType } from '../../store/sellStore';
+import { useOrderStore } from '../../store/orderStore';
 
 type TimeFilter = 'All' | 'This Month' | 'Last Month';
 type StatusFilter = 'All' | 'Completed' | 'In Transit' | 'Payment Pending';
@@ -49,6 +50,7 @@ type StatusFilter = 'All' | 'Completed' | 'In Transit' | 'Payment Pending';
 export default function SalesHistoryScreen() {
   const router = useRouter();
   const { salesHistory } = useSellStore();
+  const { orders } = useOrderStore();
 
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('All');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
@@ -58,17 +60,92 @@ export default function SalesHistoryScreen() {
   const [selectedSale, setSelectedSale] = useState<CompletedSale | null>(null);
   const [statementModalVisible, setStatementModalVisible] = useState(false);
 
+  // Combined sales: manual entries in sellStore plus fulfilled orders from orderStore
+  const allSales: CompletedSale[] = useMemo(() => {
+    const existingIds = new Set(salesHistory.map((s) => s.id));
+    const parseNum = (val: string | number | undefined, fallback = 0) => {
+      if (typeof val === 'number') return val;
+      if (!val) return fallback;
+      const clean = String(val).replace(/[^0-9.]/g, '');
+      return parseFloat(clean) || fallback;
+    };
+
+    const fromOrders: CompletedSale[] = orders
+      .filter((o) => o.tab === 'Completed' || o.statusType === 'completed' || o.tab === 'Active')
+      .map((o) => {
+        const qty = parseNum(o.quantity, 100);
+        const rate = parseNum(o.ratePerKg, 30);
+        const gross = parseNum(o.totalValue, qty * rate);
+        const transport = parseNum(o.transportDeduction, Math.round(gross * 0.02));
+        const platform = Math.round(gross * 0.025);
+        const net = parseNum(o.netPayout, gross - transport - platform);
+        const st: CompletedSale['status'] =
+          o.tab === 'Completed' || o.statusType === 'completed'
+            ? 'Completed'
+            : o.tab === 'Active'
+            ? 'In Transit'
+            : 'Payment Pending';
+
+        const buyerTypeClean: BuyerType =
+          o.buyerType === 'Food Processor' ? 'Food Processor' :
+          o.buyerType === 'Retail Chain Hub' ? 'Retail Chain Hub' :
+          o.buyerType === 'Institutional Buyer' ? 'Institutional Buyer' :
+          o.buyerType === 'Exporter' ? 'Exporter' : 'Wholesale Buyer';
+
+        return {
+          id: o.id,
+          orderId: o.orderNumber || `#ORD-${o.id.slice(0, 5)}`,
+          cropName: o.cropName,
+          variety: o.cropVariety || 'Standard',
+          quantityKg: qty,
+          agreedPricePerKg: rate,
+          grossAmount: gross,
+          transportCost: transport,
+          platformFee: platform,
+          netPayout: net,
+          buyerName: o.buyerName || 'Verified Buyer',
+          buyerType: buyerTypeClean,
+          saleDate: o.pickupDate || o.createdAt || 'Today',
+          status: st,
+          paymentMethod: o.paymentMode || 'Direct Bank Escrow',
+          transactionRef: `TXN-${o.id.slice(0, 6).toUpperCase()}`,
+        };
+      })
+      .filter((s) => !existingIds.has(s.id));
+
+    return [...salesHistory, ...fromOrders];
+  }, [salesHistory, orders]);
+
   // Filtered sales
   const filteredSales = useMemo(() => {
-    return salesHistory.filter((sale) => {
-      // Time filter
-      if (timeFilter === 'This Month') {
-        if (!sale.saleDate.toLowerCase().includes('sep') && !sale.saleDate.toLowerCase().includes('today')) {
-          return false;
-        }
-      } else if (timeFilter === 'Last Month') {
-        if (!sale.saleDate.toLowerCase().includes('aug')) {
-          return false;
+    return allSales.filter((sale) => {
+      // Dynamic time filter using real Date calculations
+      if (timeFilter !== 'All') {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        const parsed = new Date(sale.saleDate);
+        const isValid = !isNaN(parsed.getTime());
+
+        if (timeFilter === 'This Month') {
+          if (isValid) {
+            if (parsed.getMonth() !== currentMonth || parsed.getFullYear() !== currentYear) return false;
+          } else {
+            const currentMonthShort = now.toLocaleString('en-US', { month: 'short' }).toLowerCase();
+            const lowerDate = sale.saleDate.toLowerCase();
+            if (!lowerDate.includes('today') && !lowerDate.includes(currentMonthShort)) return false;
+          }
+        } else if (timeFilter === 'Last Month') {
+          const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+          const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+          if (isValid) {
+            if (parsed.getMonth() !== lastMonth || parsed.getFullYear() !== lastMonthYear) return false;
+          } else {
+            const lastMonthDate = new Date(currentYear, currentMonth - 1, 1);
+            const lastMonthShort = lastMonthDate.toLocaleString('en-US', { month: 'short' }).toLowerCase();
+            if (!sale.saleDate.toLowerCase().includes(lastMonthShort)) return false;
+          }
         }
       }
 
@@ -88,7 +165,7 @@ export default function SalesHistoryScreen() {
 
       return true;
     });
-  }, [salesHistory, timeFilter, statusFilter, searchQuery]);
+  }, [allSales, timeFilter, statusFilter, searchQuery]);
 
   // Aggregate Metrics
   const aggregateMetrics = useMemo(() => {

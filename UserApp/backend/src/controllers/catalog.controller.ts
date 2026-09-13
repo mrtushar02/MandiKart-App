@@ -90,12 +90,13 @@ export class CatalogController {
 
     try {
       const supabase = getSupabaseAdmin();
+      // NOTE: omit farmers(*) JOIN to avoid Supabase statement timeout (error 57014)
       let query = supabase
         .from('products')
-        .select('*, farmers(full_name, state, district)')
-        // RULE: only show farmer-confirmed global listings (is_active AND target_buyer=BOTH)
+        .select('*')
+        // RULE: show active farmer listings accessible to retail/bulk buyers
         .eq('is_active', true)
-        .eq('target_buyer', 'BOTH')
+        .in('target_buyer', ['BOTH', 'RETAIL'])
         .gt('available_quantity', 0)
         .order('created_at', { ascending: false });
 
@@ -107,46 +108,11 @@ export class CatalogController {
 
       if (error) {
         console.warn('[CatalogController] Supabase products query error:', error.message, 'Serving cached fallback catalog.');
-        const fallbackCatalog = [
-          {
-            id: 'prod_1',
-            farmerId: 'farmer_ramesh_01',
-            farmerName: 'Ramesh Patil',
-            location: 'Nashik, Maharashtra',
-            cropName: 'Red Onion',
-            cropVariety: 'Garwa',
-            grade: 'A',
-            category: 'Vegetables',
-            availableQuantity: 1400,
-            quantityUnit: 'kg',
-            basePricePerUnit: 26.5,
-            minOrderQuantity: 50,
-            targetBuyer: 'BOTH',
-            images: ['https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600'],
-            shelfLifeDays: 30,
-          },
-          {
-            id: 'prod_2',
-            farmerId: 'farmer_ramesh_01',
-            farmerName: 'Ramesh Patil',
-            location: 'Nashik, Maharashtra',
-            cropName: 'Tomato',
-            cropVariety: 'Vaishali',
-            grade: 'A',
-            category: 'Vegetables',
-            availableQuantity: 550,
-            quantityUnit: 'kg',
-            basePricePerUnit: 22.0,
-            minOrderQuantity: 25,
-            targetBuyer: 'BOTH',
-            images: ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600'],
-            shelfLifeDays: 7,
-          },
-        ];
-        catalogCache.set(cacheKey, fallbackCatalog, 60);
+        const fallbackCatalog: any[] = [];
+        catalogCache.set(cacheKey, fallbackCatalog, 1);
         res.status(200).json({
           data: fallbackCatalog,
-          meta: { total: fallbackCatalog.length, fallback: true },
+          meta: { total: 0, fallback: true },
           error: null,
         });
         return;
@@ -162,16 +128,15 @@ export class CatalogController {
       const sanitizeCatalogImg = (rawUrl: string | undefined, cropName: string, category: string): string => {
         if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim() === '') return getCropFallbackUrl(cropName, category);
         if (rawUrl.startsWith('file://')) return getCropFallbackUrl(cropName, category); // local device path
-        if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:image/')) {
-          return rawUrl;
-        }
+        const isOldHardcodedOnion = rawUrl.includes('AB6AXuC5ju') && !(cropName || '').toLowerCase().includes('onion');
+        if (isOldHardcodedOnion) return getCropFallbackUrl(cropName, category);
+        // Allow compact base64 data URIs under 2MB
+        if (rawUrl.startsWith('data:image/') && rawUrl.length < 2000000) return rawUrl;
+        if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) return rawUrl;
         return getCropFallbackUrl(cropName, category);
       };
 
       const formatted = (data || []).map((row: any) => {
-        const farmerInfo = row.farmers || {};
-        const district = farmerInfo.district || 'Nashik';
-        const state = farmerInfo.state || 'Maharashtra';
         const rawImages: string[] = Array.isArray(row.images) ? row.images : [];
         const safeImages = rawImages
           .map((img: string) => sanitizeCatalogImg(img, row.crop_name, row.category))
@@ -181,8 +146,8 @@ export class CatalogController {
         return {
           id: row.id,
           farmerId: row.farmer_id,
-          farmerName: farmerInfo.full_name || 'MandiKart Farmer',
-          location: row.pickup_address || `${district}, ${state}`,
+          farmerName: 'MandiKart Farmer',
+          location: row.pickup_address || 'Maharashtra',
           cropName: row.crop_name,
           cropVariety: row.crop_variety,
           grade: row.grade,
@@ -202,11 +167,13 @@ export class CatalogController {
         };
       });
 
-      // Merge live registered products — only fully published ones (isActive + targetBuyer='BOTH')
+      // Merge live registered products — only fully published active ones
       try {
         const registered = ProductRegistryService.getRegisteredProducts();
         for (const reg of registered) {
-          if (reg.isActive && reg.targetBuyer === 'BOTH' && !formatted.some((p: any) => p.id === reg.id)) {
+          const isListingActive = reg.isActive === true || reg.status === 'ACTIVE';
+          const targetValid = !reg.targetBuyer || ['BOTH', 'ALL', 'CONSUMER', 'RETAIL'].includes(reg.targetBuyer);
+          if (isListingActive && targetValid && !formatted.some((p: any) => p.id === reg.id)) {
             // Sanitize registry images too
             const regImages = (reg.images || []).map((img: string) =>
               sanitizeCatalogImg(img, reg.cropName, reg.category)
@@ -247,7 +214,7 @@ export class CatalogController {
       const supabase = getSupabaseAdmin();
       const { data, error } = await supabase
         .from('products')
-        .select('*, farmers(full_name, state, district)')
+        .select('*')
         .eq('id', id)
         .single();
       if (error || !data) {

@@ -33,6 +33,26 @@ export const DisputeResolution: React.FC<DisputeResolutionProps> = ({
   const [adminNote, setAdminNote] = useState('');
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
+  // Sync with live Admin backend (port 4003) for real-time dispute updates
+  React.useEffect(() => {
+    const fetchDisputes = () => {
+      fetch('http://localhost:4003/api/v1/admin/disputes')
+        .then((res) => res.json())
+        .then((result) => {
+          if (Array.isArray(result?.data) && result.data.length > 0) {
+            setDisputes(result.data);
+            try {
+              localStorage.setItem('mandikart_admin_disputes', JSON.stringify(result.data));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    };
+    fetchDisputes();
+    const interval = setInterval(fetchDisputes, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Helper for evidence images
   const getDisputeCropImage = (cropName: string) => {
     const lower = cropName.toLowerCase();
@@ -248,7 +268,7 @@ export const DisputeResolution: React.FC<DisputeResolutionProps> = ({
                 <span className="text-xs font-mono tracking-widest uppercase">Disputed Funds</span>
                 <span className="material-symbols-outlined text-orange-400">payments</span>
               </div>
-              <div className="text-3xl font-black text-white">₹{totalDisputedAmount.toLocaleString()}</div>
+              <div className="text-3xl font-black text-white">₹{(Number(totalDisputedAmount) || 0).toLocaleString()}</div>
               <div className="text-xs text-orange-400 mt-2 font-mono">
                 Locked in escrow pending ruling
               </div>
@@ -355,7 +375,7 @@ export const DisputeResolution: React.FC<DisputeResolutionProps> = ({
                           <div className="text-xs text-zinc-400">{dispute.cropName}</div>
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-white">
-                          ₹{dispute.amountDisputed.toLocaleString()}
+                          ₹{(Number(dispute.amountDisputed) || 0).toLocaleString()}
                         </td>
                         <td className="p-3">
                           {getSeverityBadge(dispute.severity)}
@@ -418,7 +438,7 @@ export const DisputeResolution: React.FC<DisputeResolutionProps> = ({
                     </div>
                     <div className="flex justify-between border-t border-zinc-800 pt-2">
                       <span className="text-zinc-400">Disputed Escrow Value:</span>
-                      <span className="text-white font-bold text-sm">₹{selectedDispute.amountDisputed.toLocaleString()}</span>
+                      <span className="text-white font-bold text-sm">₹{(Number(selectedDispute.amountDisputed) || 0).toLocaleString()}</span>
                     </div>
                   </div>
 

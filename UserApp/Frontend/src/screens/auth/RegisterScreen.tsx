@@ -12,12 +12,13 @@ import AuthBackground from '../../components/AuthBackground';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../services/apiClient';
 import { sendLocalOtpNotification } from '../../services/notificationService';
+import { GoogleAuthModal } from '../../components/GoogleAuthModal';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 type UserRole = 'household' | 'bulk';
 
 export default function RegisterScreen({ navigation }: Props) {
-  const { signUp, signInWithGoogle } = useAuth();
+  const { signUp, signInWithGoogle, setAuthenticatedBuyer } = useAuth();
 
   const [role, setRole] = useState<UserRole>('household');
   const [name, setName] = useState('');
@@ -29,6 +30,7 @@ export default function RegisterScreen({ navigation }: Props) {
   const [agreed, setAgreed] = useState(true);
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
 
   // Live password strength indicator
   const getPasswordStrength = () => {
@@ -98,20 +100,8 @@ export default function RegisterScreen({ navigation }: Props) {
     }
   };
 
-  const handleSocialSignup = async () => {
-    setLoading(true);
-    try {
-      const targetEmail = email.trim() || (name.trim() ? `${name.trim().toLowerCase().replace(/\s+/g, '')}@gmail.com` : 'buyer.google@mandikart.in');
-      const targetName = name.trim() || 'Google Buyer';
-      const ok = await signInWithGoogle(undefined, targetEmail, targetName);
-      if (!ok) {
-        Alert.alert('Google Sign-In Notice', 'Could not complete Google authentication. Please check network connection.');
-      }
-    } catch (err: any) {
-      Alert.alert('Google Sign-In Error', err?.message || 'Failed to authenticate with Google.');
-    } finally {
-      setLoading(false);
-    }
+  const handleSocialSignup = () => {
+    setShowGoogleModal(true);
   };
 
   return (
@@ -323,6 +313,17 @@ export default function RegisterScreen({ navigation }: Props) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GoogleAuthModal
+        visible={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onSuccess={(data) => {
+          setAuthenticatedBuyer(data.token, data.buyer);
+        }}
+        onError={(errMsg) => {
+          Alert.alert('Google Sign-In Notice', errMsg || 'Could not complete Google authentication.');
+        }}
+      />
     </AuthBackground>
   );
 }

@@ -24,61 +24,61 @@ const AmbientGlowSvg = React.memo(() => (
   <View style={StyleSheet.absoluteFill} pointerEvents="none">
     <Svg height="100%" width="100%" viewBox={`0 0 ${SCREEN_WIDTH} ${SCREEN_HEIGHT}`}>
       <Defs>
-        {/* Top-Left Rich Vibrant Harvest Orange Ambient Glow */}
+        {/* Top-Left Rich Vibrant Harvest Amber & Saffron Ambient Glow */}
         <RadialGradient
           id="orangeAura"
           cx="15%"
           cy="6%"
-          rx="80%"
+          rx="85%"
           ry="65%"
           fx="15%"
           fy="6%"
           gradientUnits="userSpaceOnUse"
         >
-          <Stop offset="0%" stopColor="#e97739ff" stopOpacity="0.32" />
-          <Stop offset="35%" stopColor="#F97316" stopOpacity="0.12" />
-          <Stop offset="70%" stopColor="#e16a33ff" stopOpacity="0.08" />
-          <Stop offset="100%" stopColor="#FAF8F5" stopOpacity="0" />
+          <Stop offset="0%" stopColor="#F59E0B" stopOpacity="0.38" />
+          <Stop offset="35%" stopColor="#EA580C" stopOpacity="0.22" />
+          <Stop offset="70%" stopColor="#FB923C" stopOpacity="0.10" />
+          <Stop offset="100%" stopColor="#FBF9F5" stopOpacity="0" />
         </RadialGradient>
 
-        {/* Bottom-Right Rich Vibrant Growth Emerald Green Glow */}
+        {/* Bottom-Right Rich Growth Emerald & Kisan Green Glow */}
         <RadialGradient
           id="greenAura"
           cx="85%"
-          cy="92%"
-          rx="85%"
+          cy="90%"
+          rx="90%"
           ry="70%"
           fx="85%"
-          fy="92%"
+          fy="90%"
           gradientUnits="userSpaceOnUse"
         >
-          <Stop offset="0%" stopColor="#15803D" stopOpacity="0.28" />
-          <Stop offset="35%" stopColor="#22C55E" stopOpacity="0.08" />
-          <Stop offset="70%" stopColor="#86EFAC" stopOpacity="0.08" />
-          <Stop offset="100%" stopColor="#FAF8F5" stopOpacity="0" />
+          <Stop offset="0%" stopColor="#10B981" stopOpacity="0.42" />
+          <Stop offset="40%" stopColor="#059669" stopOpacity="0.25" />
+          <Stop offset="75%" stopColor="#34D399" stopOpacity="0.12" />
+          <Stop offset="100%" stopColor="#FBF9F5" stopOpacity="0" />
         </RadialGradient>
 
-        {/* Center Golden Sunlight Aura */}
+        {/* Center-Right Warm Sunlight Golden-Green Aura */}
         <RadialGradient
           id="sunlightAura"
-          cx="50%"
-          cy="48%"
+          cx="65%"
+          cy="38%"
           rx="65%"
           ry="50%"
-          fx="50%"
-          fy="48%"
+          fx="65%"
+          fy="38%"
           gradientUnits="userSpaceOnUse"
         >
-          <Stop offset="0%" stopColor="#F59E0B" stopOpacity="0.22" />
-          <Stop offset="55%" stopColor="#FDE68A" stopOpacity="0.10" />
-          <Stop offset="100%" stopColor="#FAF8F5" stopOpacity="0" />
+          <Stop offset="0%" stopColor="#F97316" stopOpacity="0.18" />
+          <Stop offset="45%" stopColor="#10B981" stopOpacity="0.15" />
+          <Stop offset="100%" stopColor="#FBF9F5" stopOpacity="0" />
         </RadialGradient>
       </Defs>
 
-      {/* Base Canvas */}
+      {/* Crisp Ultra-Modern Canvas Base */}
       <Rect x="0" y="0" width="100%" height="100%" fill="#FAF8F5" />
 
-      {/* High-Intensity Ambient Glows */}
+      {/* High-Intensity Modern Ambient Glows */}
       <Rect x="0" y="0" width="100%" height="100%" fill="url(#orangeAura)" />
       <Rect x="0" y="0" width="100%" height="100%" fill="url(#greenAura)" />
       <Rect x="0" y="0" width="100%" height="100%" fill="url(#sunlightAura)" />

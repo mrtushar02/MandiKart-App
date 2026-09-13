@@ -41,6 +41,7 @@ import {
   Share2,
 } from 'lucide-react-native';
 import { MKLayout } from '@/constants/layout';
+import { useOrderStore } from '@/store/orderStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -50,14 +51,28 @@ export default function TrackLiveVehicleScreen() {
   const params = useLocalSearchParams<{ orderId?: string; crop?: string; buyer?: string }>();
 
   const orderId = params.orderId || 'MK-8921';
-  const crop = params.crop || 'Sharbati Wheat (500 KG)';
-  const buyer = params.buyer || 'Reliance Fresh Sourcing Hub';
+  const orderFromStore = useOrderStore((state) => state.getOrderById(orderId));
 
-  const [etaMinutes, setEtaMinutes] = useState(24);
+  const driverName = orderFromStore?.driverName || 'Ramesh Pawar (EV Logistics)';
+  const driverPhone = orderFromStore?.driverPhone || '+91 98231 44510';
+  const vehicleNumber = orderFromStore?.vehicleNumber || 'Tata Ace EV • MH 15 BX 4022';
+  const displayCrop = orderFromStore ? `${orderFromStore.cropName} (${orderFromStore.quantity})` : params.crop || 'Sharbati Wheat (500 KG)';
+  const displayBuyer = orderFromStore?.buyerName || params.buyer || 'Reliance Fresh Sourcing Hub';
+
+  // Deterministic 4-digit security PIN based on orderId
+  const pinCode = React.useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < orderId.length; i++) {
+      hash = (hash * 31 + orderId.charCodeAt(i)) % 9000;
+    }
+    return (Math.abs(hash) + 1000).toString();
+  }, [orderId]);
+
+  const [etaMinutes, setEtaMinutes] = useState(orderFromStore?.etaMins || 24);
   const topPadding = MKLayout.getTopHeaderPadding(insets);
 
   const handleCallDriver = () => {
-    Alert.alert('Calling Driver', 'Dialing Ramesh Pawar at +91 98231 44510...');
+    Alert.alert('Calling Driver', `Dialing ${driverName} at ${driverPhone}...`);
   };
 
   const handleShareTracking = () => {
@@ -198,11 +213,11 @@ export default function TrackLiveVehicleScreen() {
               style={styles.driverAvatar}
             />
             <View style={styles.driverInfoCol}>
-              <Text style={styles.driverName}>Ramesh Pawar</Text>
-              <Text style={styles.vehicleNumber}>Tata Ace • MH 15 BX 4022</Text>
+              <Text style={styles.driverName}>{driverName}</Text>
+              <Text style={styles.vehicleNumber}>{vehicleNumber}</Text>
               <View style={styles.driverBadgeRow}>
                 <Text style={styles.driverRating}>★ 4.9</Text>
-                <Text style={styles.driverPickups}>(340 successful pickups)</Text>
+                <Text style={styles.driverPickups}>(Verified Partner)</Text>
               </View>
             </View>
           </View>
@@ -234,11 +249,11 @@ export default function TrackLiveVehicleScreen() {
           <View style={styles.pinTextCol}>
             <Text style={styles.pinTitle}>Loading Verification Code</Text>
             <Text style={styles.pinSubtitle}>
-              Share this 4-digit code with the driver before loading your {crop}.
+              Share this 4-digit code with the driver before loading your {displayCrop}.
             </Text>
           </View>
           <View style={styles.pinCodeBadge}>
-            <Text style={styles.pinCodeText}>8492</Text>
+            <Text style={styles.pinCodeText}>{pinCode}</Text>
           </View>
         </View>
 

@@ -295,3 +295,145 @@ export interface AppNotification {
   createdAt: string;
   actionUrl?: string;
 }
+
+// ─── FPO (Farmer Producer Organization) Types ─────────────────────────────────
+
+export type FPORegistrationType = 'FPC' | 'COOPERATIVE' | 'TRUST' | 'PACS' | 'OTHER';
+
+export type FPODesignation = 'CEO' | 'CHAIRMAN' | 'SECRETARY' | 'BOARD_MEMBER' | 'MANAGER' | 'OTHER';
+
+export type FPOMemberStatus = 'ACTIVE' | 'PENDING' | 'INACTIVE' | 'REJECTED';
+
+export type FPOLotGrade = 'A' | 'B' | 'C' | 'UNGRADED';
+
+export type FPOLotStatus = 'DRAFT' | 'GRADING' | 'LIVE' | 'CONTRACTED' | 'SOLD' | 'EXPIRED';
+
+export type FPOProcurementStatus = 'COLLECTING_DEMAND' | 'SEEKING_QUOTES' | 'ORDER_PLACED' | 'DELIVERED';
+
+export type FPOSchemeStatus = 'ELIGIBLE' | 'APPLIED' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
+
+/** Top-level FPO organization profile stored in the farmer's user record */
+export interface FPODetails {
+  fpoId?: string;
+  fpoName: string;
+  registrationNumber: string;
+  registrationType: FPORegistrationType;
+  yearOfFormation: number;
+  nabardPromoted: boolean;
+  promoterName?: string;
+
+  representativeName: string;
+  designation: FPODesignation;
+  representativeMobile: string;
+  representativeWhatsApp?: string;
+  representativeEmail?: string;
+  representativeAvatarUri?: string;
+  experienceYears: number;
+
+  state: string;
+  district: string;
+  block?: string;
+  headquartersVillage: string;
+  villagesCovered: string[];
+
+  memberCount: number;
+  femaleMemberPercent: number;
+  primaryCrops: string[];
+  annualTurnoverBracket: '<10L' | '10L-50L' | '50L-1Cr' | '>1Cr';
+
+  bankName: string;
+  accountNumber: string;
+  ifscCode: string;
+  accountType: 'CURRENT' | 'SAVINGS';
+
+  totalInventoryMT?: number;
+  pendingMemberRequests?: number;
+}
+
+/** An aggregate produce lot created by the FPO for bulk sale */
+export interface FPOLot {
+  id: string;
+  fpoId: string;
+  cropName: string;
+  grade: FPOLotGrade;
+  estimatedQtyMT: number;
+  availableFromDate: string;
+  availableToDate: string;
+  storageLocation?: string;
+  askPricePerKg: number;
+  minimumBidPerKg?: number;
+  status: FPOLotStatus;
+  notes?: string;
+  highestBidPerKg?: number;
+  highestBidBuyer?: string;
+  totalBids?: number;
+  contributingMembers?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An individual farmer registered under an FPO */
+export interface FPOMember {
+  id: string;
+  fpoId: string;
+  farmerId: string;
+  fullName: string;
+  phone: string;
+  village: string;
+  district: string;
+  landAcres: number;
+  crops: string[];
+  status: FPOMemberStatus;
+  totalEarningsViaFPO?: number;
+  totalDeliveredMT?: number;
+  kccLimit?: number;
+  kccBank?: string;
+  joinedAt: string;
+}
+
+/** A collective procurement order managed by the FPO */
+export interface FPOProcurement {
+  id: string;
+  fpoId: string;
+  itemName: string;
+  itemType: 'SEED' | 'FERTILIZER' | 'PESTICIDE' | 'EQUIPMENT' | 'OTHER';
+  totalQuantity: number;
+  unit: string;
+  demandClosingDate: string;
+  status: FPOProcurementStatus;
+  bestQuotePrice?: number;
+  bestQuoteSupplier?: string;
+  savingVsMarket?: number;
+  memberCount?: number;
+  createdAt: string;
+}
+
+/** A government scheme the FPO qualifies for or has applied to */
+export interface FPOScheme {
+  id: string;
+  schemeName: string;
+  ministry: string;
+  benefit: string;
+  benefitAmount?: number;
+  deadline?: string;
+  status: FPOSchemeStatus;
+  appliedAt?: string;
+  qualificationReasons: string[];
+  applyUrl?: string;
+}
+
+/** Institutional B2B Buyer for FPOs */
+export interface FPOBuyer {
+  id: string;
+  companyName: string;
+  buyerType: 'RETAIL_CHAIN' | 'PROCESSOR' | 'EXPORTER' | 'WHOLESALER' | 'INSTITUTION';
+  verified: boolean;
+  requiredCrops: string[];
+  minLotMT: number;
+  paymentTermDays: number;
+  rating: number;
+  location: string;
+  activeContracts: number;
+  contactPerson: string;
+}
+

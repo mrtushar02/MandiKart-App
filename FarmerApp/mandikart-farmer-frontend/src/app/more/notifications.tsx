@@ -38,6 +38,7 @@ import {
 } from 'lucide-react-native';
 import { MKBackground, MKHeader } from '@/components/ui';
 import { getApiBaseUrl, appStorage } from '@/services/consentService';
+import { useAuthStore } from '@/store/authStore';
 
 interface NotificationItem {
   id: string;
@@ -109,7 +110,7 @@ export default function NotificationsScreen() {
   const fetchNotifications = async () => {
     try {
       const baseUrl = getApiBaseUrl();
-      const token = (await appStorage.getItem('mandikart_session_token')) || 'mock_farmer_token_01';
+      const token = useAuthStore.getState().token || (await appStorage.getItem('mandikart_farmer_token')) || '';
 
       // 2-second timeout to prevent hanging on mobile
       const controller = new AbortController();
@@ -157,7 +158,7 @@ export default function NotificationsScreen() {
 
     try {
       const baseUrl = getApiBaseUrl();
-      const token = (await appStorage.getItem('mandikart_session_token')) || 'mock_farmer_token_01';
+      const token = useAuthStore.getState().token || (await appStorage.getItem('mandikart_farmer_token')) || '';
       await fetch(`${baseUrl}/notifications/${id}/read`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
@@ -171,7 +172,7 @@ export default function NotificationsScreen() {
 
     try {
       const baseUrl = getApiBaseUrl();
-      const token = (await appStorage.getItem('mandikart_session_token')) || 'mock_farmer_token_01';
+      const token = useAuthStore.getState().token || (await appStorage.getItem('mandikart_farmer_token')) || '';
       await fetch(`${baseUrl}/notifications/read-all`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
@@ -183,7 +184,7 @@ export default function NotificationsScreen() {
     setTestPushLoading(true);
     try {
       const baseUrl = getApiBaseUrl();
-      const token = (await appStorage.getItem('mandikart_session_token')) || 'mock_farmer_token_01';
+      const token = useAuthStore.getState().token || (await appStorage.getItem('mandikart_farmer_token')) || '';
 
       const res = await fetch(`${baseUrl}/notifications/test-push`, {
         method: 'POST',

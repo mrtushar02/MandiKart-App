@@ -53,14 +53,32 @@ import { MKScreen, MKCard } from '@/components/ui';
 import { MKColors } from '@/constants/colors';
 import { MKSpacing } from '@/constants/spacing';
 import { useOrderStore, OrderItem, OrderTab } from '@/store/orderStore';
+import { useAuthStore } from '@/store/authStore';
+import FPOAnalyticsScreen from '@/components/fpo/FPOAnalyticsScreen';
 
 export default function OrdersScreen() {
+  const user = useAuthStore((state) => state.user);
+
+  // ── FPO BRANCH: Return performance & financial analytics screen ──
+  if (user?.role === 'FPO') {
+    return <FPOAnalyticsScreen />;
+  }
+
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState<OrderTab>('Active');
   const [searchQuery, setSearchQuery] = useState('');
   const orders = useOrderStore((state) => state.orders);
   const acceptOrderOffer = useOrderStore((state) => state.acceptOrderOffer);
+  const updateOrderStatus = useOrderStore((state) => state.updateOrderStatus);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderItem | null>(null);
+
+  React.useEffect(() => {
+    useOrderStore.getState().syncWithBackend().catch(() => {});
+    const interval = setInterval(() => {
+      useOrderStore.getState().syncWithBackend().catch(() => {});
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const activeCount = orders.filter((o) => o.tab === 'Active').length;
   const pendingCount = orders.filter((o) => o.tab === 'Pending').length;
@@ -89,14 +107,45 @@ export default function OrdersScreen() {
   }
 
   function handleCounterOffer(order: OrderItem) {
+    const currentRate = parseFloat(order.ratePerKg.replace(/[^0-9.]/g, '')) || 20;
+    const plusOne = currentRate + 1.5;
+    const plusTwo = currentRate + 3.0;
+
     Alert.alert(
-      'Submit Counter-Offer',
-      `Current Buyer Offer: ${order.ratePerKg}\nEnter your desired rate for ${order.cropName}:`,
+      `Counter-Offer for ${order.cropName}`,
+      `Current Buyer Rate: ${order.ratePerKg}\nChoose a proposed rate or open live negotiation chat:`,
       [
         {
-          text: 'Propose +₹2.00/kg',
+          text: `Propose ₹${plusOne.toFixed(1)}/kg`,
           onPress: () => {
-            Alert.alert('Counter Sent', 'Buyer notified of your proposed rate.');
+            updateOrderStatus(order.id, {
+              statusLabel: `Counter-Offered ₹${plusOne.toFixed(1)}/kg`,
+              ratePerKg: `₹${plusOne.toFixed(1)}/kg`,
+            });
+            Alert.alert('Counter-Offer Submitted', `Buyer ${order.buyerName} has been notified of your ₹${plusOne.toFixed(1)}/kg proposal.`);
+          },
+        },
+        {
+          text: `Propose ₹${plusTwo.toFixed(1)}/kg`,
+          onPress: () => {
+            updateOrderStatus(order.id, {
+              statusLabel: `Counter-Offered ₹${plusTwo.toFixed(1)}/kg`,
+              ratePerKg: `₹${plusTwo.toFixed(1)}/kg`,
+            });
+            Alert.alert('Counter-Offer Submitted', `Buyer ${order.buyerName} has been notified of your ₹${plusTwo.toFixed(1)}/kg proposal.`);
+          },
+        },
+        {
+          text: 'Open Chat 💬',
+          onPress: () => {
+            router.push({
+              pathname: '/sell/chat',
+              params: {
+                negotiationId: order.id,
+                crop: order.cropName,
+                buyer: order.buyerName,
+              },
+            });
           },
         },
         { text: 'Cancel', style: 'cancel' },
@@ -212,6 +261,20 @@ export default function OrdersScreen() {
 
       {/* ── 5. Orders List ── */}
       <View style={styles.ordersList}>
+        {selectedTab === 'Active' && pendingCount > 0 && (
+          <Pressable
+            style={styles.pendingOrderAlertBanner}
+            onPress={() => setSelectedTab('Pending')}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <Bell size={16} color="#C2410C" />
+              <Text style={styles.pendingOrderAlertText}>
+                {pendingCount} new buyer order(s) placed & awaiting action!
+              </Text>
+            </View>
+            <Text style={styles.pendingOrderAlertLink}>View Pending →</Text>
+          </Pressable>
+        )}
         {filteredOrders.length === 0 ? (
           <View style={styles.emptyStateBox}>
             <Sprout size={36} color="#9CA3AF" />
@@ -285,7 +348,7 @@ export default function OrdersScreen() {
 
               {/* Crop & Buyer Info */}
               <View style={styles.cropInfoRow}>
-                <Image source={{ uri: order.cropImage }} style={styles.cropThumb} />
+                <Image source={{ uri: order.cropImage || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }} style={styles.cropThumb} />
                 <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
                   <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cropNameTitle}>
                     {order.cropName} • {order.grade}
@@ -496,7 +559,7 @@ export default function OrdersScreen() {
                 {/* Crop & Quantity Header Card */}
                 <View style={styles.modalCropCard}>
                   <Image
-                    source={{ uri: selectedOrderDetails.cropImage }}
+                    source={{ uri: selectedOrderDetails.cropImage || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }}
                     style={styles.modalCropImg}
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -760,39 +823,42 @@ const styles = StyleSheet.create({
   summaryStrip: {
     flexDirection: 'row',
     width: '100%',
-    gap: 10,
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: 14,
   },
   summaryBox: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    borderRadius: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#1A1C1E',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    borderWidth: 1.5,
-    borderColor: '#E3DCCF',
+    elevation: 4,
+    shadowColor: '#0F2C56',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     minWidth: 0,
   },
   summaryBoxActive: {
-    borderColor: '#15803D',
+    borderColor: '#10B981',
     backgroundColor: '#F0FDF4',
+    shadowColor: '#10B981',
+    shadowOpacity: 0.15,
   },
   summaryCount: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '900',
     marginBottom: 2,
+    letterSpacing: -0.5,
   },
   summaryLabel: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#6B7280',
+    color: '#64748B',
     letterSpacing: 0.6,
   },
 
@@ -800,52 +866,54 @@ const styles = StyleSheet.create({
   filterTabsRow: {
     flexDirection: 'row',
     width: '100%',
-    backgroundColor: '#EFE8DC',
-    borderRadius: 14,
-    padding: 3,
-    marginBottom: 12,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 14,
     gap: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   filterPill: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 11,
+    paddingVertical: 9,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   filterPillActive: {
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowColor: '#0F2C56',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
   },
   filterPillText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '600',
     color: '#64748B',
   },
   filterPillTextActive: {
     fontWeight: '800',
-    color: '#1A1C1E',
+    color: '#0F172A',
   },
 
   /* ── Orders List & Cards ── */
   ordersList: {
-    gap: 12,
+    gap: 14,
   },
   orderCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#E3DCCF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F2C56',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 5,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -1406,5 +1474,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  pendingOrderAlertBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1.5,
+    borderColor: '#FFEDD5',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  pendingOrderAlertText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#C2410C',
+    flex: 1,
+  },
+  pendingOrderAlertLink: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#EA580C',
   },
 });

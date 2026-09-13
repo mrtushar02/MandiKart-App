@@ -3,15 +3,39 @@
  * Handles farmer produce batch listings, available inventory management, and soft deletion.
  */
 
+import crypto from 'crypto';
 import { Request, Response } from 'express';
 import { CreateProductSchema, UpdateProductStockSchema, UserRole } from '@mandikart/shared-types';
-import { getSupabaseAdmin, isSupabaseConfigured, auditLog, ProductRegistryService } from '@mandikart/shared-core';
+import { getSupabaseAdmin, isSupabaseConfigured, auditLog, ProductRegistryService, getCropImageUrl } from '@mandikart/shared-core';
 import { CONSTANTS } from '@mandikart/shared-config';
 import { DashboardService } from '../services/dashboard.service.js';
 
+export function toUuid(id?: string): string {
+  if (!id) return crypto.randomUUID();
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (UUID_REGEX.test(id)) return id;
+  const hash = crypto.createHash('md5').update(id).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+}
+
+const sanitizeImage = (img: any): boolean => {
+  if (typeof img !== 'string') return false;
+  if (img.startsWith('file://')) return false;
+  // Allow safe compact base64 data URIs under 2MB
+  if (img.startsWith('data:image')) {
+    return img.length <= 2000000;
+  }
+  // Allow valid HTTP/HTTPS URLs (including CDN and Supabase storage URLs) up to 2048 chars
+  if (img.startsWith('http://') || img.startsWith('https://')) {
+    return img.length <= 2048;
+  }
+  return false;
+};
+
 export class ProductsController {
   static async listProducts(req: Request, res: Response): Promise<void> {
-    const farmerId = req.user?.id || 'farmer_ramesh_01';
+    const rawFarmerId = (req.query.farmerId as string) || req.user?.id || '';
+    const farmerId = toUuid(rawFarmerId);
     const status = req.query.status as string;
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
@@ -19,52 +43,10 @@ export class ProductsController {
 
     try {
       if (!isSupabaseConfigured()) {
-        const fallback = [
-          {
-            id: 'prod_1',
-            farmerId,
-            cropName: 'Red Onion',
-            cropVariety: 'Garwa',
-            grade: 'A',
-            category: 'Vegetables',
-            totalQuantity: 2000,
-            availableQuantity: 1400,
-            reservedQuantity: 600,
-            quantityUnit: 'kg',
-            basePricePerUnit: 26.5,
-            minOrderQuantity: 50,
-            targetBuyer: 'BOTH',
-            images: ['https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600'],
-            isActive: true,
-            shelfLifeDays: 30,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'prod_2',
-            farmerId,
-            cropName: 'Tomato',
-            cropVariety: 'Vaishali',
-            grade: 'A',
-            category: 'Vegetables',
-            totalQuantity: 800,
-            availableQuantity: 550,
-            reservedQuantity: 250,
-            quantityUnit: 'kg',
-            basePricePerUnit: 22.0,
-            minOrderQuantity: 25,
-            targetBuyer: 'BOTH',
-            images: ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600'],
-            isActive: true,
-            shelfLifeDays: 7,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-
+        const registered = ProductRegistryService.getRegisteredProducts();
         res.status(200).json({
-          data: fallback,
-          meta: { page: 1, limit: 20, total: fallback.length, totalPages: 1 },
+          data: registered,
+          meta: { page: 1, limit: 20, total: registered.length, totalPages: 1 },
           error: null,
         });
         return;
@@ -78,12 +60,14 @@ export class ProductsController {
         .from('products')
         .select('*', { count: 'exact' });
 
-      if (isFarmerUuid && farmerId !== 'd1111111-1111-1111-1111-111111111111' && farmerId !== '45f8c047-c3eb-42ff-aec3-5d2b1b942777') {
-        query = query.or(`farmer_id.eq.${farmerId},farmer_id.eq.d1111111-1111-1111-1111-111111111111,farmer_id.eq.45f8c047-c3eb-42ff-aec3-5d2b1b942777`);
+      if (isFarmerUuid) {
+        query = query.eq('farmer_id', farmerId);
       } else {
-        query = query.or('farmer_id.eq.d1111111-1111-1111-1111-111111111111,farmer_id.eq.45f8c047-c3eb-42ff-aec3-5d2b1b942777');
+        query = query.eq('farmer_id', farmerId);
       }
 
+      // Exclude soft-deleted products so deletions are permanent
+      query = query.neq('is_active', false);
       query = query.order('created_at', { ascending: false });
 
       if (status === 'active') {
@@ -126,7 +110,7 @@ export class ProductsController {
         basePricePerUnit: Number(row.base_price_per_unit),
         minOrderQuantity: Number(row.min_order_quantity),
         targetBuyer: row.target_buyer,
-        images: row.images || [],
+        images: (row.images || []).filter(sanitizeImage),
         pickupAddress: row.pickup_address,
         isActive: !!row.is_active,
         status: resolveStatus(row),
@@ -136,16 +120,22 @@ export class ProductsController {
         updatedAt: row.updated_at,
       }));
 
-      // Merge real-time produce status from ProductRegistryService
+      // Merge real-time produce status from ProductRegistryService strictly for this farmer
       try {
-        const registered = ProductRegistryService.getRegisteredProducts();
+        const registered = ProductRegistryService.getRegisteredProducts().filter(
+          (reg: any) => reg.farmerId === farmerId
+        );
         for (const reg of registered) {
-          const existing = formatted.find((f: any) => f.id === reg.id);
+          const existing = formatted.find(
+            (f: any) => f.id === reg.id || (f.cropName && f.cropName.toLowerCase().trim() === (reg.cropName || '').toLowerCase().trim())
+          );
           const computedStatus = resolveStatus(reg);
 
           if (existing) {
             existing.isActive = reg.isActive ?? existing.isActive;
-            existing.status = computedStatus;
+            if (computedStatus === 'APPROVED' || computedStatus === 'ACTIVE' || computedStatus === 'REJECTED' || existing.status === 'PENDING_APPROVAL') {
+              existing.status = computedStatus;
+            }
           } else {
             formatted.unshift({
               id: reg.id,
@@ -161,7 +151,7 @@ export class ProductsController {
               basePricePerUnit: Number(reg.basePricePerUnit || 0),
               minOrderQuantity: Number(reg.minOrderQuantity || 1),
               targetBuyer: reg.targetBuyer || 'BOTH',
-              images: reg.images || [],
+              images: (reg.images || []).filter(sanitizeImage),
               pickupAddress: reg.location || reg.pickupAddress,
               isActive: !!reg.isActive,
               status: computedStatus,
@@ -194,9 +184,8 @@ export class ProductsController {
   }
 
   static async createProduct(req: Request, res: Response): Promise<void> {
-    const rawFarmerId = req.user?.id || 'farmer_ramesh_01';
-    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const farmerId = UUID_REGEX.test(rawFarmerId) ? rawFarmerId : 'd1111111-1111-1111-1111-111111111111';
+    const rawFarmerId = req.user?.id || '';
+    const farmerId = toUuid(rawFarmerId);
 
     const parse = CreateProductSchema.safeParse(req.body);
 
@@ -210,6 +199,16 @@ export class ProductsController {
     }
 
     const payload = parse.data;
+
+    // Prevent massive base64 strings from hanging the backend / Supabase
+    if (payload.images && Array.isArray(payload.images)) {
+      payload.images = payload.images.filter(sanitizeImage);
+      if (payload.images.length === 0) {
+        payload.images = [getCropImageUrl(payload.cropName, payload.category)];
+      }
+    } else {
+      payload.images = [getCropImageUrl(payload.cropName, payload.category)];
+    }
 
     // Price sanity check
     if (
@@ -231,6 +230,33 @@ export class ProductsController {
         payload.targetBuyer === 'PENDING_APPROVAL' || payload.targetBuyer === 'ADMIN_APPROVED'
           ? 'BOTH'
           : (payload.targetBuyer || 'BOTH');
+
+      // De-duplication check: if an identical crop with same farmer, cropName, and availableQuantity was created recently, reuse it
+      const { data: existingDup } = await supabase
+        .from('products')
+        .select('*')
+        .eq('farmer_id', farmerId)
+        .eq('crop_name', payload.cropName)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (existingDup && existingDup.length > 0) {
+        const existing = existingDup[0];
+        const ageMs = Date.now() - new Date(existing.created_at).getTime();
+        // If created within the last 60 seconds and has same quantity, return existing to avoid duplication loop
+        if (ageMs < 60000 && Math.abs(Number(existing.available_quantity) - Number(payload.totalQuantity)) < 1) {
+          console.log(`[ProductsController] Deduplicated repeated creation of ${payload.cropName} (${existing.id})`);
+          res.status(200).json({
+            data: {
+              ...existing,
+              status: existing.is_active ? 'ACTIVE' : (existing.target_buyer === 'ADMIN_APPROVED' ? 'APPROVED' : 'PENDING_APPROVAL'),
+            },
+            meta: null,
+            error: null,
+          });
+          return;
+        }
+      }
 
       const { data, error } = await supabase
         .from('products')
@@ -364,7 +390,7 @@ export class ProductsController {
   }
 
   static async updateStock(req: Request, res: Response): Promise<void> {
-    const farmerId = req.user?.id || 'farmer_ramesh_01';
+    const farmerId = toUuid(req.user?.id);
     const productId = String(req.params.id);
     const parse = UpdateProductStockSchema.safeParse(req.body);
 
@@ -436,7 +462,7 @@ export class ProductsController {
    * When status=ACTIVE or targetBuyer=BOTH, the crop becomes visible in the User App.
    */
   static async updateProduct(req: Request, res: Response): Promise<void> {
-    const farmerId = req.user?.id || 'farmer_ramesh_01';
+    const farmerId = toUuid(req.user?.id);
     const productId = String(req.params.id);
     const {
       targetBuyer, basePricePerUnit, status, isActive, images,
@@ -446,20 +472,29 @@ export class ProductsController {
     } = req.body;
 
     try {
-      const isNowActive = status === 'ACTIVE' || isActive === true || targetBuyer === 'BOTH';
+      const explicitInactive = isActive === false || status === 'DRAFT' || status === 'INACTIVE';
+      const isNowActive = !explicitInactive && (status === 'ACTIVE' || isActive === true || targetBuyer === 'BOTH');
 
       // Always update/create in the shared ProductRegistryService for cross-app visibility
       const registered = ProductRegistryService.getProductById(productId);
 
       if (registered) {
-        // Merge updates into existing registry entry
+        const nextIsActive = explicitInactive ? false : (isNowActive || registered.isActive);
+        const nextStatus = nextIsActive
+          ? 'ACTIVE'
+          : explicitInactive
+          ? 'PENDING_APPROVAL'
+          : (registered.status === 'APPROVED' || registered.status === 'ADMIN_APPROVED' || registered.targetBuyer === 'ADMIN_APPROVED')
+          ? 'APPROVED'
+          : (registered.status || 'PENDING_APPROVAL');
+
         ProductRegistryService.registerProduct({
           ...registered,
-          ...(targetBuyer !== undefined && { targetBuyer }),
+          ...(targetBuyer !== undefined && { targetBuyer: explicitInactive ? 'PENDING_APPROVAL' : targetBuyer }),
           ...(basePricePerUnit !== undefined && { basePricePerUnit }),
           ...(images !== undefined && { images }),
-          isActive: isNowActive || registered.isActive,
-          status: (isNowActive || registered.isActive) ? 'ACTIVE' : 'PENDING_APPROVAL',
+          isActive: nextIsActive,
+          status: nextStatus,
         });
       } else {
         // Not yet in registry — create a full entry from request body data
@@ -469,6 +504,12 @@ export class ProductsController {
         const safeImages = (images && images.length > 0)
           ? images
           : [`https://source.unsplash.com/featured/600x400/?${encodeURIComponent(safeCropName + ' vegetable farm')}`];
+
+        const computedNewStatus = isNowActive
+          ? 'ACTIVE'
+          : (status === 'APPROVED' || status === 'ADMIN_APPROVED' || targetBuyer === 'ADMIN_APPROVED')
+          ? 'APPROVED'
+          : 'PENDING_APPROVAL';
 
         ProductRegistryService.registerProduct({
           id: productId,
@@ -491,7 +532,7 @@ export class ProductsController {
           pickupAddress: reqLocation,
           shelfLifeDays: Number(shelfLifeDays || 14),
           isActive: isNowActive,
-          status: isNowActive ? 'ACTIVE' : 'PENDING_APPROVAL',
+          status: computedNewStatus,
           createdAt: new Date().toISOString(),
         });
       }
@@ -500,9 +541,13 @@ export class ProductsController {
       if (isSupabaseConfigured()) {
         const supabase = getSupabaseAdmin();
         const dbUpdate: Record<string, any> = { updated_at: new Date().toISOString() };
-        if (targetBuyer !== undefined) dbUpdate.target_buyer = targetBuyer;
+        if (targetBuyer !== undefined) dbUpdate.target_buyer = explicitInactive ? 'PENDING_APPROVAL' : targetBuyer;
         if (basePricePerUnit !== undefined) dbUpdate.base_price_per_unit = basePricePerUnit;
-        if (isNowActive) dbUpdate.is_active = true;
+        if (explicitInactive) {
+          dbUpdate.is_active = false;
+        } else if (isNowActive) {
+          dbUpdate.is_active = true;
+        }
         if (images !== undefined && images.length > 0) dbUpdate.images = images;
         if (totalQuantity !== undefined) dbUpdate.total_quantity = totalQuantity;
         if (availableQuantity !== undefined) dbUpdate.available_quantity = availableQuantity;
@@ -521,7 +566,7 @@ export class ProductsController {
         // If no row matched in Supabase (e.g. productId was client-side local ID like crop-xxx),
         // INSERT as an active product in Supabase so UserApp can query it immediately!
         if (!updatedRows || updatedRows.length === 0) {
-          const safeFarmerId = UUID_REGEX.test(farmerId) ? farmerId : 'd1111111-1111-1111-1111-111111111111';
+          const safeFarmerId = farmerId;
           const safePrice = Number(basePricePerUnit || 25);
           const safeQty = Number(totalQuantity || availableQuantity || 100);
 
@@ -565,18 +610,21 @@ export class ProductsController {
   }
 
   static async deleteProduct(req: Request, res: Response): Promise<void> {
-    const farmerId = req.user?.id || 'farmer_ramesh_01';
+    const farmerId = toUuid(req.user?.id);
     const productId = String(req.params.id);
 
     try {
-      const supabase = getSupabaseAdmin();
+      // 1. Remove from in-memory and disk cross-app registry
+      ProductRegistryService.deleteProduct(productId);
 
-      // Soft delete to protect relational order history
-      await supabase
-        .from('products')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', productId)
-        .eq('farmer_id', farmerId);
+      // 2. Soft delete in Supabase to protect relational order history
+      if (isSupabaseConfigured()) {
+        const supabase = getSupabaseAdmin();
+        await supabase
+          .from('products')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('id', productId);
+      }
 
       DashboardService.invalidateCache(farmerId);
 

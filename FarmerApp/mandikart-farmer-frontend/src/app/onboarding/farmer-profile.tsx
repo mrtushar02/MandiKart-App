@@ -208,6 +208,7 @@ export default function FarmerProfileScreen() {
         avatarUrl: avatarUri || user?.avatarUri,
         state: user?.state || 'Maharashtra',
         district: user?.district || 'Nashik',
+        role,
       });
     } catch (err: any) {
       console.warn('Profile save note:', err?.message);
@@ -215,8 +216,14 @@ export default function FarmerProfileScreen() {
       setSaving(false);
     }
 
-    router.push('/onboarding/farm-details');
+    // Branch: FPO representatives go to FPO onboarding; individual farmers go to farm details
+    if (role === 'FPO') {
+      router.push('/onboarding/fpo-profile');
+    } else {
+      router.push('/onboarding/farm-details');
+    }
   };
+
 
   return (
     <MKBackground disableSafeArea>
@@ -245,10 +252,10 @@ export default function FarmerProfileScreen() {
                   if (router.canGoBack()) {
                     router.back();
                   } else {
-                    router.replace('/auth/signup');
+                    router.replace('/onboarding/permissions');
                   }
                 }}
-                step={{ current: 1, total: 3, label: 'Profile' }}
+                step={{ current: 2, total: 3, label: 'Profile' }}
                 style={styles.headerRow}
               />
 

@@ -14,12 +14,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS, SPACING, RADIUS, FONT } from '../constants/theme';
 import { usePartner } from '../context/PartnerContext';
+import { GoogleAuthModal } from '../components/GoogleAuthModal';
 
 export default function PartnerLoginScreen({ navigation }) {
   const [mobileNumber, setMobileNumber] = useState('9876543210');
   const [password, setPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
-  const { login } = usePartner();
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const { login, loginWithGoogle } = usePartner();
 
   const handleLogin = () => {
     if (!mobileNumber || mobileNumber.length < 10) {
@@ -138,6 +140,23 @@ export default function PartnerLoginScreen({ navigation }) {
               <Text style={styles.loginBtnText}>Login</Text>
               <Ionicons name="arrow-forward" size={18} color={COLORS.white} />
             </TouchableOpacity>
+
+            {/* Social Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR LOGIN WITH</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Google Login CTA */}
+            <TouchableOpacity
+              style={styles.googleBtn}
+              onPress={() => setShowGoogleModal(true)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="logo-google" size={18} color="#EA4335" />
+              <Text style={styles.googleBtnText}>Continue with Google</Text>
+            </TouchableOpacity>
           </View>
 
           {/* New Partner Register */}
@@ -198,6 +217,21 @@ export default function PartnerLoginScreen({ navigation }) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GoogleAuthModal
+        visible={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onSuccess={(data) => {
+          loginWithGoogle(data);
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' }],
+          });
+        }}
+        onError={(err) => {
+          Alert.alert('Google Sign-In Notice', err || 'Could not sign in with Google');
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -441,5 +475,43 @@ const styles = StyleSheet.create({
   versionText: {
     fontSize: 10,
     color: COLORS.outlineVariant,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: SPACING.md,
+    gap: SPACING.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.borderLight,
+  },
+  dividerText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.onSurfaceVariant,
+    letterSpacing: 0.5,
+  },
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.outlineVariant,
+    borderRadius: RADIUS.md,
+    height: 50,
+    gap: SPACING.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  googleBtnText: {
+    fontSize: FONT.sm,
+    fontWeight: '700',
+    color: COLORS.onSurface,
   },
 });

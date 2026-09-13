@@ -12,6 +12,7 @@ import {
   ProductRegistryService,
   OrderRegistryService,
   getCropImageUrl,
+  geminiAiService,
 } from '@mandikart/shared-core';
 
 export class AdminController {
@@ -175,20 +176,32 @@ export class AdminController {
   static async getAllProduce(_req: Request, res: Response): Promise<void> {
     try {
       const supabase = getSupabaseAdmin();
+      // NOTE: We intentionally omit the farmers(*) JOIN here to avoid Supabase
+      // statement timeout (error 57014). Farmer info is resolved from ProductRegistryService.
       const { data: dbProducts } = await supabase
         .from('products')
-        .select('*, farmers(full_name, phone, state, district)')
+        .select('*')
         .order('created_at', { ascending: false });
 
       const sanitizeImg = (imgUrl: string | undefined, cropName: string, category: string) => {
         if (!imgUrl || typeof imgUrl !== 'string' || imgUrl.trim() === '') {
           return getCropImageUrl(cropName, category);
         }
-        return imgUrl;
+        // Allow compact base64 data URIs up to 2MB
+        if (imgUrl.startsWith('data:image/') && imgUrl.length < 2000000) return imgUrl;
+        // Strip local device file:// paths — only valid on the device that took the photo
+        if (imgUrl.startsWith('file://')) return getCropImageUrl(cropName, category);
+        if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) return imgUrl;
+        return getCropImageUrl(cropName, category);
       };
 
       const regProducts = ProductRegistryService.getRegisteredProducts();
-      const regMap = new Map(regProducts.map((p) => [p.id, p]));
+      const findRegItem = (pId: string, cropName?: string, farmerId?: string) => {
+        return regProducts.find((r) =>
+          r.id === pId ||
+          (r.cropName && cropName && r.cropName.toLowerCase().trim() === cropName.toLowerCase().trim() && (r.farmerId === farmerId || !farmerId))
+        );
+      };
 
       const resolveProduceStatus = (
         is_active: boolean | undefined,
@@ -201,29 +214,28 @@ export class AdminController {
         if (pStatus === 'REJECTED' || regStatus === 'REJECTED' || target_buyer === 'REJECTED' || regTargetBuyer === 'REJECTED') {
           return 'REJECTED';
         }
+        // ONLY ACTIVE if explicitly published (is_active is true or regIsActive is true)
         if (
-          target_buyer === 'ADMIN_APPROVED' ||
+          (is_active === true || regIsActive === true) &&
+          (pStatus === 'ACTIVE' || regStatus === 'ACTIVE' || target_buyer === 'BOTH' || regTargetBuyer === 'BOTH')
+        ) {
+          return 'ACTIVE';
+        }
+        if (
+          regStatus === 'APPROVED' ||
+          regStatus === 'ADMIN_APPROVED' ||
           regTargetBuyer === 'ADMIN_APPROVED' ||
           pStatus === 'APPROVED' ||
           pStatus === 'ADMIN_APPROVED' ||
-          regStatus === 'APPROVED' ||
-          regStatus === 'ADMIN_APPROVED'
+          target_buyer === 'ADMIN_APPROVED'
         ) {
           return 'APPROVED';
-        }
-        if (
-          (is_active === true && (target_buyer === 'BOTH' || target_buyer === 'ALL')) ||
-          (regIsActive === true && (regTargetBuyer === 'BOTH' || regTargetBuyer === 'ALL')) ||
-          pStatus === 'ACTIVE' ||
-          regStatus === 'ACTIVE'
-        ) {
-          return 'ACTIVE';
         }
         return 'PENDING_APPROVAL';
       };
 
       let list = (dbProducts || []).map((p: any) => {
-        const regItem = regMap.get(p.id);
+        const regItem = findRegItem(p.id, p.crop_name, p.farmer_id);
         const rawFirstImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : (regItem?.images?.[0]);
         const validImg = sanitizeImg(rawFirstImg, p.crop_name, p.category);
         const images = [validImg];
@@ -236,9 +248,9 @@ export class AdminController {
           (regItem as any)?.isActive
         );
 
-        const farmerName = regItem?.farmerName || p.farmers?.full_name || 'Registered Farmer';
-        const farmerPhone = regItem?.farmerPhone || p.farmers?.phone || '';
-        const farmerCode = farmerPhone ? `FARM-${farmerPhone.slice(-4)}` : (p.farmers?.phone ? `FARM-${p.farmers.phone.slice(-4)}` : `FARM-${String(p.farmer_id || p.id).slice(-4)}`);
+        const farmerName = regItem?.farmerName || 'Registered Farmer';
+        const farmerPhone = regItem?.farmerPhone || '';
+        const farmerCode = farmerPhone ? `FARM-${farmerPhone.slice(-4)}` : `FARM-${String(p.farmer_id || p.id).slice(-4)}`;
 
         return {
           id: p.id,
@@ -270,7 +282,9 @@ export class AdminController {
           const rawFirstImg = Array.isArray(reg.images) && reg.images.length > 0 ? reg.images[0] : undefined;
           const validImg = sanitizeImg(rawFirstImg, reg.cropName, reg.category);
           const images = [validImg];
-          const existingIdx = list.findIndex((item: any) => item.id === reg.id);
+          const existingIdx = list.findIndex(
+            (item: any) => item.id === reg.id || (item.cropName === reg.cropName && item.farmerId === reg.farmerId)
+          );
           const computedStatus = resolveProduceStatus(
             reg.isActive,
             reg.targetBuyer,
@@ -304,12 +318,23 @@ export class AdminController {
           };
 
           if (existingIdx >= 0) {
-            list[existingIdx] = { ...formattedReg, ...list[existingIdx], status: computedStatus };
-          } else {
+            list[existingIdx] = { ...list[existingIdx], ...formattedReg, status: computedStatus };
+          } else if (reg.cropName !== 'Produce' || reg.farmerId !== 'unknown') {
             list.unshift(formattedReg);
           }
         }
       } catch {}
+
+      // Deduplicate list by id AND by content key (cropName + farmerId + pricePerKg + quantityKg)
+      const uniqueMap = new Map<string, any>();
+      for (const item of list) {
+        const contentKey = `${(item.cropName || '').toLowerCase().trim()}_${item.farmerId || ''}_${item.pricePerKg}_${item.quantityKg}`;
+        if (!uniqueMap.has(item.id) && !uniqueMap.has(contentKey)) {
+          uniqueMap.set(item.id, item);
+          uniqueMap.set(contentKey, item);
+        }
+      }
+      list = Array.from(new Set(uniqueMap.values()));
 
       // Sort with newest submissions first
       list.sort((a: any, b: any) => {
@@ -332,47 +357,65 @@ export class AdminController {
     const productId = String(req.params.productId);
     try {
       const supabase = getSupabaseAdmin();
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      let dbItem: any = null;
 
-      /**
-       * APPROVAL FLOW (Two-Step):
-       * ─────────────────────────────────────────────────────
-       * Step 1 — Admin Approval (this endpoint):
-       *   Sets target_buyer = 'ADMIN_APPROVED', is_active = false
-       *   → Product is unlocked for the farmer but NOT visible in User App catalog
-       *   → Farmer App shows a "Quality Approved ✓ — Ready to List Globally" badge
-       *
-       * Step 2 — Farmer Confirmation (Farmer presses "Sell to All Buyers"):
-       *   Sets target_buyer = 'BOTH', is_active = true
-       *   → Product immediately appears in User App catalog
-       *
-       * Catalog rule: only shows is_active = true AND target_buyer = 'BOTH'
-       * This ensures farmers cannot bypass admin review AND admin cannot
-       * force-publish without the farmer's explicit confirmation.
-       */
-      const { error: updateError } = await supabase
-        .from('products')
-        .update({
-          // Mark as admin-verified but keep hidden from buyer catalog
-          // until the farmer explicitly presses "Sell to All Buyers"
-          is_active: false,
-          target_buyer: 'ADMIN_APPROVED',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', productId);
-
-      if (updateError) {
-        console.warn('[AdminController] Supabase approve update note:', updateError.message);
+      // Update in Supabase & retrieve row
+      try {
+        if (UUID_REGEX.test(productId)) {
+          const { data } = await supabase
+            .from('products')
+            .update({
+              target_buyer: 'BOTH',
+              is_active: false,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', productId)
+            .select();
+          if (data && data.length > 0) dbItem = data[0];
+        } else {
+          const { data } = await supabase
+            .from('products')
+            .update({
+              target_buyer: 'BOTH',
+              is_active: false,
+              updated_at: new Date().toISOString(),
+            })
+            .or(`id.eq.${productId},crop_name.ilike.%${productId}%`)
+            .select();
+          if (data && data.length > 0) dbItem = data[0];
+        }
+      } catch (sbErr) {
+        console.warn('Supabase approve update notice:', sbErr);
       }
 
-      // Update in-memory registry — mark as ADMIN_APPROVED (not yet ACTIVE/public)
+      // Update shared registry with full item details
       try {
-        const p = ProductRegistryService.getProductById(productId);
-        if (p) {
-          p.isActive = false;
-          p.status = 'ADMIN_APPROVED' as any;
-          p.targetBuyer = 'ADMIN_APPROVED';
-          ProductRegistryService.registerProduct(p);
-        }
+        const pCropName = dbItem?.crop_name || productId;
+        const pFarmerId = dbItem?.farmer_id || 'unknown';
+
+        ProductRegistryService.registerProduct({
+          id: productId,
+          farmerId: pFarmerId,
+          farmerName: 'Farmer',
+          location: dbItem?.pickup_address || 'Nashik APMC',
+          cropName: pCropName,
+          cropVariety: dbItem?.crop_variety || 'Hybrid',
+          grade: dbItem?.grade || 'A',
+          category: dbItem?.category || 'Vegetables',
+          totalQuantity: Number(dbItem?.total_quantity || 100),
+          availableQuantity: Number(dbItem?.available_quantity || 100),
+          quantityUnit: dbItem?.quantity_unit || 'kg',
+          basePricePerUnit: Number(dbItem?.base_price_per_unit || 20),
+          minOrderQuantity: 1,
+          targetBuyer: 'ADMIN_APPROVED',
+          images: dbItem?.images || [],
+          isActive: false,
+          status: 'APPROVED',
+          createdAt: dbItem?.created_at || new Date().toISOString(),
+        });
+
+        ProductRegistryService.updateProductStatus(productId, 'APPROVED');
       } catch {}
 
       await auditLog({
@@ -381,14 +424,14 @@ export class AdminController {
         action: 'APPROVE_PRODUCE',
         resourceType: 'PRODUCT',
         resourceId: productId,
-        metadata: { note: 'Quality verified. Awaiting farmer global listing confirmation.' },
+        metadata: { note: 'Quality verified and approved. Farmer can now list globally on marketplace.' },
       });
 
       res.status(200).json({
         data: {
           productId,
-          status: 'ADMIN_APPROVED',
-          message: 'Produce quality verified by admin. Farmer will now see an "Approved — List Globally" badge in their app and can publish it to all buyers with one tap.',
+          status: 'APPROVED',
+          message: 'Produce quality verified by admin. Farmer can now list globally on marketplace.',
         },
         error: null,
       });
@@ -397,15 +440,25 @@ export class AdminController {
     }
   }
 
-
   static async rejectProduce(req: Request, res: Response): Promise<void> {
     const productId = String(req.params.productId);
     try {
       const supabase = getSupabaseAdmin();
-      await supabase
-        .from('products')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
-        .eq('id', productId);
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      
+      try {
+        if (UUID_REGEX.test(productId)) {
+          await supabase
+            .from('products')
+            .update({ status: 'REJECTED', is_active: false, updated_at: new Date().toISOString() })
+            .eq('id', productId);
+        } else {
+          await supabase
+            .from('products')
+            .update({ status: 'REJECTED', is_active: false, updated_at: new Date().toISOString() })
+            .or(`id.eq.${productId},crop_name.ilike.%${productId}%`);
+        }
+      } catch {}
 
       try {
         ProductRegistryService.updateProductStatus(productId, 'REJECTED');
@@ -657,32 +710,39 @@ export class AdminController {
   static async getAllFarmers(_req: Request, res: Response): Promise<void> {
     try {
       const supabase = getSupabaseAdmin();
-      const { data: dbFarmers } = await supabase
-        .from('farmers')
-        .select('*, products(*)')
-        .order('created_at', { ascending: false });
+      const [farmersRes, productsRes, ordersRes] = await Promise.all([
+        supabase.from('farmers').select('*').order('created_at', { ascending: false }),
+        supabase.from('products').select('id, farmer_id, crop_name, category, available_quantity, base_price_per_unit, grade, harvest_date, is_active, images'),
+        supabase.from('orders').select('farmer_id, total_amount, status'),
+      ]);
 
-      // Fetch real order totals per farmer from Supabase
-      const { data: orders } = await supabase
-        .from('orders')
-        .select('farmer_id, total_amount, status');
+      const dbFarmers = farmersRes.data || [];
+      const dbProducts = productsRes.data || [];
+      const orders = ordersRes.data || [];
+
+      // Group products by farmer_id
+      const farmerProductsMap = new Map<string, any[]>();
+      for (const p of dbProducts) {
+        const list = farmerProductsMap.get(p.farmer_id) || [];
+        list.push(p);
+        farmerProductsMap.set(p.farmer_id, list);
+      }
 
       const farmerSalesMap = new Map<string, { totalSales: number; orderCount: number }>();
-      if (orders) {
-        for (const o of orders) {
-          if (o.status !== 'CANCELLED' && o.status !== 'REJECTED') {
-            const fId = o.farmer_id;
-            const cur = farmerSalesMap.get(fId) || { totalSales: 0, orderCount: 0 };
-            cur.totalSales += Number(o.total_amount || 0);
-            cur.orderCount += 1;
-            farmerSalesMap.set(fId, cur);
-          }
+      for (const o of orders) {
+        if (o.status !== 'CANCELLED' && o.status !== 'REJECTED') {
+          const fId = o.farmer_id;
+          const cur = farmerSalesMap.get(fId) || { totalSales: 0, orderCount: 0 };
+          cur.totalSales += Number(o.total_amount || 0);
+          cur.orderCount += 1;
+          farmerSalesMap.set(fId, cur);
         }
       }
 
       if (dbFarmers && dbFarmers.length > 0) {
         const mapped = dbFarmers.map((f: any) => {
           const salesStats = farmerSalesMap.get(f.id) || { totalSales: 0, orderCount: 0 };
+          const farmerProds = farmerProductsMap.get(f.id) || [];
           return {
             id: f.id,
             farmerCode: f.phone ? `#FMR-${f.phone.slice(-4)}` : `#FMR-${String(f.id).slice(-4).toUpperCase()}`,
@@ -698,7 +758,7 @@ export class AdminController {
             totalOrdersCount: salesStats.orderCount,
             joinedDate: f.created_at ? new Date(f.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Recent',
             createdAt: f.created_at || new Date().toISOString(),
-            activeListings: (f.products || []).map((p: any) => ({
+            activeListings: farmerProds.map((p: any) => ({
               id: p.id,
               cropName: p.crop_name,
               category: p.category,
@@ -774,6 +834,153 @@ export class AdminController {
       });
 
       res.status(200).json({ data: mapped, meta: { total: mapped.length }, error: null });
+    } catch (err) {
+      res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
+
+  static async getAiInsights(_req: Request, res: Response): Promise<void> {
+    try {
+      const insights = await geminiAiService.getAdminAiInsights();
+      res.status(200).json({ success: true, data: insights, error: null });
+    } catch (err) {
+      res.status(500).json({ success: false, data: null, error: { message: (err as Error).message } });
+    }
+  }
+
+  static async getAllDisputes(_req: Request, res: Response): Promise<void> {
+    try {
+      const regOrders = OrderRegistryService.getRegisteredOrders();
+      const disputedOrders = regOrders.filter(
+        (o: any) => o.status === 'DISPUTED' || o.escrowStatus === 'FROZEN_IN_DISPUTE'
+      );
+
+      const disputesList: any[] = [];
+
+      try {
+        const supabase = getSupabaseAdmin();
+        const { data: dbDisputes } = await supabase
+          .from('disputes')
+          .select('*, orders(*)')
+          .order('created_at', { ascending: false });
+
+        if (dbDisputes && dbDisputes.length > 0) {
+          for (const d of dbDisputes) {
+            disputesList.push({
+              id: d.id || `DSP-${String(d.order_id).slice(0, 5)}`,
+              disputeNumber: `#DSP-${String(d.id || d.order_id).slice(0, 5).toUpperCase()}`,
+              orderId: d.order_id,
+              orderNumber: d.orders?.order_number || `#MK-${String(d.order_id).slice(0, 5).toUpperCase()}`,
+              farmerName: d.orders?.farmer_name || 'Ramesh Patel',
+              buyerName: d.orders?.buyer_name || 'Vikram Mehta',
+              produceName: d.orders?.crop_name || 'Produce',
+              cropName: d.orders?.crop_name || 'Produce',
+              disputingParty: d.disputing_party || 'buyer',
+              disputeReason: d.reason || 'Quality or delivery dispute',
+              disputedAmount: Number(d.amount || d.orders?.total_amount || 5000),
+              amountDisputed: Number(d.amount || d.orders?.total_amount || 5000),
+              category: d.category || 'QUALITY_GRADE_FAIL',
+              severity: d.severity || 'HIGH',
+              status: d.status || 'UNDER_REVIEW',
+              openedAt: d.created_at || new Date().toISOString(),
+              farmerClaim: d.farmer_claim || 'Supplied certified Grade A produce at farmgate.',
+              buyerClaim: d.buyer_claim || d.reason || 'Produce received below specified quality standard.',
+              description: d.description || d.reason || 'Dispute raised regarding produce quality.',
+              evidenceFiles: d.evidence_files || ['Inspection_Report.pdf'],
+              resolutionOutcome: d.resolution_outcome,
+              arbitratorNote: d.arbitrator_note,
+            });
+          }
+        }
+      } catch {}
+
+      // If registered disputed orders exist, add them
+      for (const d of disputedOrders) {
+        if (!disputesList.some((x) => x.orderId === d.id)) {
+          disputesList.unshift({
+            id: `DSP-${String(d.id).slice(0, 5)}`,
+            disputeNumber: `#DSP-${String(d.id).slice(0, 5).toUpperCase()}`,
+            orderId: d.id,
+            orderNumber: d.orderNumber || `#MK-${String(d.id).slice(0, 5).toUpperCase()}`,
+            farmerName: d.farmerName || 'Ramesh Patel',
+            buyerName: d.buyerName || 'Vikram Mehta',
+            produceName: d.cropName || 'Fresh Produce',
+            cropName: d.cropName || 'Fresh Produce',
+            disputingParty: 'buyer',
+            disputeReason: 'Produce quality or weight discrepancy reported at delivery hub.',
+            disputedAmount: Number(d.totalAmount || 12000),
+            amountDisputed: Number(d.totalAmount || 12000),
+            category: 'QUALITY_GRADE_FAIL',
+            severity: 'MAJOR',
+            status: 'UNDER_REVIEW',
+            openedAt: d.createdAt || new Date().toISOString(),
+            farmerClaim: 'Produce was calibrated and checked at loading.',
+            buyerClaim: 'Inspection report indicated grade variance upon arrival.',
+            description: 'Weight / quality tolerance dispute logged by buyer.',
+            evidenceFiles: ['weighbridge_slip.pdf'],
+          });
+        }
+      }
+
+      res.status(200).json({ data: disputesList, meta: { total: disputesList.length }, error: null });
+    } catch (err) {
+      res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
+
+  static async getAllShipments(_req: Request, res: Response): Promise<void> {
+    try {
+      const regOrders = OrderRegistryService.getRegisteredOrders();
+      const activeShipmentOrders = regOrders.filter((o: any) =>
+        ['CONFIRMED', 'PICKUP_SCHEDULED', 'PICKUP_IN_PROGRESS', 'COLLECTED', 'IN_TRANSIT', 'DELIVERED', 'COMPLETED'].includes(o.status)
+      );
+
+      const shipments: any[] = [];
+      let idx = 0;
+
+      for (const o of activeShipmentOrders) {
+        idx++;
+        const isReefer = idx % 2 === 0;
+        const st =
+          o.status === 'DELIVERED' || o.status === 'COMPLETED'
+            ? 'DELIVERED'
+            : o.status === 'IN_TRANSIT'
+            ? 'IN_TRANSIT'
+            : 'LOADING';
+
+        const dest = !o.deliveryAddress
+          ? 'Central Cold-Chain Hub, Mumbai'
+          : typeof o.deliveryAddress === 'string'
+          ? o.deliveryAddress
+          : [o.deliveryAddress.line1, o.deliveryAddress.city, o.deliveryAddress.state, o.deliveryAddress.pincode].filter(Boolean).join(', ') || 'Central Mandi Distribution Hub';
+
+        shipments.push({
+          id: `SHP-${o.id || idx}-${idx}`,
+          trackingId: `TRK-MK-${1000 + idx}`,
+          orderId: o.id,
+          carrierName: idx % 2 === 0 ? 'AgroCold Logistics India' : 'Kisan Express Freight',
+          driverName: o.driverName || (idx % 2 === 0 ? 'Santosh Kumar' : 'Ganesh Pawar'),
+          driverPhone: o.driverPhone || '+91 98765 43211',
+          vehicleNumber: idx % 2 === 0 ? 'OD-02-BX-4910' : 'MH-15-DC-9201',
+          produceName: o.cropName || 'Fresh Produce',
+          quantityKg: Number(o.quantityKg || 500),
+          originMandi: o.farmerLocation || 'Nashik APMC Mandi, Maharashtra',
+          destinationHub: dest,
+          departureTime: o.createdAt || new Date().toISOString(),
+          estimatedArrival: 'Today within 2 hours',
+          status: st,
+          isReefer,
+          targetTempCelsius: isReefer ? 4.0 : 22.0,
+          currentTempCelsius: isReefer ? 4.2 : 22.5,
+          batteryLevelPct: 88,
+          gpsCoordinates: {
+            lat: 19.9975 + (idx * 0.05),
+            lng: 73.7898 + (idx * 0.05),
+          },
+        });
+      }
+
+      res.status(200).json({ data: shipments, meta: { total: shipments.length }, error: null });
     } catch (err) {
       res.status(500).json({ data: null, error: { message: (err as Error).message } });
     }

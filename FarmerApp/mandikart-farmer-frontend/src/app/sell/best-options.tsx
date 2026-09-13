@@ -283,7 +283,7 @@ export default function BestSellingOptionsScreen() {
                 {/* Buyer identity */}
                 <View style={styles.buyerIdentityRow}>
                   <Image
-                    source={{ uri: recommendedOpportunity.buyer.avatar }}
+                    source={{ uri: recommendedOpportunity.buyer.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200' }}
                     style={styles.buyerAvatar}
                   />
                   <View style={{ flex: 1, marginLeft: 10 }}>
@@ -396,7 +396,7 @@ export default function BestSellingOptionsScreen() {
             {otherOpportunities.map((opp) => (
               <View key={opp.id} style={styles.standardMatchCard}>
                 <View style={styles.matchCardTop}>
-                  <Image source={{ uri: opp.buyer.avatar }} style={styles.smallAvatar} />
+                  <Image source={{ uri: opp.buyer.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200' }} style={styles.smallAvatar} />
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <Text style={styles.standardBuyerName} numberOfLines={1}>
@@ -548,7 +548,7 @@ export default function BestSellingOptionsScreen() {
               <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
                 <View style={styles.detailBuyerHeader}>
                   <Image
-                    source={{ uri: selectedOppForDetail.buyer.avatar }}
+                    source={{ uri: selectedOppForDetail.buyer.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200' }}
                     style={styles.detailAvatar}
                   />
                   <View style={{ flex: 1, marginLeft: 10 }}>

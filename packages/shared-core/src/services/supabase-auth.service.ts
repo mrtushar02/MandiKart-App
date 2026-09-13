@@ -144,13 +144,11 @@ export class SupabaseAuthService {
                 phone: safePhone,
                 email: cleanEmail,
                 full_name: userFullName || 'MandiKart Farmer',
-                avatar_url: userAvatarUrl,
                 is_verified: true,
-                state: 'Maharashtra',
-                district: 'Nashik',
-                farm_size_acres: 5,
-                ownership_type: 'Owner',
-                primary_crops: ['Onion', 'Tomato'],
+                state: null,
+                district: null,
+                farm_size_acres: null,
+                primary_crops: null,
               })
               .select()
               .maybeSingle();
@@ -198,22 +196,26 @@ export class SupabaseAuthService {
       metadata: { email: cleanEmail, isNewUser },
     });
 
-    let city = 'Pune';
-    let state = 'Maharashtra';
+    let city: string | undefined = undefined;
+    let state: string | undefined = undefined;
     let buyerType = 'RETAIL';
     let addresses: any[] = [];
-    let district = 'Nashik';
+    let district: string | undefined = undefined;
 
-    if (payload.role === UserRole.BUYER && existingBuyerRecord) {
-      buyerType = existingBuyerRecord.buyer_type || buyerType;
-      addresses = Array.isArray(existingBuyerRecord.addresses) ? existingBuyerRecord.addresses : [];
-      if (addresses[0]) {
-        city = addresses[0].city || city;
-        state = addresses[0].state || state;
+    if (payload.role === UserRole.BUYER) {
+      city = 'Pune';
+      state = 'Maharashtra';
+      if (existingBuyerRecord) {
+        buyerType = existingBuyerRecord.buyer_type || buyerType;
+        addresses = Array.isArray(existingBuyerRecord.addresses) ? existingBuyerRecord.addresses : [];
+        if (addresses[0]) {
+          city = addresses[0].city || city;
+          state = addresses[0].state || state;
+        }
       }
-    } else if (payload.role === UserRole.FARMER && existingFarmerRecord) {
-      state = existingFarmerRecord.state || state;
-      district = existingFarmerRecord.district || district;
+    } else if (payload.role === UserRole.FARMER) {
+      state = existingFarmerRecord?.state || undefined;
+      district = existingFarmerRecord?.district || undefined;
     }
 
     return {

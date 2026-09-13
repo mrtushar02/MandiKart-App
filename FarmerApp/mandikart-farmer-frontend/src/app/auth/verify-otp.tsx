@@ -201,15 +201,31 @@ export default function VerifyOtpScreen() {
         );
 
         if (result.success && result.token && result.farmer) {
+          setAuthenticated(result.token, result.farmer);
           setUser({
             ...(user || {}),
             id: result.farmer.id,
             name: result.farmer.fullName || params.name || user?.name || `Farmer ${cleanPhone.slice(-4)}`,
+            fullName: result.farmer.fullName || params.name || user?.name || `Farmer ${cleanPhone.slice(-4)}`,
             phone: result.farmer.phone || displayPhone,
+            village: result.farmer.village || '',
+            district: result.farmer.district || '',
+            state: result.farmer.state || '',
             isVerified: true,
             role: 'FARMER',
           });
-          router.replace('/(tabs)/home');
+
+          const isNew = Boolean(
+            result.isNewUser ||
+            !result.farmer.village ||
+            !result.farmer.farmSizeAcres
+          );
+
+          if (isNew) {
+            router.replace('/onboarding/permissions');
+          } else {
+            router.replace('/(tabs)/home');
+          }
           return;
         }
         setMobileError(result.error || 'Invalid verification code. Please try again.');
@@ -236,15 +252,31 @@ export default function VerifyOtpScreen() {
             ...(user || {}),
             id: res.data.farmer.id,
             name: res.data.farmer.fullName || params.name || user?.name || displayEmail.split('@')[0],
+            fullName: res.data.farmer.fullName || params.name || user?.name || displayEmail.split('@')[0],
             email: displayEmail,
+            village: res.data.farmer.village || '',
+            district: res.data.farmer.district || '',
+            state: res.data.farmer.state || '',
             isEmailVerified: true,
             role: 'FARMER',
           });
 
+          const isNew = Boolean(
+            res.data.isNewUser ||
+            !res.data.farmer.village ||
+            !res.data.farmer.farmSizeAcres
+          );
+
           Alert.alert('Email Verified', 'Your email address has been verified successfully.', [
             {
               text: 'Continue',
-              onPress: () => router.replace('/(tabs)/home'),
+              onPress: () => {
+                if (isNew) {
+                  router.replace('/onboarding/permissions');
+                } else {
+                  router.replace('/(tabs)/home');
+                }
+              },
             },
           ]);
           return;

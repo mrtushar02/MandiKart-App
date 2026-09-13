@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS, SPACING, RADIUS, FONT } from '../constants/theme';
+import { usePartner } from '../context/PartnerContext';
+import { GoogleAuthModal } from '../components/GoogleAuthModal';
 
 export default function PartnerRegisterScreen({ navigation }) {
   const [currentStep, setCurrentStep] = useState(1); // 1: Personal, 2: Vehicle, 3: Bank
@@ -23,6 +25,8 @@ export default function PartnerRegisterScreen({ navigation }) {
   const [dlNumber, setDlNumber] = useState('');
   const [bankAccount, setBankAccount] = useState('');
   const [ifsc, setIfsc] = useState('');
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const { loginWithGoogle } = usePartner();
 
   const handleNext = () => {
     if (currentStep === 1) {
@@ -112,6 +116,22 @@ export default function PartnerRegisterScreen({ navigation }) {
             <View style={styles.stepCard}>
               <Text style={styles.stepCardTitle}>Personal Details</Text>
               <Text style={styles.stepCardSubtitle}>Enter your official identity details</Text>
+
+              {/* Quick Google Pre-Fill / Signup */}
+              <TouchableOpacity
+                style={styles.googleRegisterBtn}
+                onPress={() => setShowGoogleModal(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="logo-google" size={18} color="#EA4335" />
+                <Text style={styles.googleRegisterBtnText}>Quick Sign-Up with Google</Text>
+              </TouchableOpacity>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR ENTER MANUALLY</Text>
+                <View style={styles.dividerLine} />
+              </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Full Name (as on Aadhaar / DL)</Text>
@@ -280,6 +300,32 @@ export default function PartnerRegisterScreen({ navigation }) {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GoogleAuthModal
+        visible={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onSuccess={(data) => {
+          loginWithGoogle(data);
+          Alert.alert(
+            'Google Verified! 🎉',
+            'Your delivery partner account has been created and verified with Google.',
+            [
+              {
+                text: 'Go to Dashboard',
+                onPress: () => {
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' }],
+                  });
+                },
+              },
+            ]
+          );
+        }}
+        onError={(err) => {
+          Alert.alert('Google Sign-In Notice', err || 'Could not sign in with Google');
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -537,5 +583,44 @@ const styles = StyleSheet.create({
   alreadyRegisteredText: {
     fontSize: FONT.sm,
     color: COLORS.onSurfaceVariant,
+  },
+  googleRegisterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.outlineVariant,
+    borderRadius: RADIUS.md,
+    height: 48,
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  googleRegisterBtnText: {
+    fontSize: FONT.sm,
+    fontWeight: '700',
+    color: COLORS.onSurface,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: SPACING.md,
+    gap: SPACING.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.borderLight,
+  },
+  dividerText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.onSurfaceVariant,
+    letterSpacing: 0.5,
   },
 });

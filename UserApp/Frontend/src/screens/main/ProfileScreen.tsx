@@ -24,8 +24,8 @@ export default function ProfileScreen() {
   const { currentLanguageOption, setLanguage, t } = useLanguage();
   const { savedAddresses, currentAddress } = useLocation();
 
-  const displayName = user?.fullName || (user?.phone ? `Buyer ${user.phone}` : 'Valued Buyer');
-  const displayContact = user?.phone ? `${user.phone}${user.email ? ` • ${user.email}` : ''}` : 'MandiKart Member';
+  const displayName = user?.fullName || (user?.phone ? `Buyer ${user.phone}` : (user?.email ? user.email.split('@')[0] : 'Valued Buyer'));
+  const displayContact = user?.phone ? `${user.phone}${user.email ? ` • ${user.email}` : ''}` : (user?.email || 'MandiKart Member');
   const initialLetter = displayName.charAt(0).toUpperCase() || 'B';
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);

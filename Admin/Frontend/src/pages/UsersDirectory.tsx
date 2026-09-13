@@ -76,13 +76,13 @@ export const UsersDirectory: React.FC<UsersDirectoryProps> = ({
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
-      u.fullName.toLowerCase().includes(q) ||
-      u.phone.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.userCode.toLowerCase().includes(q) ||
-      (u.companyName && u.companyName.toLowerCase().includes(q)) ||
-      u.city.toLowerCase().includes(q) ||
-      u.state.toLowerCase().includes(q)
+      (u.fullName || '').toLowerCase().includes(q) ||
+      (u.phone || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.userCode || '').toLowerCase().includes(q) ||
+      (u.companyName || '').toLowerCase().includes(q) ||
+      (u.city || '').toLowerCase().includes(q) ||
+      (u.state || '').toLowerCase().includes(q)
     );
   });
 
@@ -173,7 +173,7 @@ export const UsersDirectory: React.FC<UsersDirectoryProps> = ({
 
             <div className="bg-black border border-white rounded-xl p-3.5 space-y-1">
               <p className="text-[11px] font-mono text-zinc-400">Buyer Order Value</p>
-              <p className="text-xl font-black text-white">₹{totalPlatformSpend.toLocaleString('en-IN')}</p>
+              <p className="text-xl font-black text-white">₹{(Number(totalPlatformSpend) || 0).toLocaleString('en-IN')}</p>
               <p className="text-[10px] text-emerald-400 font-mono">Settled trades</p>
             </div>
           </div>
@@ -425,7 +425,7 @@ export const UsersDirectory: React.FC<UsersDirectoryProps> = ({
 
               <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800 space-y-1">
                 <p className="text-zinc-500 text-[10px]">TOTAL EXPENDITURE</p>
-                <p className="text-emerald-400 font-black text-base">₹{Number(selectedUser.totalSpend).toLocaleString('en-IN')}</p>
+                <p className="text-emerald-400 font-black text-base">₹{(Number(selectedUser.totalSpend) || 0).toLocaleString('en-IN')}</p>
               </div>
             </div>
 

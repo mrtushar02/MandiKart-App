@@ -15,6 +15,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '@/services/apiClient';
+import { safeAsyncStorage } from '@/utils/safeStorage';
 
 export type CropCondition = 'Good' | 'Needs Attention' | 'Deteriorating' | 'Condition not updated';
 export type QualityGrade = 'Grade A' | 'Grade B' | 'Grade C' | 'Unsorted';
@@ -77,6 +78,7 @@ export interface CropItem {
 
   // Lifecycle Status: Pending Admin Verification -> Approved by Admin -> Active Live Order
   status?: 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'REJECTED' | 'DRAFT';
+  createdAt?: string;
 }
 
 interface ProduceStoreState {
@@ -108,18 +110,29 @@ const WHEAT_PHOTO_URI =
 
 const INITIAL_CROPS: CropItem[] = [];
 
+let isSyncInProgress = false;
+const syncingCropIds = new Set<string>();
+
 export const useProduceStore = create<ProduceStoreState>()(
   persist(
     (set, get) => ({
       crops: [],
 
       syncWithBackend: async (token?: string | null) => {
+        if (isSyncInProgress) {
+          return;
+        }
+        isSyncInProgress = true;
+
         try {
           // Auto-sync any unsynced local crops created offline or during network timeouts
           const currentCrops = get().crops || [];
-          const unsyncedLocalCrops = currentCrops.filter(c => c && c.id && c.id.startsWith('crop_'));
+          const unsyncedLocalCrops = currentCrops.filter(
+            c => c && c.id && c.id.startsWith('crop_') && !syncingCropIds.has(c.id)
+          );
 
           for (const localCrop of unsyncedLocalCrops) {
+            syncingCropIds.add(localCrop.id);
             try {
               const mappedGrade = localCrop.grade === 'Grade B' ? 'B' : localCrop.grade === 'Grade C' ? 'C' : 'A';
               const created: any = await apiClient.createProduct({
@@ -145,20 +158,23 @@ export const useProduceStore = create<ProduceStoreState>()(
               if (created?.data?.id) {
                 get().replaceCropId(localCrop.id, created.data.id);
               }
-            } catch (syncErr) {
-              console.log('[produceStore] Local crop sync retry notice:', localCrop.cropName, syncErr);
+            } catch {
+              // Silently retry on next sync interval without flooding Metro terminal logs
+            } finally {
+              syncingCropIds.delete(localCrop.id);
             }
           }
 
           const backendProducts = await apiClient.getProducts(token);
-          if (!Array.isArray(backendProducts) || backendProducts.length === 0) {
+          if (!Array.isArray(backendProducts)) {
             return;
           }
 
           set((state) => {
             const cropMap = new Map<string, CropItem>();
+            // Keep ONLY local unsynced crops that haven't received a server ID yet
             for (const crop of (state.crops || [])) {
-              if (crop && crop.id) {
+              if (crop && crop.id && crop.id.startsWith('crop_')) {
                 cropMap.set(crop.id, crop);
               }
             }
@@ -174,12 +190,11 @@ export const useProduceStore = create<ProduceStoreState>()(
                   ? 'APPROVED'
                   : 'PENDING_APPROVAL';
 
-              // Check if already in map by ID or by initial crop name
+              // Check if already in map by ID or by crop name match
               let matchedExisting: CropItem | undefined = cropMap.get(bp.id);
               if (!matchedExisting) {
                 for (const [id, existingCrop] of cropMap.entries()) {
                   if (
-                    id.startsWith('crop_') &&
                     existingCrop.cropName.trim().toLowerCase() === String(bp.cropName || '').trim().toLowerCase()
                   ) {
                     matchedExisting = existingCrop;
@@ -198,6 +213,7 @@ export const useProduceStore = create<ProduceStoreState>()(
                   totalKg: Number(bp.totalQuantity ?? matchedExisting.totalKg),
                   watchTag: bpStatus === 'REJECTED' ? 'Rejected by Admin' : bpStatus === 'ACTIVE' ? 'Marketplace Active' : bpStatus === 'APPROVED' ? 'Quality Approved — Tap List Globally' : 'Under Admin Verification',
                   watchUrgency: bpStatus === 'REJECTED' ? 'warning' : bpStatus === 'ACTIVE' ? 'positive' : bpStatus === 'APPROVED' ? 'positive' : 'neutral',
+                  createdAt: bp.createdAt || bp.created_at || matchedExisting.createdAt || new Date().toISOString(),
                 });
               } else {
                 cropMap.set(bp.id, {
@@ -232,14 +248,19 @@ export const useProduceStore = create<ProduceStoreState>()(
                   history7D: [],
                   history30D: [],
                   history90D: [],
-                  watchTag: bpStatus === 'REJECTED' ? 'Rejected by Admin' : bpStatus === 'ACTIVE' ? 'Marketplace Active' : 'Under Admin Verification',
-                  watchUrgency: bpStatus === 'REJECTED' ? 'warning' : bpStatus === 'ACTIVE' ? 'positive' : 'neutral',
+                  watchTag: bpStatus === 'REJECTED' ? 'Rejected by Admin' : bpStatus === 'ACTIVE' ? 'Marketplace Active' : bpStatus === 'APPROVED' ? 'Quality Approved — Tap List Globally' : 'Under Admin Verification',
+                  watchUrgency: bpStatus === 'REJECTED' ? 'warning' : bpStatus === 'ACTIVE' ? 'positive' : bpStatus === 'APPROVED' ? 'positive' : 'neutral',
                   status: bpStatus,
+                  createdAt: bp.createdAt || bp.created_at || new Date().toISOString(),
                 });
               }
             }
 
-            const newCrops = Array.from(cropMap.values());
+            const newCrops = Array.from(cropMap.values()).sort((a, b) => {
+              const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+              const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+              return timeB - timeA;
+            });
             const isChanged =
               newCrops.length !== (state.crops || []).length ||
               newCrops.some((nc, i) => {
@@ -261,6 +282,8 @@ export const useProduceStore = create<ProduceStoreState>()(
           });
         } catch {
           // Graceful offline fallback
+        } finally {
+          isSyncInProgress = false;
         }
       },
 
@@ -279,6 +302,7 @@ export const useProduceStore = create<ProduceStoreState>()(
           ...newCropData,
           id: newId,
           status: newCropData.status || 'PENDING_APPROVAL',
+          createdAt: newCropData.createdAt || new Date().toISOString(),
         };
 
         set((state) => {
@@ -343,12 +367,26 @@ export const useProduceStore = create<ProduceStoreState>()(
             return c;
           }),
         }));
+        // Sync update to backend API
+        apiClient.updateProduct(id, {
+          availableQuantity: updates.availableKg,
+          basePricePerUnit: updates.expectedPricePerKg,
+          cropVariety: updates.variety,
+          storageType: updates.storageType,
+          pickupAddress: updates.location,
+        }).catch((err) => {
+          console.warn('[produceStore] updateProduct backend note:', err?.message);
+        });
       },
 
       deleteCrop: (id) => {
         set((state) => ({
           crops: state.crops.filter((c) => c.id !== id),
         }));
+        // Permanently delete on backend API & ProductRegistry to prevent resurrection
+        apiClient.deleteProduct(id).catch((err) => {
+          console.warn('[produceStore] deleteProduct backend note:', err?.message);
+        });
       },
 
       getCropById: (id) => {
@@ -357,8 +395,9 @@ export const useProduceStore = create<ProduceStoreState>()(
     }),
     {
       name: 'mandikart_farmer_produce_storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => safeAsyncStorage),
       partialize: (state) => ({ crops: state.crops }),
     }
   )
 );
+

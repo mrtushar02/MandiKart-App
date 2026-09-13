@@ -336,7 +336,7 @@ export default function CropDetailsScreen() {
       >
         {/* ── Hero Media & Vital Card ──────────────────────────────── */}
         <View style={styles.heroCard}>
-          <Image source={{ uri: crop.imageUri }} style={styles.heroImage} />
+          <Image source={{ uri: crop.imageUri || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }} style={styles.heroImage} />
 
           <View style={styles.heroBody}>
             <View style={styles.heroTitleRow}>

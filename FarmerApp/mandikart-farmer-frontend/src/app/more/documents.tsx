@@ -33,6 +33,8 @@ import {
   AlertTriangle,
 } from 'lucide-react-native';
 import { MKBackground, MKHeader } from '@/components/ui';
+import { useAuthStore } from '@/store/authStore';
+import { pickImageFromGallery, takePhotoWithCamera } from '@/services/imagePickerService';
 
 interface DocItem {
   id: string;
@@ -46,63 +48,74 @@ interface DocItem {
 
 export default function DocumentsScreen() {
   const router = useRouter();
+  const { user, setUser } = useAuthStore();
 
   const [docs, setDocs] = useState<DocItem[]>([
     {
       id: 'aadhaar',
       name: 'Aadhaar Card',
       description: 'Government Issued Identity Verification',
-      status: 'verified',
-      docNumber: '•••• •••• 8912',
-      verifiedOn: 'Verified on 12 Jan 2026',
+      status: user?.aadhaarVerified ? 'verified' : 'pending',
+      docNumber: user?.aadhaarNumber ? `•••• •••• ${user.aadhaarNumber.slice(-4)}` : 'Identity Document',
+      verifiedOn: user?.aadhaarVerified ? 'Verified by MandiKart' : 'Pending Verification',
       iconBg: '#E8F5E9',
     },
     {
       id: 'land',
-      name: 'Land Khatian / RoR Record',
-      description: 'Proof of Agricultural Land Ownership (5.0 Acres)',
-      status: 'verified',
-      docNumber: 'Khata No. 412/90 (Cuttack)',
-      verifiedOn: 'Verified on 14 Jan 2026',
+      name: 'Land Khatian / 7/12 RoR',
+      description: `Proof of Agricultural Land Ownership (${user?.farmSize || user?.farmSizeAcres || '5'} Acres)`,
+      status: user?.landDocVerified ? 'verified' : 'pending',
+      docNumber: user?.village ? `Record (${user.village})` : 'Farm Land Record',
+      verifiedOn: user?.landDocVerified ? 'Verified by MandiKart' : 'Pending Review',
       iconBg: '#E1F5FE',
     },
     {
       id: 'bank',
       name: 'Bank Passbook / Cheque',
       description: 'Required for Automated Mandi Escrow Payouts',
-      status: 'pending',
-      docNumber: 'SBI Bank Passbook Front Page',
-      verifiedOn: 'Under Officer Review (Est. 2 hrs)',
+      status: user?.accountNumber ? 'verified' : 'action_required',
+      docNumber: user?.bankName ? `${user.bankName} Passbook` : 'Bank Verification',
+      verifiedOn: user?.accountNumber ? 'Bank Account Linked' : 'Action Required',
       iconBg: '#FFF3E0',
     },
   ]);
 
   const handleUploadNew = (docName: string) => {
-    if (Platform.OS === 'web') {
-      const option = typeof window !== 'undefined' ? window.confirm(`Upload Document: ${docName}\n\nClick OK to upload from device photo gallery, or Cancel to skip.`) : true;
-      if (option) {
-        setDocs(prev => prev.map(d => d.name === docName ? { ...d, status: 'pending', verifiedOn: 'Uploaded just now (Under Review)' } : d));
-        if (typeof window !== 'undefined') window.alert(`Document uploaded for ${docName}! 🎉\nOur verification team will review it within 2 hours.`);
-      }
-    } else {
-      Alert.alert('Upload Document', `Select document photo for ${docName}`, [
-        {
-          text: '📷 Open Camera',
-          onPress: () => {
-            setDocs(prev => prev.map(d => d.name === docName ? { ...d, status: 'pending', verifiedOn: 'Uploaded just now (Under Review)' } : d));
-            Alert.alert('Captured 🎉', 'Document photo captured successfully! Our verification team will review it.');
+    Alert.alert('Upload Document', `Select photo source for ${docName}`, [
+      {
+        text: '📷 Open Camera',
+        onPress: async () => {
+          const res = await takePhotoWithCamera();
+          if (!res.cancelled && res.uri) {
+            setDocs((prev) =>
+              prev.map((d) =>
+                d.name === docName
+                  ? { ...d, status: 'pending', verifiedOn: 'Uploaded just now (Under Review)' }
+                  : d
+              )
+            );
+            Alert.alert('Captured 🎉', 'Document photo captured successfully! Our verification team will review it within 2 hours.');
           }
         },
-        {
-          text: '📁 Pick from Gallery',
-          onPress: () => {
-            setDocs(prev => prev.map(d => d.name === docName ? { ...d, status: 'pending', verifiedOn: 'Uploaded just now (Under Review)' } : d));
-            Alert.alert('Uploaded 🎉', 'File uploaded! Our verification team will review it.');
+      },
+      {
+        text: '📁 Pick from Gallery',
+        onPress: async () => {
+          const res = await pickImageFromGallery();
+          if (!res.cancelled && res.uri) {
+            setDocs((prev) =>
+              prev.map((d) =>
+                d.name === docName
+                  ? { ...d, status: 'pending', verifiedOn: 'Uploaded just now (Under Review)' }
+                  : d
+              )
+            );
+            Alert.alert('Uploaded 🎉', 'File uploaded successfully! Our verification team will review it within 2 hours.');
           }
         },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-    }
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const verifiedCount = docs.filter(d => d.status === 'verified').length;

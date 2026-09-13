@@ -13,6 +13,7 @@ import { marketRouter } from './routes/market.routes.js';
 import { consentRouter } from './routes/consent.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { negotiationsRouter } from './routes/negotiations.routes.js';
+import { fpoRouter } from './routes/fpo.routes.js';
 import { errorHandler, sendSuccess } from './middlewares/errorHandler.js';
 import { InventoryService } from './services/inventory.service.js';
 
@@ -23,16 +24,18 @@ const app = express();
 const PORT = env.FARMER_BACKEND_PORT || env.PORT || 4000;
 
 // Security & utility middlewares
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
-    origin: env.CORS_ORIGIN || '*',
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     credentials: true,
   })
 );
 app.use(morgan('dev'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(requireIdempotency);
 
 // Base Health Check
@@ -55,6 +58,7 @@ app.use('/api/v1/market', marketRouter);
 app.use('/api/v1/consent', consentRouter);
 app.use('/api/v1/notifications', notificationRouter);
 app.use('/api/v1/negotiations', negotiationsRouter);
+app.use('/api/v1/fpo', fpoRouter);
 
 // Centralized error handler
 app.use(errorHandler);

@@ -56,17 +56,27 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
   };
 
   const handleCancelOrder = () => {
+    const doCancel = async () => {
+      try {
+        await apiClient.orders.cancelOrder(orderId);
+        setOrderStatus('CANCELLED');
+        if (route.params?.onCancel) route.params.onCancel();
+        Alert.alert('Order Cancelled', 'Your order has been cancelled successfully and escrow refund initiated.');
+      } catch (err: any) {
+        Alert.alert('Cancel Failed', err?.message || 'Unable to cancel order at this time.');
+      }
+    };
+
     if (Platform.OS === 'web') {
       if (typeof window !== 'undefined') {
         const confirmed = window.confirm(
           `Are you sure you want to cancel Order #${orderId}?\n\nA full refund of ₹${initialOrder.total} will be processed immediately.`
         );
         if (confirmed) {
-          setOrderStatus('CANCELLED');
-          if (route.params?.onCancel) route.params.onCancel();
+          doCancel();
         }
       } else {
-        setOrderStatus('CANCELLED');
+        doCancel();
       }
     } else {
       Alert.alert(
@@ -77,13 +87,7 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
           {
             text: 'Yes, Cancel Order',
             style: 'destructive',
-            onPress: () => {
-              setOrderStatus('CANCELLED');
-              if (route.params?.onCancel) {
-                route.params.onCancel();
-              }
-              Alert.alert('Order Cancelled', 'Your order has been cancelled successfully and refund initiated.');
-            },
+            onPress: doCancel,
           },
         ]
       );

@@ -58,7 +58,7 @@ export default function LoginScreen() {
         if (result.farmer.village || result.farmer.farmSizeAcres) {
           router.replace('/(tabs)/home');
         } else {
-          router.replace('/onboarding/farmer-profile');
+          router.replace('/onboarding/permissions');
         }
       } catch (err: any) {
         setErrors({ mobile: err?.message || 'Could not connect to Google authentication service.' });
@@ -256,10 +256,15 @@ export default function LoginScreen() {
         onClose={() => setGoogleModalVisible(false)}
         pendingPhone={mobile ? `+91${mobile.replace(/\D/g, '').slice(-10)}` : undefined}
         onSuccess={(farmer, isNewUser) => {
-          if (!isNewUser || farmer?.village || farmer?.farmSizeAcres) {
+          const isComplete = Boolean(
+            !isNewUser &&
+            farmer?.village &&
+            (farmer?.farmSizeAcres || (farmer as any)?.farm_size_acres)
+          );
+          if (isComplete) {
             router.replace('/(tabs)/home');
           } else {
-            router.replace('/onboarding/farmer-profile');
+            router.replace('/onboarding/permissions');
           }
         }}
         onError={(err) => {

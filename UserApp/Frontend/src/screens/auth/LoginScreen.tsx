@@ -12,12 +12,13 @@ import AuthBackground from '../../components/AuthBackground';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../services/apiClient';
 import { sendLocalOtpNotification } from '../../services/notificationService';
+import { GoogleAuthModal } from '../../components/GoogleAuthModal';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 type LoginMode = 'password' | 'otp';
 
 export default function LoginScreen({ navigation }: Props) {
-  const { signIn, signInWithGoogle, signInWithPhoneOtp } = useAuth();
+  const { signIn, signInWithGoogle, setAuthenticatedBuyer, signInWithPhoneOtp } = useAuth();
 
   const [mode, setMode] = useState<LoginMode>('password');
   const [phone, setPhone] = useState('');
@@ -27,6 +28,7 @@ export default function LoginScreen({ navigation }: Props) {
   const [showPass, setShowPass] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
 
   const handleLogin = async () => {
     const isEmail = phone.includes('@');
@@ -81,15 +83,8 @@ export default function LoginScreen({ navigation }: Props) {
     Alert.alert('OTP Sent! 📱', `A verification code has been dispatched via SMS Gateway to +91 ${phone}.`);
   };
 
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    try {
-      await signInWithGoogle();
-    } catch (e) {
-      console.warn('Google sign-in error:', e);
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleLogin = () => {
+    setShowGoogleModal(true);
   };
 
   return (
@@ -271,6 +266,17 @@ export default function LoginScreen({ navigation }: Props) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GoogleAuthModal
+        visible={showGoogleModal}
+        onClose={() => setShowGoogleModal(false)}
+        onSuccess={(data) => {
+          setAuthenticatedBuyer(data.token, data.buyer);
+        }}
+        onError={(errMsg) => {
+          Alert.alert('Google Sign-In Notice', errMsg || 'Could not complete Google authentication.');
+        }}
+      />
     </AuthBackground>
   );
 }

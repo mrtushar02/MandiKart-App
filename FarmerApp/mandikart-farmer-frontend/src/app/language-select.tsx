@@ -17,7 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import { Globe, Check, ArrowRight, ShoppingBasket, Leaf } from 'lucide-react-native';
+import { Globe, Check, ArrowRight, ArrowLeft, ShoppingBasket, Leaf } from 'lucide-react-native';
 import { MKBackground, MKButton } from '@/components/ui';
 import { useAppStore, LanguageCode } from '@/store/appStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -120,6 +120,25 @@ export default function LanguageSelectScreen() {
           bounces={true}
         >
           <View style={styles.container}>
+            {/* Top Bar Row with Back Button */}
+            <Animated.View entering={FadeInDown.duration(400)} style={styles.topBarRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go back to Welcome Screen"
+                hitSlop={12}
+                onPress={() => {
+                  if (router.canGoBack()) {
+                    router.back();
+                  } else {
+                    router.replace('/');
+                  }
+                }}
+                style={styles.backBtn}
+              >
+                <ArrowLeft size={22} color="#1E5A2A" strokeWidth={2.4} />
+              </Pressable>
+            </Animated.View>
+
             {/* Animated Header Section */}
             <Animated.View entering={FadeInDown.duration(500)} style={styles.header}>
               <View style={styles.logoBadge}>
@@ -259,6 +278,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'space-between',
+  },
+  topBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  backBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E8F5E9',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 3,
   },
   header: {
     alignItems: 'center',

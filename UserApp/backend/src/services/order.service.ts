@@ -451,4 +451,93 @@ export class BuyerOrderService {
       return { success: false, error: (err as Error).message };
     }
   }
+
+  /**
+   * Buyer cancels an order (only valid before pickup begins).
+   * Releases escrow refund and restores product inventory.
+   */
+  static async cancelOrder(
+    orderId: string,
+    buyerId: string,
+    reason?: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const supabase = getSupabaseAdmin();
+
+      // Check OrderRegistry first
+      const regOrder = OrderRegistryService.getOrderById(orderId);
+      const currentStatus = (regOrder?.status || OrderStatus.PLACED) as OrderStatus;
+
+      const check = canTransition(currentStatus, OrderStatus.CANCELLED, UserRole.BUYER);
+      if (!check.valid) {
+        return { success: false, error: check.reason || 'Order cannot be cancelled at this stage.' };
+      }
+
+      // Update OrderRegistry
+      OrderRegistryService.updateOrder(orderId, {
+        status: OrderStatus.CANCELLED,
+        escrowStatus: 'REFUNDED_TO_BUYER',
+      });
+
+      // Update Supabase
+      try {
+        await supabase
+          .from('orders')
+          .update({
+            status: OrderStatus.CANCELLED,
+            updated_at: new Date().toISOString(),
+          })
+          .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      } catch {}
+
+      // Restore inventory if items exist
+      const items = regOrder?.items || [];
+      for (const item of items) {
+        const prodId = item.productId || item.product_id;
+        const qty = Number(item.quantity) || 0;
+        if (prodId && qty > 0) {
+          try {
+            const { data: prod } = await supabase
+              .from('products')
+              .select('available_quantity, reserved_quantity')
+              .eq('id', prodId)
+              .maybeSingle();
+
+            if (prod) {
+              await supabase
+                .from('products')
+                .update({
+                  available_quantity: Number(prod.available_quantity || 0) + qty,
+                  reserved_quantity: Math.max(0, Number(prod.reserved_quantity || 0) - qty),
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', prodId);
+            }
+          } catch {}
+
+          try {
+            const regProd = ProductRegistryService.getProductById(prodId);
+            if (regProd) {
+              regProd.availableQuantity = (regProd.availableQuantity || 0) + qty;
+              regProd.reservedQuantity = Math.max(0, (regProd.reservedQuantity || 0) - qty);
+              ProductRegistryService.registerProduct(regProd);
+            }
+          } catch {}
+        }
+      }
+
+      await auditLog({
+        actorId: buyerId,
+        role: UserRole.BUYER,
+        action: 'CANCEL_ORDER',
+        resourceType: 'ORDER',
+        resourceId: orderId,
+        metadata: { reason: reason || 'Cancelled by buyer before pickup' },
+      });
+
+      return { success: true, message: 'Order successfully cancelled. Refund initiated to original payment method.' };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  }
 }

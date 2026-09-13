@@ -182,7 +182,11 @@ export const MKButton: React.FC<MKButtonProps> = ({
         accessibilityLabel={title}
       >
         {loading ? (
-          <ActivityIndicator color={variant === 'primary' || variant === 'accent' ? '#FFFFFF' : '#1E5A2A'} />
+          <ActivityIndicator
+            color={variant === 'primary' || variant === 'accent' ? '#FFFFFF' : '#1E5A2A'}
+            aria-label="Loading"
+            accessibilityLabel="Loading"
+          />
         ) : (
           <View style={styles.innerContent}>
             {leftIcon && <View style={styles.leftIconWrapper}>{leftIcon}</View>}

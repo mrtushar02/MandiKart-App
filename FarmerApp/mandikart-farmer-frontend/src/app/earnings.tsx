@@ -13,6 +13,7 @@ import {
   Alert,
   Modal,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Redirect } from 'expo-router';
@@ -34,11 +35,19 @@ import {
 } from 'lucide-react-native';
 import { MKLayout } from '@/constants/layout';
 import { useAuthStore } from '@/store/authStore';
+import { useOrderStore, OrderItem } from '@/store/orderStore';
+import { apiClient } from '@/services/apiClient';
 
 export default function EarningsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuthStore();
+  const orders = useOrderStore((state) => state.orders);
+  const syncOrders = useOrderStore((state) => state.syncWithBackend);
+
+  React.useEffect(() => {
+    syncOrders().catch(() => {});
+  }, [syncOrders]);
 
   if (!isAuthenticated) {
     return <Redirect href="/auth/login" />;
@@ -46,71 +55,112 @@ export default function EarningsScreen() {
 
   const [timeframe, setTimeframe] = useState<'7D' | '1M' | '1Y'>('7D');
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
-  const [withdrawAmount, setWithdrawAmount] = useState('15,000');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+
+  // Compute live escrow & settled balances
+  const completedOrders = React.useMemo(
+    () => orders.filter((o) => o.tab === 'Completed' || o.statusType === 'completed'),
+    [orders]
+  );
+  const inTransitOrders = React.useMemo(
+    () => orders.filter((o) => o.tab === 'Active' || o.statusType === 'en_route'),
+    [orders]
+  );
+
+  const totalNetEarnings = React.useMemo(() => {
+    return completedOrders.reduce((sum, o) => {
+      const val = parseFloat((o.netPayout || o.totalValue || '0').replace(/[^0-9.]/g, '')) || 0;
+      return sum + val;
+    }, 0);
+  }, [completedOrders]);
+
+  const escrowTransitAmount = React.useMemo(() => {
+    return inTransitOrders.reduce((sum, o) => {
+      const val = parseFloat((o.netPayout || o.totalValue || '0').replace(/[^0-9.]/g, '')) || 0;
+      return sum + val;
+    }, 0);
+  }, [inTransitOrders]);
+
+  const availableBalance = totalNetEarnings;
+  // Keep withdraw input pre-filled but allow editing
+  const [withdrawAmount, setWithdrawAmount] = useState('0');
+  React.useEffect(() => {
+    if (availableBalance > 0) {
+      setWithdrawAmount(availableBalance.toLocaleString('en-IN'));
+    }
+  }, [availableBalance]);
+
+  const bankName = user?.bankName || 'State Bank of India';
+  const accountNumber = user?.accountNumber || '38910298412';
+  const maskedAccount = accountNumber.length > 4 ? `*******${accountNumber.slice(-4)}` : '*******8912';
+  const ifscCode = user?.ifscCode || 'SBIN0001245';
 
   const topPadding = MKLayout.getTopHeaderPadding(insets);
 
-  const weeklyData = [
-    { day: 'Mon', amount: 12000, height: 60 },
-    { day: 'Tue', amount: 18500, height: 90 },
-    { day: 'Wed', amount: 8000, height: 40 },
-    { day: 'Thu', amount: 24000, height: 120 },
-    { day: 'Fri', amount: 16000, height: 80 },
-    { day: 'Sat', amount: 32000, height: 150 },
-    { day: 'Sun', amount: 17950, height: 85 },
-  ];
+  const weeklyData = React.useMemo(() => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const maxVal = Math.max(1, totalNetEarnings);
+    return days.map((day, idx) => {
+      const weight = [0.1, 0.15, 0.08, 0.22, 0.14, 0.2, 0.11][idx];
+      const amount = Math.round(totalNetEarnings * weight);
+      const height = Math.min(150, Math.max(25, Math.round((amount / maxVal) * 140)));
+      return { day, amount, height };
+    });
+  }, [totalNetEarnings]);
 
-  const transactions = [
-    {
-      id: 'TXN-9021',
-      orderId: 'MK-8921',
-      crop: 'Sharbati Wheat (500 KG)',
-      buyer: 'Reliance Fresh Hub',
-      date: 'Today, 11:30 AM',
-      amount: '₹11,250',
-      status: 'Paid via IMPS',
-      type: 'credit',
-    },
-    {
-      id: 'TXN-8842',
-      orderId: 'MK-8874',
-      crop: 'Red Onion (1,000 KG)',
-      buyer: 'BigBasket Regional',
-      date: '02 Sept 2026',
-      amount: '₹24,600',
-      status: 'Paid via NEFT',
-      type: 'credit',
-    },
-    {
-      id: 'TXN-8710',
-      orderId: 'WD-4401',
-      crop: 'Bank Transfer to SBI A/c *8912',
-      buyer: 'Self Withdrawal',
-      date: '31 Aug 2026',
-      amount: '₹40,000',
-      status: 'Completed',
-      type: 'debit',
-    },
-    {
-      id: 'TXN-8655',
-      orderId: 'MK-8790',
-      crop: 'Hybrid Tomato (800 KG)',
-      buyer: 'Kalyan Agro Processors',
-      date: '28 Aug 2026',
-      amount: '₹18,400',
-      status: 'Paid via UPI',
-      type: 'credit',
-    },
-  ];
+  const transactions = React.useMemo(() => {
+    if (orders.length === 0) {
+      return [];
+    }
+    return orders.map((o, idx) => ({
+      id: `TXN-${o.orderNumber || o.id || idx}`,
+      orderId: o.orderNumber || o.id,
+      crop: `${o.cropName} (${o.quantity})`,
+      buyer: o.buyerName,
+      date: o.pickupDate || 'Recent',
+      amount: o.netPayout || o.totalValue || '₹0',
+      status: o.statusLabel || (o.tab === 'Completed' ? 'Settled via Escrow' : 'In Transit'),
+      type: 'credit' as const,
+    }));
+  }, [orders]);
 
-  const handleWithdraw = () => {
-    setIsSuccess(true);
-    setTimeout(() => {
-      setIsSuccess(false);
-      setWithdrawModalVisible(false);
-      Alert.alert('Payout Initiated', `₹${withdrawAmount} sent to State Bank of India A/c *8912 via IMPS.`);
-    }, 1200);
+  const handleWithdraw = async () => {
+    if (availableBalance <= 0) {
+      Alert.alert('No Balance', 'You currently do not have any settled balance available to withdraw.');
+      return;
+    }
+    const numericAmount = parseFloat(withdrawAmount.replace(/[^0-9.]/g, ''));
+    if (!numericAmount || numericAmount <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter a valid amount to withdraw.');
+      return;
+    }
+    if (numericAmount > availableBalance) {
+      Alert.alert('Insufficient Balance', `Maximum withdrawable amount is ₹${availableBalance.toLocaleString('en-IN')}.`);
+      return;
+    }
+
+    setIsWithdrawing(true);
+    try {
+      const amountInPaise = Math.round(numericAmount * 100);
+      const result = await apiClient.withdrawToBank(amountInPaise);
+      const isSim = (result as any)?.isFallback || (result as any)?.data?.simulated;
+      setIsSuccess(true);
+      setTimeout(() => {
+        setIsSuccess(false);
+        setIsWithdrawing(false);
+        setWithdrawModalVisible(false);
+        Alert.alert(
+          'Payout Initiated',
+          `₹${numericAmount.toLocaleString('en-IN')} sent to ${bankName} A/c ${maskedAccount} via Instant IMPS.${
+            isSim ? '\n(Simulated — backend offline)' : ''
+          }`
+        );
+      }, 1200);
+    } catch (e: any) {
+      setIsWithdrawing(false);
+      Alert.alert('Withdrawal Failed', e?.message || 'Could not process your withdrawal. Please try again.');
+    }
   };
 
   return (
@@ -142,7 +192,7 @@ export default function EarningsScreen() {
           <View style={styles.balanceHeaderRow}>
             <View>
               <Text style={styles.balanceHeaderLabel}>TOTAL NET EARNINGS</Text>
-              <Text style={styles.balanceAmount}>₹1,28,450</Text>
+              <Text style={styles.balanceAmount}>₹{totalNetEarnings.toLocaleString('en-IN')}</Text>
             </View>
             <View style={styles.walletIconWrap}>
               <Wallet size={26} color="#FFFFFF" />
@@ -152,12 +202,12 @@ export default function EarningsScreen() {
           <View style={styles.metricsRow}>
             <View style={styles.metricCol}>
               <Text style={styles.metricLabel}>Available Balance</Text>
-              <Text style={styles.metricValGreen}>₹24,800</Text>
+              <Text style={styles.metricValGreen}>₹{availableBalance.toLocaleString('en-IN')}</Text>
             </View>
             <View style={styles.metricDivider} />
             <View style={styles.metricCol}>
               <Text style={styles.metricLabel}>In Escrow Transit</Text>
-              <Text style={styles.metricValOrange}>₹16,450</Text>
+              <Text style={styles.metricValOrange}>₹{escrowTransitAmount.toLocaleString('en-IN')}</Text>
             </View>
           </View>
 
@@ -177,8 +227,8 @@ export default function EarningsScreen() {
             <Building size={20} color="#1E5A2A" />
           </View>
           <View style={styles.bankInfoCol}>
-            <Text style={styles.bankName}>State Bank of India</Text>
-            <Text style={styles.bankDetails}>A/C: *******8912 • IFSC: SBIN0001420</Text>
+            <Text style={styles.bankName}>{bankName}</Text>
+            <Text style={styles.bankDetails}>A/C: {maskedAccount} • IFSC: {ifscCode}</Text>
           </View>
           <View style={styles.verifiedBadge}>
             <CheckCircle2 size={14} color="#15803D" />
@@ -265,44 +315,54 @@ export default function EarningsScreen() {
           </View>
 
           <View style={styles.transactionsList}>
-            {transactions.map((tx) => {
-              const isCredit = tx.type === 'credit';
-              return (
-                <View key={tx.id} style={styles.txRow}>
-                  <View
-                    style={[
-                      styles.txIconWrap,
-                      isCredit ? styles.txIconCredit : styles.txIconDebit,
-                    ]}
-                  >
-                    {isCredit ? (
-                      <ArrowDownLeft size={18} color="#15803D" />
-                    ) : (
-                      <ArrowUpRight size={18} color="#92400E" />
-                    )}
-                  </View>
-
-                  <View style={styles.txInfoCol}>
-                    <Text style={styles.txCrop}>{tx.crop}</Text>
-                    <Text style={styles.txMeta}>
-                      {tx.buyer} • {tx.date}
-                    </Text>
-                    <Text style={styles.txStatus}>{tx.status}</Text>
-                  </View>
-
-                  <View style={styles.txAmountCol}>
-                    <Text
+            {transactions.length === 0 ? (
+              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+                <CheckCircle2 size={32} color="#15803D" style={{ opacity: 0.6, marginBottom: 8 }} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>No payout transactions yet</Text>
+                <Text style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', marginTop: 4, paddingHorizontal: 24 }}>
+                  Completed crop delivery payouts from buyers will be deposited directly to your escrow wallet.
+                </Text>
+              </View>
+            ) : (
+              transactions.map((tx) => {
+                const isCredit = tx.type === 'credit';
+                return (
+                  <View key={tx.id} style={styles.txRow}>
+                    <View
                       style={[
-                        styles.txAmount,
-                        isCredit ? styles.amountGreen : styles.amountBrown,
+                        styles.txIconWrap,
+                        isCredit ? styles.txIconCredit : styles.txIconDebit,
                       ]}
                     >
-                      {isCredit ? `+${tx.amount}` : `-${tx.amount}`}
-                    </Text>
+                      {isCredit ? (
+                        <ArrowDownLeft size={18} color="#15803D" />
+                      ) : (
+                        <ArrowUpRight size={18} color="#92400E" />
+                      )}
+                    </View>
+
+                    <View style={styles.txInfoCol}>
+                      <Text style={styles.txCrop}>{tx.crop}</Text>
+                      <Text style={styles.txMeta}>
+                        {tx.buyer} • {tx.date}
+                      </Text>
+                      <Text style={styles.txStatus}>{tx.status}</Text>
+                    </View>
+
+                    <View style={styles.txAmountCol}>
+                      <Text
+                        style={[
+                          styles.txAmount,
+                          isCredit ? styles.amountGreen : styles.amountBrown,
+                        ]}
+                      >
+                        {isCredit ? `+${tx.amount}` : `-${tx.amount}`}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-              );
-            })}
+                );
+              })
+            )}
           </View>
         </View>
       </ScrollView>
@@ -318,7 +378,8 @@ export default function EarningsScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Withdraw to Bank</Text>
             <Text style={styles.modalSubtitle}>
-              Available balance: <Text style={{ fontWeight: '800', color: '#15803D' }}>₹24,800</Text>
+              Available balance:{' '}
+              <Text style={{ fontWeight: '800', color: '#15803D' }}>₹{availableBalance.toLocaleString('en-IN')}</Text>
             </Text>
 
             <View style={styles.inputContainer}>
@@ -334,8 +395,8 @@ export default function EarningsScreen() {
             <View style={styles.payoutTargetBox}>
               <Building size={18} color="#1E5A2A" />
               <View style={{ flex: 1 }}>
-                <Text style={styles.payoutTargetName}>State Bank of India (*8912)</Text>
-                <Text style={styles.payoutTargetType}>Instant IMPS • Zero Fee</Text>
+                <Text style={styles.payoutTargetName}>{bankName} ({maskedAccount})</Text>
+                <Text style={styles.payoutTargetType}>IFSC: {ifscCode} • Instant IMPS • Zero Fee</Text>
               </View>
             </View>
 
@@ -347,9 +408,15 @@ export default function EarningsScreen() {
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
 
-              <Pressable style={styles.modalConfirmBtn} onPress={handleWithdraw}>
+              <Pressable
+                style={[styles.modalConfirmBtn, isWithdrawing && { opacity: 0.75 }]}
+                onPress={handleWithdraw}
+                disabled={isWithdrawing}
+              >
                 {isSuccess ? (
                   <Check size={18} color="#FFFFFF" strokeWidth={3} />
+                ) : isWithdrawing ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.modalConfirmText}>TRANSFER NOW</Text>
                 )}

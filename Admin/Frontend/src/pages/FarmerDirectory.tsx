@@ -13,15 +13,22 @@ export const getCropFallbackImage = (cropName: string = '', category: string = '
   if (name.includes('potato') || name.includes('alu') || name.includes('aloo')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80';
   if (name.includes('wheat') || name.includes('gehu')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
   if (name.includes('rice') || name.includes('paddy') || name.includes('chawal')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('soybean') || name.includes('soya')) return 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=500&auto=format&fit=crop&q=80';
   if (name.includes('corn') || name.includes('maize') || name.includes('makka')) return 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=500&auto=format&fit=crop&q=80';
   if (name.includes('chilli') || name.includes('chili') || name.includes('mirchi')) return 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=500&auto=format&fit=crop&q=80';
   if (name.includes('garlic') || name.includes('lahsun')) return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
   if (name.includes('ginger') || name.includes('adrak')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
   if (name.includes('apple') || name.includes('seb')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=500&auto=format&fit=crop&q=80';
   if (name.includes('mango') || name.includes('aam')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('banana') || name.includes('kela')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('pomegranate') || name.includes('anar')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('grape') || name.includes('angoor')) return 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=500&auto=format&fit=crop&q=80';
   if (name.includes('orange') || name.includes('santra') || name.includes('santre')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?w=500&auto=format&fit=crop&q=80';
   if (name.includes('carrot') || name.includes('gajar')) return 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500&auto=format&fit=crop&q=80';
-  if (name.includes('cabbage') || name.includes('gobi')) return 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('cabbage') || name.includes('patta gobi') || name.includes('gobi')) return 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('cauliflower') || name.includes('phool gobi')) return 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('peas') || name.includes('matar')) return 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=500&auto=format&fit=crop&q=80';
+  if (name.includes('cucumber') || name.includes('kheera')) return 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=500&auto=format&fit=crop&q=80';
   if (cat.includes('fruit')) return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=500&auto=format&fit=crop&q=80';
   if (cat.includes('grain')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
   return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500&auto=format&fit=crop&q=80';
@@ -67,17 +74,26 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
   const safeSaveFarmers = (farmersToSave: FarmerUser[]) => {
     try {
       const sanitized = farmersToSave.map(f => ({
-        ...f,
-        activeListings: f.activeListings.map(l => ({
-          ...l,
-          imageUrl: l.imageUrl && l.imageUrl.startsWith('file://') ? undefined : l.imageUrl,
-          images: l.images ? l.images.filter(img => !img.startsWith('file://')) : [],
+        id: f.id,
+        farmerCode: f.farmerCode,
+        fullName: f.fullName,
+        phone: f.phone,
+        district: f.district,
+        state: f.state,
+        verificationStatus: f.verificationStatus,
+        activeListings: (f.activeListings || []).slice(0, 10).map(l => ({
+          id: l.id,
+          cropName: l.cropName,
+          category: l.category,
+          pricePerKg: l.pricePerKg,
+          availableKg: l.availableKg,
+          status: l.status,
+          imageUrl: l.imageUrl,
+          images: l.images || (l.imageUrl ? [l.imageUrl] : []),
         })),
       }));
       localStorage.setItem('mandikart_admin_farmers_data', JSON.stringify(sanitized));
-    } catch (err) {
-      console.warn('LocalStorage save notice:', err);
-    }
+    } catch {}
   };
 
   const fetchFarmersAndProduce = async (showSpinner = false) => {
@@ -127,7 +143,8 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
               const cat = p.category || 'Vegetables';
               const fallbackImg = getCropFallbackImage(crop, cat);
               const rawImg = p.imageUrl || (p.images && p.images[0]);
-              const validImg = rawImg && !rawImg.startsWith('file://') ? rawImg : fallbackImg;
+              const isOldHardcodedOnionUrl = rawImg && rawImg.includes('AB6AXuC5ju') && !crop.toLowerCase().includes('onion');
+              const validImg = (rawImg && !rawImg.startsWith('file://') && !isOldHardcodedOnionUrl) ? rawImg : fallbackImg;
               return {
                 id: p.id,
                 farmerId: f.id,
@@ -200,7 +217,8 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
         const cat = p.category || 'Vegetables';
         const fallbackImg = getCropFallbackImage(crop, cat);
         const rawImg = p.imageUrl || (p.images && p.images[0]);
-        const validImg = rawImg && !rawImg.startsWith('file://') ? rawImg : fallbackImg;
+        const isOldHardcodedOnionUrl = rawImg && rawImg.includes('AB6AXuC5ju') && !crop.toLowerCase().includes('onion');
+        const validImg = (rawImg && !rawImg.startsWith('file://') && !isOldHardcodedOnionUrl) ? rawImg : fallbackImg;
 
         return {
           id: p.id,
@@ -639,7 +657,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
                           </div>
                           <div className="text-[10px] text-zinc-400 mt-1 font-mono">
                             Submitted: <strong className="text-emerald-400 font-semibold">{
-                              (listing as any).createdAt
+                              ((listing as any).createdAt && !isNaN(new Date((listing as any).createdAt).getTime()))
                                 ? new Date((listing as any).createdAt).toLocaleString('en-IN', {
                                     day: '2-digit',
                                     month: 'short',
@@ -658,7 +676,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
                       <div className="grid grid-cols-3 gap-2 bg-black border border-zinc-800 p-2.5 rounded text-xs">
                         <div>
                           <span className="text-zinc-500 block text-[10px]">AVAILABLE:</span>
-                          <span className="text-white font-bold">{listing.availableKg.toLocaleString()} kg</span>
+                          <span className="text-white font-bold">{(Number(listing.availableKg) || 0).toLocaleString()} kg</span>
                         </div>
                         <div>
                           <span className="text-zinc-500 block text-[10px]">PRICE/KG:</span>
@@ -666,7 +684,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
                         </div>
                         <div>
                           <span className="text-zinc-500 block text-[10px]">LOT VALUE:</span>
-                          <span className="text-white font-bold">₹{totalLotValue.toLocaleString()}</span>
+                          <span className="text-white font-bold">₹{(Number(totalLotValue) || 0).toLocaleString()}</span>
                         </div>
                       </div>
 
@@ -903,7 +921,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
                         </div>
                       </td>
                       <td className="p-3.5 text-right font-mono font-bold text-white">
-                        ₹{farmer.totalSalesAmount.toLocaleString('en-IN')}
+                        ₹{(Number(farmer.totalSalesAmount) || 0).toLocaleString('en-IN')}
                       </td>
                       <td className="p-3.5 text-center">
                         <button

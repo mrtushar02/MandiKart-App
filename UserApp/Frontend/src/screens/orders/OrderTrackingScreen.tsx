@@ -29,15 +29,15 @@ export default function OrderTrackingScreen({ navigation, route }: any) {
     farmerName: paramOrder?.farmerName || 'Rajan Kumar',
     estimatedDelivery: paramOrder?.estimatedDelivery || 'Today by 5:30 PM',
     deliveryAddress: paramOrder?.deliveryAddress || 'Flat 402, Shivajinagar, Pune - 411005',
-    driverName: 'Suresh Patil',
-    driverPhone: '+91 98234 56789',
-    driverVehicle: 'MH 12 AB 4590 (EV Van)',
-    driverRating: 4.9,
-    deliveryOtp: '7412',
+    driverName: paramOrder?.driverName || 'Santosh Kumar',
+    driverPhone: paramOrder?.driverPhone || '+91 98234 56789',
+    driverVehicle: paramOrder?.driverVehicle || 'MH 12 AB 4590 (EV Cold-Van)',
+    driverRating: paramOrder?.driverRating || 4.9,
+    deliveryOtp: paramOrder?.deliveryOtp || route.params?.deliveryOtp || '719284',
   };
 
   const [currentStatus, setCurrentStatus] = useState<string>(order.status);
-  const [deliveryOtp] = useState<string>(order.deliveryOtp || '7412');
+  const [deliveryOtp] = useState<string>(order.deliveryOtp || '719284');
   const [confirming, setConfirming] = useState(false);
   const [selectedTip, setSelectedTip] = useState<number | null>(null);
   const [selectedInstruction, setSelectedInstruction] = useState<string | null>(null);

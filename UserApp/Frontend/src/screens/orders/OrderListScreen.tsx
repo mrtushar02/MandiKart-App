@@ -94,11 +94,17 @@ export default function OrderListScreen({ navigation }: any) {
         {
           text: 'Yes, Cancel Order',
           style: 'destructive',
-          onPress: () => {
-            setOrders((prev) =>
-              prev.map((o) => (o.id === orderId ? { ...o, status: 'CANCELLED' } : o))
-            );
-            Alert.alert('Order Cancelled', `Order #${orderId} has been cancelled.`);
+          onPress: async () => {
+            try {
+              await apiClient.orders.cancelOrder(orderId);
+              setOrders((prev) =>
+                prev.map((o) => (o.id === orderId ? { ...o, status: 'CANCELLED' } : o))
+              );
+              Alert.alert('Order Cancelled', `Order #${orderId} has been cancelled and escrow refund initiated.`);
+              loadOrders();
+            } catch (err: any) {
+              Alert.alert('Cancel Failed', err?.message || 'Unable to cancel order at this time.');
+            }
           },
         },
       ]
@@ -202,7 +208,6 @@ export default function OrderListScreen({ navigation }: any) {
                 navigation.navigate('OrderDetails', {
                   orderId: item.id,
                   order: item,
-                  onCancel: () => setOrders((prev) => prev.map((o) => o.id === item.id ? { ...o, status: 'CANCELLED' } : o)),
                 })
               }
             >
@@ -264,7 +269,6 @@ export default function OrderListScreen({ navigation }: any) {
                       navigation.navigate('OrderDetails', {
                         orderId: item.id,
                         order: item,
-                        onCancel: () => setOrders((prev) => prev.map((o) => o.id === item.id ? { ...o, status: 'CANCELLED' } : o)),
                       })
                     }
                   >

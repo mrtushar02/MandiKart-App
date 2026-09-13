@@ -43,7 +43,7 @@ import { useAuthStore } from '@/store/authStore';
 
 export default function PermissionsScreen() {
   const router = useRouter();
-  const { setIsAuthenticated, setOnboarded } = useAuthStore();
+  const { user, setUser, setIsAuthenticated, setOnboarded, completeOnboarding } = useAuthStore();
 
   const [terms, setTerms] = useState(true);
   const [privacy, setPrivacy] = useState(true);
@@ -55,12 +55,11 @@ export default function PermissionsScreen() {
 
   const [loading, setLoading] = useState(false);
   const [showTermsReader, setShowTermsReader] = useState(false);
+  const [showPrivacyReader, setShowPrivacyReader] = useState(false);
 
   const canProceed = terms && privacy;
 
-  const handleAgreeAndContinue = async () => {
-    if (!canProceed || loading) return;
-
+  const handleGrantAndContinue = async () => {
     setLoading(true);
     try {
       await FrontendConsentService.submitConsent({
@@ -76,10 +75,8 @@ export default function PermissionsScreen() {
     } catch (e) {
       console.warn('Consent recorded with fallback:', e);
     } finally {
-      setIsAuthenticated(true);
-      setOnboarded(true);
       setLoading(false);
-      router.replace('/(tabs)/home');
+      router.replace('/onboarding/farmer-profile');
     }
   };
 
@@ -93,11 +90,11 @@ export default function PermissionsScreen() {
             if (router.canGoBack()) {
               router.back();
             } else {
-              router.replace('/onboarding/farm-details');
+              router.replace('/auth/signup');
             }
           }}
           title="Permissions & Agreement"
-          step={{ current: 3, total: 3, label: 'Permissions' }}
+          step={{ current: 1, total: 3, label: 'Permissions' }}
         />
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -213,24 +210,24 @@ export default function PermissionsScreen() {
           {/* Action CTA */}
           <Pressable
             style={[styles.button, (!canProceed || loading) && styles.buttonDisabled]}
-            onPress={handleAgreeAndContinue}
+            onPress={handleGrantAndContinue}
             disabled={!canProceed || loading}
           >
             {loading ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
               <View style={styles.btnRow}>
-                <Text style={styles.buttonText}>Agree & Launch Dashboard 🚀</Text>
+                <Text style={styles.buttonText}>Continue to Farmer Profile</Text>
                 <ArrowRight size={18} color="#ffffff" />
               </View>
             )}
           </Pressable>
 
-          {/* Step dots (Step 3 of 3) */}
+          {/* Step dots (Step 1 of 3) */}
           <View style={styles.progressDotsRow}>
-            <View style={[styles.dot, styles.dotDone]} />
-            <View style={[styles.dot, styles.dotDone]} />
             <View style={[styles.dot, styles.dotActive]} />
+            <View style={styles.dot} />
+            <View style={styles.dot} />
           </View>
 
           <Text style={styles.footerNotice}>

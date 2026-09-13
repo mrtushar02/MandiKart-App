@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, setApiAuthToken } from '../services/apiClient';
 
@@ -34,7 +35,8 @@ interface AuthContextType {
     city?: string;
     state?: string;
   }) => Promise<{ success: boolean; error?: string }>;
-  signInWithGoogle: (idToken?: string, email?: string, fullName?: string) => Promise<boolean>;
+  signInWithGoogle: (idToken?: string, email?: string, fullName?: string, avatarUrl?: string) => Promise<boolean>;
+  setAuthenticatedBuyer: (token: string, buyer: BuyerProfile) => void;
   signInWithPhoneOtp: (phone: string, otp: string, fullName?: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => void;
   logout: () => void;
@@ -77,6 +79,7 @@ const AuthContext = createContext<AuthContextType>({
   signIn: async () => ({ success: false }),
   signUp: async () => ({ success: false }),
   signInWithGoogle: async () => false,
+  setAuthenticatedBuyer: () => {},
   signInWithPhoneOtp: async () => ({ success: false }),
   signOut: () => {},
   logout: () => {},
@@ -95,6 +98,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        if (Platform.OS === 'web' && (typeof window === 'undefined' || !window.localStorage)) {
+          return;
+        }
         let savedToken = await AsyncStorage.getItem('mandikart_buyer_token');
         let savedUser = await AsyncStorage.getItem('mandikart_buyer_user');
         if (!savedToken && typeof window !== 'undefined' && window.localStorage) {
@@ -159,16 +165,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signInWithGoogle = async (idToken?: string, email?: string, fullName?: string): Promise<boolean> => {
+  const setAuthenticatedBuyer = (token: string, buyer: BuyerProfile) => {
+    setToken(token);
+    setApiAuthToken(token);
+    setUser(buyer);
+    setIsAuthenticated(true);
+    persistBuyerAuth(token, buyer);
+  };
+
+  const signInWithGoogle = async (idToken?: string, email?: string, fullName?: string, avatarUrl?: string): Promise<boolean> => {
     try {
-      const res = await apiClient.auth.loginWithGoogle(idToken, email, fullName);
+      const res = await apiClient.auth.loginWithGoogle(idToken, email, fullName, avatarUrl);
       const buyerObj = res?.buyer || (res as any)?.user;
       if (res?.token && buyerObj) {
-        setToken(res.token);
-        setApiAuthToken(res.token);
-        setUser(buyerObj as BuyerProfile);
-        setIsAuthenticated(true);
-        persistBuyerAuth(res.token, buyerObj as BuyerProfile);
+        setAuthenticatedBuyer(res.token, buyerObj as BuyerProfile);
         return true;
       }
       return false;
@@ -183,11 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await apiClient.auth.loginWithPhoneOtp(phone, otp, fullName);
       const buyerObj = res?.buyer || (res as any)?.user;
       if (res?.token && buyerObj) {
-        setToken(res.token);
-        setApiAuthToken(res.token);
-        setUser(buyerObj as BuyerProfile);
-        setIsAuthenticated(true);
-        persistBuyerAuth(res.token, buyerObj as BuyerProfile);
+        setAuthenticatedBuyer(res.token, buyerObj as BuyerProfile);
         return { success: true };
       }
       return { success: false, error: res?.error || 'Invalid OTP code' };
@@ -217,6 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
+        setAuthenticatedBuyer,
         signInWithPhoneOtp,
         signOut,
         logout: signOut,

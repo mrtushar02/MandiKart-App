@@ -358,7 +358,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
                 <span className="text-xs font-mono tracking-widest uppercase">Total Gross Volume</span>
                 <span className="material-symbols-outlined text-emerald-400">payments</span>
               </div>
-              <div className="text-3xl font-black text-white tracking-tight">₹{totalVolume.toLocaleString()}</div>
+              <div className="text-3xl font-black text-white tracking-tight">₹{(Number(totalVolume) || 0).toLocaleString()}</div>
               <div className="text-xs text-emerald-400 mt-2 font-mono flex items-center">
                 <span className="material-symbols-outlined text-sm mr-1">trending_up</span> +18.4% vs last week
               </div>
@@ -369,7 +369,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
                 <span className="text-xs font-mono tracking-widest uppercase">Escrow Locked Funds</span>
                 <span className="material-symbols-outlined text-orange-400">lock</span>
               </div>
-              <div className="text-3xl font-black text-white tracking-tight">₹{totalEscrowLocked.toLocaleString()}</div>
+              <div className="text-3xl font-black text-white tracking-tight">₹{(Number(totalEscrowLocked) || 0).toLocaleString()}</div>
               <div className="text-xs text-orange-400 mt-2 font-mono">
                 Across {orders.filter(o => o.escrowStatus === 'HELD_IN_ESCROW').length} active trades
               </div>
@@ -482,7 +482,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
                           </div>
                         </td>
                         <td className="p-3 text-right font-mono font-bold text-white">
-                          ₹{order.totalPrice.toLocaleString()}
+                          ₹{(Number(order.totalPrice) || 0).toLocaleString()}
                         </td>
                         <td className="p-3">
                           {getStatusBadge(order.status)}
@@ -645,19 +645,19 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
                     <div className="bg-zinc-950 border border-zinc-800 p-3 text-xs space-y-1.5 font-mono">
                       <div className="flex justify-between">
                         <span className="text-zinc-400">Goods Subtotal:</span>
-                        <span className="text-white">₹{(selectedOrder.totalPrice * 0.95).toLocaleString()}</span>
+                        <span className="text-white">₹{((Number(selectedOrder.totalPrice) || 0) * 0.95).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-400">MandiKart Fee (2.5%):</span>
-                        <span className="text-emerald-400">₹{(selectedOrder.totalPrice * 0.025).toLocaleString()}</span>
+                        <span className="text-emerald-400">₹{((Number(selectedOrder.totalPrice) || 0) * 0.025).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-400">Logistics Escrow:</span>
-                        <span className="text-white">₹{(selectedOrder.totalPrice * 0.025).toLocaleString()}</span>
+                        <span className="text-white">₹{((Number(selectedOrder.totalPrice) || 0) * 0.025).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between font-bold border-t border-zinc-800 pt-1.5 text-sm">
                         <span className="text-zinc-300">Total Escrow Value:</span>
-                        <span className="text-white">₹{selectedOrder.totalPrice.toLocaleString()}</span>
+                        <span className="text-white">₹{(Number(selectedOrder.totalPrice) || 0).toLocaleString()}</span>
                       </div>
                     </div>
                   </div>

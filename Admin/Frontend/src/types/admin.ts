@@ -69,7 +69,7 @@ export interface FarmerProduceListing {
   pricePerKg: number;
   qualityGrade: 'GRADE_A' | 'GRADE_B' | 'PREMIUM';
   harvestDate: string;
-  status: 'PENDING_APPROVAL' | 'ACTIVE' | 'REJECTED' | 'SOLD_OUT' | 'UNPUBLISHED';
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'ADMIN_APPROVED' | 'ACTIVE' | 'REJECTED' | 'SOLD_OUT' | 'UNPUBLISHED';
   mandiName?: string;
   submittedAt?: string;
   labCertificateNumber?: string;

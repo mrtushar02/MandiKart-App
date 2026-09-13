@@ -8,13 +8,18 @@
     "FarmerApp/mandikart-farmer-backend",
     "UserApp/backend",
     "Logistic/backend",
-    "Admin/backend"
+    "Admin/backend",
+    "Admin/Frontend"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "dev:farmer": "npm --workspace=FarmerApp/mandikart-farmer-backend run dev"
+    "dev:farmer": "npm --workspace=FarmerApp/mandikart-farmer-backend run dev",
+    "dev:user": "npm --workspace=UserApp/backend run dev",
+    "dev:logistic": "npm --workspace=Logistic/backend run dev",
+    "dev:admin": "npm --workspace=Admin/backend run dev",
+    "dev:admin-frontend": "npm --workspace=Admin/Frontend run dev"
   },
   "keywords": [
     "agriculture",

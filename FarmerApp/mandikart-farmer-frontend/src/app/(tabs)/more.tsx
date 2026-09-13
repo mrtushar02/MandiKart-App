@@ -40,6 +40,7 @@ import {
   WalletCards,
   Camera,
   X,
+  QrCode,
 } from 'lucide-react-native';
 import { MKScreen, MKSection, MKCard, MKRow } from '@/components/ui';
 import { MKColors } from '@/constants/colors';
@@ -48,6 +49,8 @@ import { useAppStore } from '@/store/appStore';
 import { useAuthStore } from '@/store/authStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { pickImageFromGallery, takePhotoWithCamera } from '@/services/imagePickerService';
+import FPOQRScannerModal from '@/components/qr/FPOQRScannerModal';
+import FPOQRCodeModal from '@/components/fpo/FPOQRCodeModal';
 
 const FARMER_PORTRAIT_URI =
   'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=300&auto=format&fit=crop';
@@ -66,12 +69,16 @@ export default function MoreScreen() {
   const { t } = useTranslation();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [fpoQROpen, setFpoQROpen] = useState(false);
 
   const profile = isAuthenticated ? farmer ?? user : null;
   const name = farmer?.fullName ?? user?.fullName ?? user?.name;
   const location = [user?.village, user?.district, user?.state].filter(Boolean).join(', ') || [user?.district, user?.state].filter(Boolean).join(', ');
   const isVerified = farmer?.isVerified === true;
   const hasFarmDetails = Boolean(user?.farmSize || user?.farmSizeAcres || user?.crops?.length);
+  const isFPO = user?.role === 'FPO';
+  const fpo = user?.fpoDetails;
 
   async function handlePickFromGallery() {
     setPhotoModalVisible(false);
@@ -129,9 +136,9 @@ export default function MoreScreen() {
         </View>
       )}
 
-      {/* ── 2. Profile Hero Card (Stitch) ── */}
+      {/* ── 2. Profile Hero Card ── */}
       <View style={styles.profileSectionWrapper}>
-        <MKCard style={styles.stitchProfileCard}>
+        <MKCard style={isFPO ? [styles.stitchProfileCard, { borderColor: '#1B4D8E', borderWidth: 2 }] : styles.stitchProfileCard}>
           <View style={styles.profileTopRow}>
             <Pressable
               onPress={() => setPhotoModalVisible(true)}
@@ -147,18 +154,33 @@ export default function MoreScreen() {
             </Pressable>
             <View style={styles.profileInfoCol}>
               <Text numberOfLines={1} style={styles.profileNameText}>
-                {name || 'Ravi Kumar'}
+                {isFPO ? (fpo?.fpoName || 'Your FPO') : (name || 'Ravi Kumar')}
               </Text>
-              <View style={styles.profileLocationRow}>
-                <MapPin size={13} color="#6B7280" />
-                <Text numberOfLines={1} style={styles.profileLocationText}>
-                  {location || 'Nashik, Maharashtra'}
-                </Text>
-              </View>
-              <View style={styles.profileCompleteBadge}>
-                <CheckCircle2 size={12} color="#1B6D24" fill="#E8F5E9" />
-                <Text style={styles.profileCompleteText}>{t.profileComplete || 'Profile Complete'}</Text>
-              </View>
+              {isFPO ? (
+                <>
+                  <Text numberOfLines={1} style={{ fontSize: 12, color: '#1B4D8E', fontWeight: '700', marginTop: 2 }}>
+                    {name || 'CEO'} • {fpo?.designation?.replace('_', ' ') || 'Representative'}
+                  </Text>
+                  <View style={[styles.profileCompleteBadge, { backgroundColor: '#EBF2FF' }]}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#1B4D8E' }}>
+                      👥 {fpo?.memberCount || 0} Members
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.profileLocationRow}>
+                    <MapPin size={13} color="#6B7280" />
+                    <Text numberOfLines={1} style={styles.profileLocationText}>
+                      {location || 'Nashik, Maharashtra'}
+                    </Text>
+                  </View>
+                  <View style={styles.profileCompleteBadge}>
+                    <CheckCircle2 size={12} color="#1B6D24" fill="#E8F5E9" />
+                    <Text style={styles.profileCompleteText}>{t.profileComplete || 'Profile Complete'}</Text>
+                  </View>
+                </>
+              )}
             </View>
           </View>
 
@@ -169,14 +191,87 @@ export default function MoreScreen() {
               pressed && { opacity: 0.75 },
             ]}
           >
-            <Text style={styles.viewProfileText}>{t.viewProfile || 'View & Edit Profile'}</Text>
-            <ChevronRight size={18} color="#1B6D24" />
+            <Text style={[styles.viewProfileText, isFPO && { color: '#1B4D8E' }]}>
+              {isFPO ? 'View & Edit FPO Profile' : (t.viewProfile || 'View & Edit Profile')}
+            </Text>
+            <ChevronRight size={18} color={isFPO ? '#1B4D8E' : '#1B6D24'} />
           </Pressable>
         </MKCard>
       </View>
 
+      {/* ── 2.5 Farmer FPO Connection Card (For Individual Farmers) ── */}
+      {!isFPO && (
+        <View style={styles.fpoSectionWrapper}>
+          {user?.fpoMemberOf ? (
+            <MKCard style={styles.fpoActiveCard}>
+              <View style={styles.fpoActiveHeader}>
+                <View style={styles.fpoBadgeVerified}>
+                  <ShieldCheck size={14} color="#1B6D24" strokeWidth={2.5} />
+                  <Text style={styles.fpoBadgeVerifiedText}>ENROLLED FPO MEMBER</Text>
+                </View>
+                <Pressable
+                  style={({ pressed }) => [styles.fpoSwitchBtn, pressed && { opacity: 0.8 }]}
+                  onPress={() => setScannerOpen(true)}
+                >
+                  <QrCode size={13} color="#1B6D24" strokeWidth={2.2} />
+                  <Text style={styles.fpoSwitchBtnText}>Re-Scan</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.fpoActiveName}>
+                {user.fpoMemberOf.fpoName || user?.fpoDetails?.fpoName || 'Kisan Producer Co.'}
+              </Text>
+              <Text style={styles.fpoActiveDetails}>
+                Code: <Text style={{ fontWeight: '700', color: '#1B6D24' }}>{user.fpoMemberOf.code || (user.fpoMemberOf as any).joinCode || user?.fpoDetails?.fpoJoinCode || 'MK-FPO-01'}</Text> • Member ID: {user.fpoMemberOf.memberId || 'MK-MBR-9042'}
+              </Text>
+
+              <View style={styles.fpoBenefitsRow}>
+                <View style={styles.fpoBenefitTag}>
+                  <CheckCircle2 size={12} color="#1B6D24" />
+                  <Text style={styles.fpoBenefitTagText}>Bulk Input Discounts</Text>
+                </View>
+                <View style={styles.fpoBenefitTag}>
+                  <CheckCircle2 size={12} color="#1B6D24" />
+                  <Text style={styles.fpoBenefitTagText}>Combined Logistics</Text>
+                </View>
+              </View>
+            </MKCard>
+          ) : (
+            <MKCard style={styles.fpoPromoCard}>
+              <View style={styles.fpoPromoTop}>
+                <View style={styles.fpoPromoIconWrap}>
+                  <QrCode size={22} color="#1B6D24" strokeWidth={2.2} />
+                </View>
+                <View style={styles.fpoPromoContent}>
+                  <View style={styles.fpoPromoBadge}>
+                    <Text style={styles.fpoPromoBadgeText}>COMMUNITY BENEFIT</Text>
+                  </View>
+                  <Text style={styles.fpoPromoTitle}>Join an FPO / Kisan Dal</Text>
+                  <Text style={styles.fpoPromoDesc}>
+                    Scan an FPO QR code or enter code to get bulk seed subsidies, shared transport & direct institutional buyer access.
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Scan FPO QR to Join"
+                style={({ pressed }) => [
+                  styles.fpoScanActionBtn,
+                  pressed && { transform: [{ scale: 0.98 }], opacity: 0.9 },
+                ]}
+                onPress={() => setScannerOpen(true)}
+              >
+                <QrCode size={18} color="#FFFFFF" strokeWidth={2.4} />
+                <Text style={styles.fpoScanActionBtnText}>Scan FPO QR to Join</Text>
+              </Pressable>
+            </MKCard>
+          )}
+        </View>
+      )}
+
       {/* ── 3. Section: Your Account ── */}
-      <MKSection title="Your Account">
+      <MKSection title={isFPO ? 'FPO Management' : 'Your Account'}>
         <MKCard padding="none">
           <MKRow
             title="Profile Details & Edit"
@@ -190,27 +285,68 @@ export default function MoreScreen() {
             iconBgColor="#E8F5E9"
             onPress={() => router.push('/earnings')}
           />
-          <MKRow
-            title="Farm Details"
-            icon={<Sprout size={20} color="#964900" strokeWidth={2.1} />}
-            iconBgColor="#FFF3E5"
-            onPress={() => router.push('/onboarding/farm-details')}
-          />
-          <MKRow
-            title="Documents"
-            icon={<FileText size={20} color="#964900" strokeWidth={2.1} />}
-            iconBgColor="#FFF3E5"
-            rightText="2 of 3 verified"
-            onPress={() => router.push('/more/documents')}
-          />
-          <MKRow
-            title="Bank & Payment"
-            icon={<WalletCards size={20} color="#964900" strokeWidth={2.1} />}
-            iconBgColor="#FFF3E5"
-            rightText="•••• 4521"
-            isLast
-            onPress={() => router.push('/more/bank-details')}
-          />
+          {isFPO ? (
+            <>
+              <MKRow
+                title="Members & Farmer Register"
+                icon={<User size={20} color="#1B4D8E" strokeWidth={2.1} />}
+                iconBgColor="#EBF2FF"
+                onPress={() => router.push('/fpo/members' as any)}
+              />
+              <MKRow
+                title="Share FPO QR & Join Link"
+                icon={<QrCode size={20} color="#1B4D8E" strokeWidth={2.1} />}
+                iconBgColor="#EBF2FF"
+                rightText="Show QR"
+                onPress={() => setFpoQROpen(true)}
+              />
+              <MKRow
+                title="Collective Procurement"
+                icon={<Sprout size={20} color="#7C3AED" strokeWidth={2.1} />}
+                iconBgColor="#F5F3FF"
+                onPress={() => router.push('/fpo/procurement' as any)}
+              />
+              <MKRow
+                title="Government Schemes"
+                icon={<FileCheck size={20} color="#D97706" strokeWidth={2.1} />}
+                iconBgColor="#FFFBEB"
+                isLast
+                onPress={() => router.push('/fpo/schemes' as any)}
+              />
+            </>
+          ) : (
+            <>
+              <MKRow
+                title="Farm Details"
+                icon={<Sprout size={20} color="#964900" strokeWidth={2.1} />}
+                iconBgColor="#FFF3E5"
+                onPress={() => router.push('/onboarding/farm-details')}
+              />
+              <MKRow
+                title="Scan FPO QR to Join"
+                subtitle={user?.fpoMemberOf ? `Enrolled in ${user.fpoMemberOf.fpoName}` : 'Join local cooperative & get subsidies'}
+                icon={<QrCode size={20} color="#1B6D24" strokeWidth={2.1} />}
+                iconBgColor="#E8F5E9"
+                rightText={user?.fpoMemberOf ? 'Active' : 'Scan'}
+                onPress={() => setScannerOpen(true)}
+              />
+              <MKRow
+                title="Documents"
+                icon={<FileText size={20} color="#964900" strokeWidth={2.1} />}
+                iconBgColor="#FFF3E5"
+                rightText={`${(user?.aadhaarVerified ? 1 : 0) + (user?.landDocVerified ? 1 : 0) + (user?.accountNumber ? 1 : 0)} of 3 verified`}
+                onPress={() => router.push('/more/documents')}
+              />
+              <MKRow
+                title="Bank & Payment"
+                icon={<WalletCards size={20} color="#964900" strokeWidth={2.1} />}
+                iconBgColor="#FFF3E5"
+                rightText={user?.accountNumber ? `•••• ${user.accountNumber.slice(-4)}` : 'Link Bank'}
+                isLast
+                onPress={() => router.push('/more/bank-details')}
+              />
+            </>
+          )}
         </MKCard>
       </MKSection>
 
@@ -221,7 +357,7 @@ export default function MoreScreen() {
             title="Notifications"
             icon={<Bell size={20} color="#964900" strokeWidth={2.1} />}
             iconBgColor="#FFF3E5"
-            rightText="3"
+            rightText="Active"
             onPress={() => router.push('/more/notifications')}
           />
           <MKRow
@@ -426,6 +562,39 @@ export default function MoreScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* FPO QR Code Scanner Modal for Individual Farmers */}
+      <FPOQRScannerModal
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onJoinedSuccess={(fpoData: any) => {
+          if (user) {
+            setUser({
+              ...user,
+              fpoMemberOf: {
+                fpoId: fpoData.fpoId,
+                fpoName: fpoData.fpoName,
+                code: fpoData.code,
+                memberId: fpoData.memberId || `MK-MBR-${Math.floor(1000 + Math.random() * 9000)}`,
+                joinedAt: new Date().toISOString(),
+              },
+            });
+          }
+        }}
+      />
+
+      {/* FPO QR Code Generator Modal for FPO Leaders */}
+      {isFPO && (
+        <FPOQRCodeModal
+          visible={fpoQROpen}
+          onClose={() => setFpoQROpen(false)}
+          fpoName={fpo?.fpoName || user?.fullName || user?.name || 'Kisan Producer Organization'}
+          joinCode={fpo?.fpoJoinCode || fpo?.registrationNumber || 'MK-FPO-01'}
+          fpoId={fpo?.fpoId || 'fpo_mandikart_01'}
+          district={fpo?.district || user?.district || 'Local District'}
+          state={fpo?.state || user?.state || 'Maharashtra'}
+        />
+      )}
     </MKScreen>
   );
 }
@@ -955,5 +1124,160 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#6B7280',
+  },
+
+  /* ── FPO Connection Card Styles (Individual Farmers) ── */
+  fpoSectionWrapper: {
+    width: '100%',
+    marginBottom: MKSpacing.xl,
+  },
+  fpoActiveCard: {
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#F0FDF4',
+    elevation: 2,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  fpoActiveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  fpoBadgeVerified: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    gap: 4,
+  },
+  fpoBadgeVerifiedText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#166534',
+    letterSpacing: 0.4,
+  },
+  fpoSwitchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#E8F5E9',
+    gap: 4,
+  },
+  fpoSwitchBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1B6D24',
+  },
+  fpoActiveName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#14532D',
+    marginBottom: 2,
+  },
+  fpoActiveDetails: {
+    fontSize: 12,
+    color: '#166534',
+    marginBottom: 10,
+  },
+  fpoBenefitsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  fpoBenefitTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  fpoBenefitTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#166534',
+  },
+
+  fpoPromoCard: {
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+    backgroundColor: '#F0F9FF',
+    elevation: 2,
+    shadowColor: '#0284C7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  fpoPromoTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  fpoPromoIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  fpoPromoContent: {
+    flex: 1,
+  },
+  fpoPromoBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
+    marginBottom: 3,
+  },
+  fpoPromoBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#0369A1',
+    letterSpacing: 0.3,
+  },
+  fpoPromoTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0C4A6E',
+    marginBottom: 3,
+  },
+  fpoPromoDesc: {
+    fontSize: 12,
+    color: '#334155',
+    lineHeight: 17,
+  },
+  fpoScanActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1B6D24',
+    paddingVertical: 11,
+    borderRadius: 12,
+    gap: 8,
+  },
+  fpoScanActionBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 });

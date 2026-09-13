@@ -54,6 +54,7 @@ import {
   NegotiationMessage,
 } from '../../store/sellStore';
 import { useProduceStore } from '../../store/produceStore';
+import { useAuthStore } from '../../store/authStore';
 import { resolveFarmerApiBaseUrl } from '../../services/apiClient';
 
 
@@ -155,8 +156,9 @@ export default function BuyerRequestsScreen() {
     const fetchNegotiations = async () => {
       try {
         const apiBase = resolveFarmerApiBaseUrl();
+        const token = useAuthStore.getState().token || '';
         const res = await fetch(`${apiBase}/negotiations`, {
-          headers: { Authorization: 'Bearer mock_jwt_token_farmer_1' },
+          headers: { Authorization: `Bearer ${token}` },
         });
         const json = await res.json();
         if (isMounted && json && json.data && Array.isArray(json.data)) {
@@ -204,13 +206,14 @@ export default function BuyerRequestsScreen() {
 
     try {
       const apiBase = resolveFarmerApiBaseUrl();
-      await fetch(`${apiBase}/negotiations/${selectedRequest.id}/respond`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer mock_jwt_token_farmer_1',
-          'Idempotency-Key': `idemp-cnt-${Date.now()}`,
-        },
+        const token = useAuthStore.getState().token || '';
+        await fetch(`${apiBase}/negotiations/${selectedRequest.id}/respond`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            'Idempotency-Key': `idemp-cnt-${Date.now()}`,
+          },
         body: JSON.stringify({
           action: 'COUNTER',
           counterPrice: priceNum,
@@ -236,13 +239,14 @@ export default function BuyerRequestsScreen() {
 
     try {
       const apiBase = resolveFarmerApiBaseUrl();
-      await fetch(`${apiBase}/negotiations/${selectedRequest.id}/respond`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer mock_jwt_token_farmer_1',
-          'Idempotency-Key': `idemp-dec-${Date.now()}`,
-        },
+        const token = useAuthStore.getState().token || '';
+        await fetch(`${apiBase}/negotiations/${selectedRequest.id}/respond`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            'Idempotency-Key': `idemp-dec-${Date.now()}`,
+          },
         body: JSON.stringify({
           action: 'REJECT',
           rejectionReason: reasonText,
@@ -267,13 +271,14 @@ export default function BuyerRequestsScreen() {
 
     try {
       const apiBase = resolveFarmerApiBaseUrl();
-      await fetch(`${apiBase}/negotiations/${selectedRequest.id}/accept`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer mock_jwt_token_farmer_1',
-          'Idempotency-Key': `idemp-acc-${Date.now()}`,
-        },
+        const token = useAuthStore.getState().token || '';
+        await fetch(`${apiBase}/negotiations/${selectedRequest.id}/accept`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            'Idempotency-Key': `idemp-acc-${Date.now()}`,
+          },
         body: JSON.stringify({
           action: 'ACCEPT',
         }),
@@ -479,7 +484,7 @@ export default function BuyerRequestsScreen() {
               <View key={req.id} style={styles.requestCard}>
                 {/* Top Row: Buyer Profile & Status */}
                 <View style={styles.cardHeader}>
-                  <Image source={{ uri: req.avatar }} style={styles.buyerAvatar} />
+                  <Image source={{ uri: req.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200' }} style={styles.buyerAvatar} />
                   <View style={styles.buyerInfoWrap}>
                     <View style={styles.buyerNameRow}>
                       <Text style={styles.buyerName} numberOfLines={1}>
@@ -595,7 +600,7 @@ export default function BuyerRequestsScreen() {
                 )}
 
                 {/* Action Buttons */}
-                <View style={styles.cardActionsRow}>
+                <View style={styles.cardActionsContainer}>
                   {req.status === 'Accepted' ? (
                     <TouchableOpacity
                       style={styles.viewOrderBtn}
@@ -613,45 +618,49 @@ export default function BuyerRequestsScreen() {
                     </TouchableOpacity>
                   ) : (
                     <>
-                      <TouchableOpacity
-                        style={styles.actionChatBtn}
-                        onPress={() =>
-                          router.push({
-                            pathname: '/sell/chat',
-                            params: {
-                              id: req.id,
-                              buyerName: req.buyerName,
-                              cropName: req.cropName,
-                            },
-                          })
-                        }
-                      >
-                        <MessageSquare size={14} color="#15803D" />
-                        <Text style={styles.actionChatText}>Chat</Text>
-                      </TouchableOpacity>
+                      <View style={styles.cardActionsSubRow}>
+                        <TouchableOpacity
+                          style={styles.actionChatBtn}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/sell/chat',
+                              params: {
+                                id: req.id,
+                                buyerName: req.buyerName,
+                                cropName: req.cropName,
+                              },
+                            })
+                          }
+                        >
+                          <MessageSquare size={14} color="#15803D" />
+                          <Text style={styles.actionChatText}>Chat with Buyer</Text>
+                        </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={styles.actionDeclineBtn}
-                        onPress={() => handleOpenDecline(req)}
-                      >
-                        <Text style={styles.actionDeclineText}>Decline</Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionDeclineBtn}
+                          onPress={() => handleOpenDecline(req)}
+                        >
+                          <Text style={styles.actionDeclineText}>Decline</Text>
+                        </TouchableOpacity>
+                      </View>
 
-                      <TouchableOpacity
-                        style={styles.actionCounterBtn}
-                        onPress={() => handleOpenCounter(req)}
-                      >
-                        <Repeat size={14} color="#15803D" />
-                        <Text style={styles.actionCounterText}>Counter</Text>
-                      </TouchableOpacity>
+                      <View style={styles.cardActionsSubRow}>
+                        <TouchableOpacity
+                          style={styles.actionCounterBtn}
+                          onPress={() => handleOpenCounter(req)}
+                        >
+                          <Repeat size={14} color="#15803D" />
+                          <Text style={styles.actionCounterText}>Counter Offer</Text>
+                        </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={styles.actionAcceptBtn}
-                        onPress={() => handleOpenAccept(req)}
-                      >
-                        <CheckCircle2 size={15} color="#FFFFFF" />
-                        <Text style={styles.actionAcceptText}>Accept</Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.actionAcceptBtn}
+                          onPress={() => handleOpenAccept(req)}
+                        >
+                          <CheckCircle2 size={15} color="#FFFFFF" />
+                          <Text style={styles.actionAcceptText}>Accept Request</Text>
+                        </TouchableOpacity>
+                      </View>
                     </>
                   )}
                 </View>
@@ -710,7 +719,7 @@ export default function BuyerRequestsScreen() {
                   <Text style={styles.sectionLabel}>BUYER PROFILE</Text>
                   <View style={styles.modalBuyerRow}>
                     <Image
-                      source={{ uri: selectedRequest.avatar }}
+                      source={{ uri: selectedRequest.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200' }}
                       style={styles.modalBuyerAvatar}
                     />
                     <View style={{ flex: 1 }}>
@@ -1555,11 +1564,14 @@ const styles = StyleSheet.create({
   },
   produceLeft: {
     flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
   },
   cropTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: '#1F2937',
+    flexShrink: 1,
   },
   cropChipsRow: {
     flexDirection: 'row',
@@ -1588,7 +1600,8 @@ const styles = StyleSheet.create({
   },
   priceRight: {
     alignItems: 'flex-end',
-    marginLeft: 12,
+    marginLeft: 8,
+    flexShrink: 0,
   },
   pricePerKg: {
     fontSize: 18,
@@ -1711,6 +1724,14 @@ const styles = StyleSheet.create({
   },
 
   /* Card Action Buttons */
+  cardActionsContainer: {
+    marginTop: 12,
+    gap: 8,
+  },
+  cardActionsSubRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   cardActionsRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1721,21 +1742,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
+    paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#16A34A',
     backgroundColor: '#F0FDF4',
-    gap: 4,
+    gap: 6,
   },
   actionChatText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#15803D',
   },
   actionDeclineBtn: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -1744,39 +1765,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   actionDeclineText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: '#6B7280',
   },
   actionCounterBtn: {
-    flex: 1.2,
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
+    paddingVertical: 11,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#16A34A',
     backgroundColor: '#F0FDF4',
-    gap: 4,
+    gap: 6,
   },
   actionCounterText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#15803D',
   },
   actionAcceptBtn: {
-    flex: 1.5,
+    flex: 1.2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
+    paddingVertical: 11,
     borderRadius: 8,
     backgroundColor: '#15803D',
-    gap: 4,
+    gap: 6,
   },
   actionAcceptText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -1938,6 +1959,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#1F2937',
+    flexShrink: 1,
+    textAlign: 'right',
+    maxWidth: '65%',
   },
   specValMuted: {
     fontSize: 12,

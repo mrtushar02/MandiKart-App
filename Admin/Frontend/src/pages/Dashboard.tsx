@@ -7,6 +7,8 @@ import { RecentOrdersTable } from '../components/RecentOrdersTable';
 import { AiInsightsCard } from '../components/AiInsightsCard';
 import { GeoActivityCard } from '../components/GeoActivityCard';
 import { PushNotificationModal } from '../components/PushNotificationModal';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
+import { getCropFallbackImage } from './FarmerDirectory';
 
 interface DashboardProps {
   user: AdminUser;
@@ -80,7 +82,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
 
   const fetchLiveProduce = (showSpinner = false) => {
     if (showSpinner) setIsProduceLoading(true);
-    fetch('http://localhost:4003/api/v1/admin/produce')
+    fetch(`${getAdminApiBaseUrl()}/produce`)
       .then(res => res.json())
       .then(resData => {
         if (Array.isArray(resData?.data)) {
@@ -101,7 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
   };
 
   const fetchLiveMetrics = () => {
-    fetch('http://localhost:4003/api/v1/admin/metrics')
+    fetch(`${getAdminApiBaseUrl()}/metrics`)
       .then(res => res.json())
       .then(resData => {
         if (resData?.data) {
@@ -120,7 +122,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
   };
 
   const fetchLiveOrders = () => {
-    fetch('http://localhost:4003/api/v1/admin/orders')
+    fetch(`${getAdminApiBaseUrl()}/orders`)
       .then(res => res.json())
       .then(resData => {
         if (Array.isArray(resData?.data) && resData.data.length > 0) {
@@ -131,9 +133,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
   };
 
   const handleDashboardApproveProduce = async (id: string, cropName: string) => {
+    setLiveProduce(prev => prev.map(p => p.id === id ? { ...p, status: 'APPROVED', targetBuyer: 'ADMIN_APPROVED', target_buyer: 'ADMIN_APPROVED', isActive: false, is_active: false } : p));
+    triggerToast(`QUALITY VERIFIED: "${cropName}" quality approved by Admin! Awaiting farmer confirmation to list globally.`);
     try {
-      await fetch(`http://localhost:4003/api/v1/admin/produce/${id}/approve`, { method: 'POST' });
-      triggerToast(`QUALITY VERIFIED: "${cropName}" quality approved by Admin! Awaiting farmer confirmation to list globally.`);
+      await fetch(`${getAdminApiBaseUrl()}/produce/${id}/approve`, { method: 'POST' });
       fetchLiveProduce();
       fetchLiveMetrics();
     } catch {
@@ -142,9 +145,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
   };
 
   const handleDashboardRejectProduce = async (id: string, cropName: string) => {
+    setLiveProduce(prev => prev.map(p => p.id === id ? { ...p, status: 'REJECTED', targetBuyer: 'REJECTED', target_buyer: 'REJECTED', isActive: false, is_active: false } : p));
+    triggerToast(`PRODUCE REJECTED: "${cropName}" unpublished from marketplace.`);
     try {
-      await fetch(`http://localhost:4003/api/v1/admin/produce/${id}/reject`, { method: 'POST' });
-      triggerToast(`PRODUCE REJECTED: "${cropName}" unpublished from marketplace.`);
+      await fetch(`${getAdminApiBaseUrl()}/produce/${id}/reject`, { method: 'POST' });
       fetchLiveProduce();
       fetchLiveMetrics();
     } catch {
@@ -172,7 +176,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
     {
       id: 'kpi-1',
       label: 'Gross Market Volume',
-      value: `₹${liveGmv.toLocaleString('en-IN')}`,
+      value: `₹${(Number(liveGmv) || 0).toLocaleString('en-IN')}`,
       change: '+12.4%',
       isPositive: true,
       period: 'last 30 days',
@@ -476,8 +480,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                           const isApproved = prod.status === 'APPROVED' || prod.status === 'ADMIN_APPROVED';
                           const isActive = prod.status === 'ACTIVE';
                           const isRejected = prod.status === 'REJECTED';
-                          const cropImg = prod.imageUrl || (prod.images && prod.images[0]) || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500';
-                          const formattedDateTime = prod.createdAt 
+                          const rawImg = prod.imageUrl || (prod.images && prod.images[0]);
+                          const isOldHardcodedOnion = rawImg && rawImg.includes('AB6AXuC5ju') && !(prod.cropName || '').toLowerCase().includes('onion');
+                          const fallbackImg = getCropFallbackImage(prod.cropName, prod.category);
+                          const cropImg = (rawImg && !rawImg.startsWith('file://') && !isOldHardcodedOnion) ? rawImg : fallbackImg;
+                          const formattedDateTime = (prod.createdAt && !isNaN(new Date(prod.createdAt).getTime())) 
                             ? new Date(prod.createdAt).toLocaleString('en-IN', {
                                 day: '2-digit',
                                 month: 'short',
@@ -811,7 +818,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400">Total Settlement Value:</span>
-                  <span className="font-black text-emerald-400 font-mono text-sm">₹{selectedOrder.totalAmount.toLocaleString('en-IN')}</span>
+                  <span className="font-black text-emerald-400 font-mono text-sm">₹{(Number(selectedOrder.totalAmount) || 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="flex justify-between border-t border-white/30 pt-2">
                   <span className="text-slate-400">Current Status:</span>
