@@ -57,6 +57,8 @@ export default function RootLayout() {
         <Stack.Screen name="produce/[id]" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="market-prices" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="market-trends" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="search" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="ai-assistant" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </SafeAreaProvider>
   );

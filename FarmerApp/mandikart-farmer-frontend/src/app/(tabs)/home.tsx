@@ -401,158 +401,85 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {/* ── 2. Search Bar with Google AI Knowledge Engine Dropdown ────── */}
+      {/* ── 2. Full Search Screen Launchpad & Kisan AI Saathi ────── */}
       <View style={styles.searchSectionWrap}>
-        <View style={[styles.searchBarContainer, searchFocused && styles.searchBarContainerFocused]}>
-          <Search size={21} color={searchFocused ? '#16A34A' : '#64748B'} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Ask Google AI: crops, mandis, bhav, diseases..."
-            placeholderTextColor="#94A3B8"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onFocus={() => setSearchFocused(true)}
-            returnKeyType="search"
-          />
-          {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery('')} hitSlop={6} style={{ padding: 4, marginRight: 2 }}>
-              <X size={18} color="#64748B" />
-            </Pressable>
-          )}
+        {/* Full Details Search Bar Launchpad */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open Full Agricultural Search"
+          style={({ pressed }) => [styles.searchBarContainer, pressed && { opacity: 0.95 }]}
+          onPress={() => router.push('/search')}
+        >
+          <Search size={21} color="#16A34A" style={styles.searchIcon} />
+          <View style={{ flex: 1, justifyContent: 'center' }}>
+            <Text style={{ fontSize: 13.5, color: '#64748B', fontWeight: '500' }}>
+              Search crops, mandis, buyers, schemes, pests...
+            </Text>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Voice search"
             style={({ pressed }) => [styles.micCircleBtn, pressed && { transform: [{ scale: 0.94 }] }]}
-            onPress={handleTriggerVoice}
+            onPress={() => router.push('/search')}
             hitSlop={6}
           >
-            <Mic size={20} color="#FFFFFF" strokeWidth={2.4} />
+            <Mic size={19} color="#FFFFFF" strokeWidth={2.4} />
           </Pressable>
-        </View>
+        </Pressable>
 
-        {/* Suggestions Panel (Google AI Dropdown & Overview) */}
-        {searchFocused && (
-          <View style={styles.suggestionsContainer}>
-            <View style={styles.suggestionsHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Sparkles size={16} color="#16A34A" strokeWidth={2.4} />
-                <Text style={styles.suggestionsTitle}>
-                  {searchQuery.trim() ? 'Google AI Agricultural Overview' : 'Live AI Suggestions'}
-                </Text>
-              </View>
-              <Pressable onPress={() => setSearchFocused(false)} hitSlop={8}>
-                <Text style={styles.suggestionsCloseText}>Close ✕</Text>
-              </Pressable>
+        {/* Kisan AI Saathi Hero Card */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open Kisan AI Saathi"
+          style={({ pressed }) => [
+            styles.kisanAiHeroCard,
+            pressed && { opacity: 0.94, transform: [{ scale: 0.99 }] },
+          ]}
+          onPress={() => router.push('/ai-assistant')}
+        >
+          <View style={styles.kisanAiTopRow}>
+            <View style={styles.kisanAiBadge}>
+              <Sparkles size={13} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={styles.kisanAiBadgeText}>Kisan AI Saathi</Text>
             </View>
-
-            {/* Google AI Overview Card */}
-            {isGoogleAiLoading ? (
-              <View style={styles.googleAiLoadingBox}>
-                <ActivityIndicator size="small" color="#16A34A" />
-                <Text style={styles.googleAiLoadingText}>
-                  Google AI researching live mandi benchmarks & advisory...
-                </Text>
-              </View>
-            ) : googleAiOverview ? (
-              <View style={styles.googleAiOverviewCard}>
-                <View style={styles.googleAiBadgeRow}>
-                  <View style={styles.googleAiGradientBadge}>
-                    <Sparkles size={13} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text style={styles.googleAiBadgeText}>Google AI Overview</Text>
-                  </View>
-                  {googleAiOverview.mandiRateSnippet ? (
-                    <View style={styles.rateSnippetBadge}>
-                      <Text style={styles.rateSnippetText}>{googleAiOverview.mandiRateSnippet}</Text>
-                    </View>
-                  ) : null}
-                </View>
-
-                <Text style={styles.googleAiHeadline}>{googleAiOverview.headline}</Text>
-                <Text style={styles.googleAiSummary}>{googleAiOverview.summary}</Text>
-
-                {/* Key Insights Bullet Points */}
-                {googleAiOverview.keyInsights && googleAiOverview.keyInsights.length > 0 && (
-                  <View style={styles.googleAiInsightsList}>
-                    {googleAiOverview.keyInsights.map((insight, idx) => (
-                      <View key={idx} style={styles.googleAiInsightItem}>
-                        <CheckCircle2 size={13} color="#15803D" style={{ marginTop: 2, flexShrink: 0 }} />
-                        <Text style={styles.googleAiInsightText}>{insight}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Recommended Action Route Button */}
-                {googleAiOverview.recommendedAction && (
-                  <Pressable
-                    style={({ pressed }) => [styles.googleAiActionBtn, pressed && { opacity: 0.88 }]}
-                    onPress={() => {
-                      setSearchFocused(false);
-                      router.push(googleAiOverview.recommendedAction.route as any);
-                    }}
-                  >
-                    <Text style={styles.googleAiActionText}>
-                      {googleAiOverview.recommendedAction.label}
-                    </Text>
-                    <ArrowRight size={14} color="#FFFFFF" strokeWidth={2.4} />
-                  </Pressable>
-                )}
-
-                {/* Related Search Chips */}
-                {googleAiOverview.relatedTopics && googleAiOverview.relatedTopics.length > 0 && (
-                  <View style={styles.relatedTopicsRow}>
-                    <Text style={styles.relatedTopicsLabel}>Farmers also ask:</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                      {googleAiOverview.relatedTopics.map((topic, i) => (
-                        <Pressable
-                          key={i}
-                          style={styles.topicChip}
-                          onPress={() => setSearchQuery(topic)}
-                        >
-                          <Search size={10} color="#64748B" />
-                          <Text style={styles.topicChipText}>{topic}</Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-            ) : null}
-
-            {/* Quick Suggestions List */}
-            <Text style={styles.subSuggestionsHeader}>
-              {searchQuery.trim() ? 'Matching Mandi Listings & Buyers' : 'Trending Sourcing & Rates'}
-            </Text>
-
-            {aiSuggestions.slice(0, 4).map((item) => (
-              <Pressable
-                key={item.id}
-                style={({ pressed }) => [styles.suggestionRow, pressed && { backgroundColor: '#F1F5F9' }]}
-                onPress={() => handleSelectSuggestion(item)}
-              >
-                <Sparkles size={13} color="#16A34A" style={{ marginTop: 2 }} />
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text numberOfLines={1} style={styles.suggestionLabel}>
-                      {item.label}
-                    </Text>
-                    {item.badge ? (
-                      <View style={{ backgroundColor: '#DCFCE7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#15803D' }}>{item.badge}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  {item.description ? (
-                    <Text numberOfLines={1} style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
-                      {item.description}
-                    </Text>
-                  ) : null}
-                </View>
-                <ChevronRight size={14} color="#94A3B8" />
-              </Pressable>
-            ))}
+            <View style={styles.kisanAiLiveTag}>
+              <View style={styles.kisanAiLiveDot} />
+              <Text style={styles.kisanAiLiveText}>AI Agronomist Active</Text>
+            </View>
           </View>
-        )}
+
+          <Text style={styles.kisanAiTitle}>Your Personal Farm & Market Advisor</Text>
+          <Text style={styles.kisanAiDesc}>
+            Deep crop health analysis, next crop recommendations, disaster alerts, and government schemes (PM-KISAN, PMFBY, KALIA) with multi-language voice narration.
+          </Text>
+
+          <View style={styles.kisanAiChipsRow}>
+            <Pressable
+              style={styles.kisanAiChip}
+              onPress={() => router.push('/ai-assistant')}
+            >
+              <Text style={styles.kisanAiChipText}>🌾 Analyze Crops & Income</Text>
+            </Pressable>
+            <Pressable
+              style={styles.kisanAiChip}
+              onPress={() => router.push('/ai-assistant')}
+            >
+              <Text style={styles.kisanAiChipText}>🔮 Next Crop Advice</Text>
+            </Pressable>
+            <Pressable
+              style={styles.kisanAiChip}
+              onPress={() => router.push('/ai-assistant')}
+            >
+              <Text style={styles.kisanAiChipText}>⚠️ Disaster Alerts</Text>
+            </Pressable>
+            <Pressable
+              style={styles.kisanAiChip}
+              onPress={() => router.push('/ai-assistant')}
+            >
+              <Text style={styles.kisanAiChipText}>🏛️ Govt Schemes</Text>
+            </Pressable>
+          </View>
+        </Pressable>
       </View>
 
       {/* ── Live Mandi Price Ticker (3D Floating Strip) ────── */}
@@ -1256,6 +1183,20 @@ export default function HomeScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── Floating Kisan AI Saathi Quick Access FAB ── */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Ask Kisan AI Saathi"
+        style={({ pressed }) => [
+          styles.floatingAiFab,
+          pressed && { transform: [{ scale: 0.94 }], opacity: 0.9 },
+        ]}
+        onPress={() => router.push('/ai-assistant')}
+      >
+        <Sparkles size={18} color="#FFFFFF" strokeWidth={2.4} />
+        <Text style={styles.floatingAiFabText}>Kisan AI</Text>
+      </Pressable>
     </MKScreen>
   );
 }
@@ -1384,6 +1325,112 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     position: 'relative',
     zIndex: 10,
+  },
+  kisanAiHeroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    padding: 16,
+    marginTop: 12,
+    elevation: 4,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    gap: 8,
+  },
+  kisanAiTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  kisanAiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  kisanAiBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  kisanAiLiveTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  kisanAiLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  kisanAiLiveText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  kisanAiTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  kisanAiDesc: {
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  kisanAiChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  kisanAiChip: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  kisanAiChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#15803D',
+  },
+  floatingAiFab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#15803D',
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 25,
+    elevation: 8,
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    zIndex: 99,
+  },
+  floatingAiFabText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
   searchBarContainer: {
     flexDirection: 'row',
