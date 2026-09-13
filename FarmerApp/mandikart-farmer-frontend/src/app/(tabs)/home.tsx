@@ -416,14 +416,23 @@ export default function HomeScreen() {
               Search crops, mandis, buyers, schemes, pests...
             </Text>
           </View>
+          {/* AI Kisan Saathi Toggle Button directly on search bar */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Voice search"
-            style={({ pressed }) => [styles.micCircleBtn, pressed && { transform: [{ scale: 0.94 }] }]}
-            onPress={() => router.push('/search')}
+            accessibilityLabel="Open Kisan AI Saathi Assistant"
+            style={({ pressed }) => [
+              styles.kisanAiSearchBarToggle,
+              pressed && { transform: [{ scale: 0.94 }], opacity: 0.9 },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              router.push('/ai-assistant');
+            }}
             hitSlop={6}
           >
-            <Mic size={19} color="#FFFFFF" strokeWidth={2.4} />
+            <Sparkles size={14} color="#FFFFFF" strokeWidth={2.5} />
+            <Text style={styles.kisanAiSearchBarToggleText}>Kisan AI</Text>
+            <View style={styles.kisanAiTogglePulseDot} />
           </Pressable>
         </Pressable>
 
@@ -1463,6 +1472,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0F172A',
     paddingVertical: 0,
+  },
+  searchPlaceholderText: {
+    fontSize: 13.5,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  kisanAiSearchBarToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#15803D',
+    paddingHorizontal: 11,
+    paddingVertical: 6.5,
+    borderRadius: 18,
+    marginLeft: 8,
+    elevation: 3,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.28,
+    shadowRadius: 4,
+  },
+  kisanAiSearchBarToggleText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  kisanAiTogglePulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#86EFAC',
   },
   micCircleBtn: {
     width: 40,

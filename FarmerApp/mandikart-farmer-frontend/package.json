@@ -68,7 +68,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "npx tsx -r ./src/__tests__/mockReactNative.js src/__tests__/serviceTests.ts"
+    "test": "npx tsx -r ./src/__tests__/mockReactNative.js src/__tests__/serviceTests.ts && npx tsx -r ./src/__tests__/mockReactNative.js src/__tests__/searchServiceTests.ts"
   },
   "private": true
 }

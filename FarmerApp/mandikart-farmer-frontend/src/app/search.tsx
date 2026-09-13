@@ -1,15 +1,17 @@
 /**
  * MandiKart Farmer App — Full Details Agricultural Search Screen
  *
- * Replaces the cramped popup search with a rich, dedicated search experience:
- * - Realtime search across crops, mandi prices, verified buyer bids, and govt schemes
- * - Segmented category filter tabs
- * - Google AI Agricultural Overview card with deep agronomical insights
- * - Realtime geolocation detection badge for hyper-local price intelligence
- * - Recent search history & trending agricultural topics
+ * Features:
+ * 1. In-Bar Voice Search Toggle with speech recognition and vernacular audio detection.
+ * 2. In-Bar AI Mode Switcher: Seamlessly toggle between "Mandi Search" and "Kisan AI Assistant".
+ * 3. Realtime Agricultural Search: Aggregates live farmer stock, verified buyer sourcing bids,
+ *    APMC mandi benchmark prices, government schemes (PM-KISAN, PMFBY, KALIA, Subhadra), and pest guides.
+ * 4. Fuzzy Text Mismatch & "Did You Mean?" Autocorrect Engine:
+ *    Resolves typos, phonetic variations, and vernacular terms (Hindi, Odia, Telugu, Bengali).
+ * 5. Google AI Agricultural Overview with agronomical synthesis & GPS mandi localization.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,7 +20,7 @@ import {
   Pressable,
   ActivityIndicator,
   StyleSheet,
-  Platform,
+  Animated,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,10 +29,10 @@ import {
   Search,
   X,
   Mic,
+  MicOff,
   Sparkles,
   MapPin,
   TrendingUp,
-  CheckCircle2,
   ArrowRight,
   Landmark,
   Building2,
@@ -39,220 +41,50 @@ import {
   Clock,
   ShieldCheck,
   ChevronRight,
+  HelpCircle,
+  Volume2,
 } from 'lucide-react-native';
 import {
   getGoogleAiSearchOverview,
   GoogleAiOverview,
-  getGeminiSearchSuggestions,
-  GeminiSearchSuggestion,
 } from '@/services/geminiService';
-import { getCurrentFarmerLocation, LocationData } from '@/services/locationService';
+import { getCurrentFarmerLocation } from '@/services/locationService';
 import { useAuthStore } from '@/store/authStore';
+import { useProduceStore } from '@/store/produceStore';
+import { useSellStore } from '@/store/sellStore';
+import {
+  executeAgriculturalSearch,
+  SearchCategory,
+  ComprehensiveSearchResult,
+} from '@/services/searchService';
+import { useVoiceSearch } from '@/hooks/useVoiceSearch';
 
-type CategoryFilter = 'all' | 'crops' | 'buyers' | 'schemes' | 'pest';
-
-interface SearchResultItem {
-  id: string;
-  category: CategoryFilter;
-  title: string;
-  subtitle: string;
-  badge?: string;
-  badgeColor?: string;
-  rate?: string;
-  rateTrend?: 'up' | 'down' | 'stable';
-  actionLabel: string;
-  actionRoute: string;
-  meta?: string;
-}
-
-const STATIC_SEARCH_DATABASE: SearchResultItem[] = [
-  // Crops & Mandi Bhav
-  {
-    id: 'crop_1',
-    category: 'crops',
-    title: '🧅 Nashik Red Onion (Grade A)',
-    subtitle: 'High demand from southern and eastern retail hubs. Stable arrival.',
-    badge: 'APMC Benchmark',
-    badgeColor: '#16A34A',
-    rate: '₹24.50 / kg',
-    rateTrend: 'up',
-    actionLabel: 'Sell Harvest',
-    actionRoute: '/(tabs)/sell',
-    meta: 'Arrivals: 4,200 Quintals • Lasalgaon & Pimpalgaon',
-  },
-  {
-    id: 'crop_2',
-    category: 'crops',
-    title: '🍅 Hybrid Red Tomato (Firm Table Grade)',
-    subtitle: 'Daily local arrivals increasing. Prices expected to remain steady.',
-    badge: 'Top Mover',
-    badgeColor: '#EA580C',
-    rate: '₹21.00 / kg',
-    rateTrend: 'down',
-    actionLabel: 'Check Mandis',
-    actionRoute: '/market-prices',
-    meta: 'Arrivals: 3,800 Crates • Kolar & Madanapalle benchmark',
-  },
-  {
-    id: 'crop_3',
-    category: 'crops',
-    title: '🥔 Jyoti Washed Potato (Grade A)',
-    subtitle: 'Cold store release active. Processing varieties attracting high bids.',
-    badge: 'Steady',
-    badgeColor: '#0284C7',
-    rate: '₹19.50 / kg',
-    rateTrend: 'stable',
-    actionLabel: 'View Trends',
-    actionRoute: '/market-trends',
-    meta: 'Arrivals: 5,100 Quintals • Agra & Hooghly benchmark',
-  },
-  {
-    id: 'crop_4',
-    category: 'crops',
-    title: '🌾 Basmati 1121 Paddy (Long Grain)',
-    subtitle: 'Institutional exporters active in major northern procurement mandis.',
-    badge: 'Export Grade',
-    badgeColor: '#7C3AED',
-    rate: '₹38.00 / kg',
-    rateTrend: 'up',
-    actionLabel: 'Sell Lot',
-    actionRoute: '/(tabs)/sell',
-    meta: 'Arrivals: 1,800 MT • Bargarh & Karnal benchmark',
-  },
-
-  // Corporate Buyers
-  {
-    id: 'buyer_1',
-    category: 'buyers',
-    title: '🏢 Reliance Fresh Direct Wholesale Hub',
-    subtitle: 'Seeking 50 MT Grade A Red Onion & 20 MT Hybrid Tomato. Farmgate pickup.',
-    badge: 'Verified Corporate',
-    badgeColor: '#1D4ED8',
-    rate: 'Offer: ₹25.20 / kg',
-    actionLabel: 'Submit Offer',
-    actionRoute: '/sell/requests',
-    meta: 'Payment: T+1 Direct Bank DBT • Free Weighbridge Slip',
-  },
-  {
-    id: 'buyer_2',
-    category: 'buyers',
-    title: '🛒 BigBasket Regional Sourcing Depot',
-    subtitle: 'Immediate requirement: Leafy greens, Okra (Bhindi), and Capsicum.',
-    badge: 'Direct Sourcing',
-    badgeColor: '#16A34A',
-    rate: 'Offer: ₹32.00 / kg',
-    actionLabel: 'View Requirement',
-    actionRoute: '/sell/requests',
-    meta: 'Zero Commission • Doorstep Quality Audit',
-  },
-  {
-    id: 'buyer_3',
-    category: 'buyers',
-    title: '🥛 Mother Dairy / Safal Aggregation Unit',
-    subtitle: 'Procuring farm fresh vegetables and seasonal fruits in bulk.',
-    badge: 'Government Backed',
-    badgeColor: '#0891B2',
-    rate: 'Competitive MSP+',
-    actionLabel: 'Connect Buyer',
-    actionRoute: '/sell/requests',
-    meta: 'Daily spot payment guarantee',
-  },
-
-  // Govt Schemes & Subsidies
-  {
-    id: 'scheme_1',
-    category: 'schemes',
-    title: '🏛️ PM-KISAN Samman Nidhi (17th Installment)',
-    subtitle: '₹6,000 per year directly transferred to farmer accounts in 3 installments.',
-    badge: 'Central DBT',
-    badgeColor: '#15803D',
-    rate: '₹2,000 / Tranche',
-    actionLabel: 'How to Apply',
-    actionRoute: '/more/help-support',
-    meta: 'Eligibility: Landholding farmers with verified e-KYC',
-  },
-  {
-    id: 'scheme_2',
-    category: 'schemes',
-    title: '🛡️ Pradhan Mantri Fasal Bima Yojana (PMFBY)',
-    subtitle: 'Comprehensive risk insurance covering post-harvest storm, hail and cyclone loss.',
-    badge: 'Crop Insurance',
-    badgeColor: '#D97706',
-    rate: '1.5% - 2% Premium',
-    actionLabel: 'Claim Guidelines',
-    actionRoute: '/more/help-support',
-    meta: 'Helpline: 14447 • Claim within 72 hrs of disaster',
-  },
-  {
-    id: 'scheme_3',
-    category: 'schemes',
-    title: '🌱 KALIA Scheme & Subhadra Yojana (Odisha)',
-    subtitle: 'Direct financial assistance for small, marginal farmers and farm families in Odisha.',
-    badge: 'State Benefit',
-    badgeColor: '#4338CA',
-    rate: '₹10,000 / Year',
-    actionLabel: 'Check Eligibility',
-    actionRoute: '/more/help-support',
-    meta: 'Portal: kalia.odisha.gov.in • Aadhaar linked DBT',
-  },
-  {
-    id: 'scheme_4',
-    category: 'schemes',
-    title: '☀️ PM-KUSUM Solar Pump Subsidy',
-    subtitle: '60% government subsidy to install solar irrigation pump sets on farmland.',
-    badge: '60% Subsidy',
-    badgeColor: '#B45309',
-    rate: 'Up to ₹1.8 Lakh Off',
-    actionLabel: 'Apply Guide',
-    actionRoute: '/more/help-support',
-    meta: 'Reduces electricity and diesel irrigation bills to zero',
-  },
-
-  // Pest & Agronomy
-  {
-    id: 'pest_1',
-    category: 'pest',
-    title: '🐛 Fall Armyworm & Stem Borer Control',
-    subtitle: 'Early prevention protocol using pheromone traps and Emamectin Benzoate 5% SG.',
-    badge: 'Agronomy Alert',
-    badgeColor: '#DC2626',
-    rate: 'Cost: ₹180 / Acre',
-    actionLabel: 'Ask Kisan AI',
-    actionRoute: '/ai-assistant',
-    meta: 'Effective on Maize, Paddy, and Sorghum',
-  },
-  {
-    id: 'pest_2',
-    category: 'pest',
-    title: '🍃 Early Blight & Leaf Curl Protocol',
-    subtitle: 'Foliar spray of Mancozeb 75% WP @ 2.5g/liter or Neem oil @ 5ml/liter.',
-    badge: 'Fungal Care',
-    badgeColor: '#EA580C',
-    rate: 'High Recovery',
-    actionLabel: 'Ask Kisan AI',
-    actionRoute: '/ai-assistant',
-    meta: 'Crucial for Tomato, Chilli, and Brinjal crops',
-  },
-];
+type FilterCategory = 'all' | 'crops' | 'buyers' | 'schemes' | 'pest';
 
 const TRENDING_SEARCHES = [
-  'Nashik Red Onion rate',
-  'Hybrid Tomato price today',
-  'PM-Kisan 17th Kist status',
-  'Reliance Fresh Buyer requirement',
-  'PMFBY crop insurance claim',
-  'KALIA scheme Odisha apply',
-  'Basmati paddy APMC rate',
+  'Nashik Red Onion rate today',
+  'Hybrid Tomato price per crate',
+  'PM-Kisan 17th Kist DBT status',
+  'Reliance Fresh Buyer demand',
+  'PMFBY crop insurance claim 72hrs',
+  'KALIA scheme Odisha apply online',
+  'Stem borer remedy for Paddy',
 ];
 
 export default function FullDetailsSearchScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ q?: string }>();
+  const params = useLocalSearchParams<{ q?: string; category?: string }>();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
 
+  // Search State
   const [query, setQuery] = useState(params.q || '');
-  const [activeCategory, setActiveCategory] = useState<CategoryFilter>('all');
+  const [activeCategory, setActiveCategory] = useState<FilterCategory>(
+    (params.category as FilterCategory) || 'all'
+  );
+  const [searchMode, setSearchMode] = useState<'mandi' | 'ai'>('mandi');
+
+  // Location State
   const [locationName, setLocationName] = useState(
     user?.district ? `${user.district}, ${user.state || 'India'}` : 'Detecting Mandi Hub...'
   );
@@ -262,11 +94,51 @@ export default function FullDetailsSearchScreen() {
   const [aiOverview, setAiOverview] = useState<GoogleAiOverview | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
+  // Voice Search Hook
+  const {
+    isListening,
+    transcript,
+    startListening,
+    stopListening,
+    resetVoiceSearch,
+  } = useVoiceSearch();
+
+  // Pulse animation for active voice mic
+  const micPulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (isListening) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(micPulseAnim, { toValue: 1.25, duration: 450, useNativeDriver: true }),
+          Animated.timing(micPulseAnim, { toValue: 1, duration: 450, useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      micPulseAnim.setValue(1);
+    }
+  }, [isListening, micPulseAnim]);
+
+  // When voice transcribed text arrives, update search input query
+  useEffect(() => {
+    if (transcript) {
+      setQuery(transcript);
+      if (searchMode === 'ai') {
+        router.push({
+          pathname: '/ai-assistant',
+          params: { prompt: transcript },
+        });
+      }
+    }
+  }, [transcript, searchMode, router]);
+
   // Recent Searches
   const [recentSearches, setRecentSearches] = useState<string[]>([
     'Red Onion rate',
     'Tomato Mandi',
     'PM-Kisan',
+    'Jyoti Potato',
   ]);
 
   // Realtime GPS Location Detection
@@ -283,7 +155,7 @@ export default function FullDetailsSearchScreen() {
               : loc.formattedAddress || 'Bargarh APMC Hub, Odisha'
           );
         }
-      } catch (err) {
+      } catch {
         if (mounted) {
           setLocationName(`${user?.district || 'Bargarh'} Mandi Hub, ${user?.state || 'Odisha'}`);
         }
@@ -294,13 +166,19 @@ export default function FullDetailsSearchScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [user]);
+
+  // Execute Agricultural Search with Live Produce, Buyers, Schemes & Mismatch Engine
+  const { results: searchResults, didYouMean, totalCount } = useMemo(() => {
+    return executeAgriculturalSearch(query, activeCategory as SearchCategory);
+  }, [query, activeCategory]);
 
   // Fetch Google AI Overview when query changes
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) {
+    if (!trimmed || trimmed.length < 2) {
       setAiOverview(null);
+      setIsAiLoading(false);
       return;
     }
 
@@ -317,7 +195,7 @@ export default function FullDetailsSearchScreen() {
       } finally {
         if (!isCancelled) setIsAiLoading(false);
       }
-    }, 400);
+    }, 450);
 
     return () => {
       isCancelled = true;
@@ -335,27 +213,27 @@ export default function FullDetailsSearchScreen() {
   const handleClearQuery = () => {
     setQuery('');
     setAiOverview(null);
+    resetVoiceSearch();
   };
 
-  // Filter items based on activeCategory and query
-  const filteredResults = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return STATIC_SEARCH_DATABASE.filter((item) => {
-      const matchCat = activeCategory === 'all' || item.category === activeCategory;
-      if (!matchCat) return false;
-      if (!q) return true;
-      return (
-        item.title.toLowerCase().includes(q) ||
-        item.subtitle.toLowerCase().includes(q) ||
-        (item.meta && item.meta.toLowerCase().includes(q)) ||
-        (item.badge && item.badge.toLowerCase().includes(q))
-      );
+  const handleToggleVoice = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
+
+  const handleSwitchToAiMode = () => {
+    router.push({
+      pathname: '/ai-assistant',
+      params: query ? { prompt: query } : undefined,
     });
-  }, [query, activeCategory]);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 12) }]}>
-      {/* ── 1. Top Search Header Bar ─────────────────────────────── */}
+      {/* ── 1. Top Search Header Bar with Inside Voice Toggle ─────── */}
       <View style={styles.headerBar}>
         <Pressable
           accessibilityRole="button"
@@ -367,8 +245,9 @@ export default function FullDetailsSearchScreen() {
           <ArrowLeft size={22} color="#0F172A" strokeWidth={2.4} />
         </Pressable>
 
+        {/* The Search Input Wrapper */}
         <View style={styles.searchInputWrapper}>
-          <Search size={18} color="#64748B" style={{ marginLeft: 10 }} />
+          <Search size={18} color="#15803D" style={{ marginLeft: 10 }} />
           <TextInput
             style={styles.textInput}
             placeholder="Search crops, mandis, buyers, schemes..."
@@ -378,24 +257,89 @@ export default function FullDetailsSearchScreen() {
             autoFocus={!params.q}
             returnKeyType="search"
           />
+
+          {/* Clear Button */}
           {query.length > 0 && (
-            <Pressable onPress={handleClearQuery} hitSlop={8} style={{ padding: 6 }}>
+            <Pressable onPress={handleClearQuery} hitSlop={8} style={{ padding: 4 }}>
               <X size={16} color="#64748B" />
             </Pressable>
           )}
+
+          {/* Voice Toggle Button Inside the Search Bar */}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Voice Search"
-            style={({ pressed }) => [styles.micBtn, pressed && { transform: [{ scale: 0.94 }] }]}
-            onPress={() => handleSelectSearch('Nashik Red Onion rate today')}
+            accessibilityLabel={isListening ? 'Stop Voice Listening' : 'Voice Search'}
+            style={({ pressed }) => [
+              styles.micInsideBtn,
+              isListening && styles.micInsideBtnActive,
+              pressed && { transform: [{ scale: 0.92 }] },
+            ]}
+            onPress={handleToggleVoice}
             hitSlop={6}
           >
-            <Mic size={17} color="#FFFFFF" strokeWidth={2.5} />
+            <Animated.View style={{ transform: [{ scale: micPulseAnim }] }}>
+              {isListening ? (
+                <MicOff size={17} color="#FFFFFF" strokeWidth={2.5} />
+              ) : (
+                <Mic size={17} color="#FFFFFF" strokeWidth={2.5} />
+              )}
+            </Animated.View>
           </Pressable>
         </View>
       </View>
 
-      {/* ── 2. Realtime Location Intelligence Badge ───────────────── */}
+      {/* ── 2. In-Bar Search vs Kisan AI Mode Switcher Strip ────── */}
+      <View style={styles.modeSwitcherContainer}>
+        <View style={styles.modeSegment}>
+          <Pressable
+            style={[styles.modeBtn, searchMode === 'mandi' && styles.modeBtnActive]}
+            onPress={() => setSearchMode('mandi')}
+          >
+            <Search
+              size={13}
+              color={searchMode === 'mandi' ? '#15803D' : '#64748B'}
+              strokeWidth={2.2}
+            />
+            <Text
+              style={[
+                styles.modeBtnText,
+                searchMode === 'mandi' && styles.modeBtnTextActive,
+              ]}
+            >
+              Mandi Search
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.modeBtn, styles.modeBtnAi]}
+            onPress={handleSwitchToAiMode}
+          >
+            <Sparkles size={13} color="#FFFFFF" strokeWidth={2.5} />
+            <Text style={styles.modeBtnTextAi}>Ask Kisan AI</Text>
+            <View style={styles.aiActiveMiniDot} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* ── 3. Active Voice Listening Alert Banner (When Mic is ON) ── */}
+      {isListening && (
+        <View style={styles.voiceActiveBanner}>
+          <View style={styles.voicePulseRing}>
+            <Volume2 size={16} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.voiceActiveTitle}>Listening to your voice...</Text>
+            <Text style={styles.voiceActiveSub}>
+              Speak in Hindi, Odia, Telugu, or English (e.g., "Pyaaz ka bhav" or "PM Kisan status")
+            </Text>
+          </View>
+          <Pressable onPress={stopListening} style={styles.voiceStopBtn}>
+            <Text style={styles.voiceStopBtnText}>Stop</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* ── 4. Realtime Location Intelligence Badge ───────────────── */}
       <View style={styles.locationBar}>
         <MapPin size={13} color="#15803D" />
         <Text numberOfLines={1} style={styles.locationText}>
@@ -403,11 +347,11 @@ export default function FullDetailsSearchScreen() {
         </Text>
         <View style={styles.livePill}>
           <View style={styles.liveDot} />
-          <Text style={styles.liveText}>GPS Active</Text>
+          <Text style={styles.liveText}>GPS e-NAM Active</Text>
         </View>
       </View>
 
-      {/* ── 3. Category Filter Tabs ──────────────────────────────── */}
+      {/* ── 5. Category Filter Tabs ──────────────────────────────── */}
       <View style={styles.tabsWrapper}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
           {[
@@ -423,7 +367,7 @@ export default function FullDetailsSearchScreen() {
               <Pressable
                 key={tab.id}
                 style={[styles.filterChip, isActive && styles.filterChipActive]}
-                onPress={() => setActiveCategory(tab.id as CategoryFilter)}
+                onPress={() => setActiveCategory(tab.id as FilterCategory)}
               >
                 <Icon size={14} color={isActive ? '#FFFFFF' : '#475569'} strokeWidth={2.2} />
                 <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
@@ -435,13 +379,37 @@ export default function FullDetailsSearchScreen() {
         </ScrollView>
       </View>
 
-      {/* ── 4. Main Scrollable Content ────────────────────────────── */}
+      {/* ── 6. Main Scrollable Content ────────────────────────────── */}
       <ScrollView
         style={styles.scrollArea}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 28 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* ── Did You Mean? Text Mismatch & Typo Suggestion Banner ── */}
+        {didYouMean && (
+          <Pressable
+            style={styles.didYouMeanBanner}
+            onPress={() => handleSelectSearch(didYouMean.split('(')[0].trim())}
+          >
+            <View style={styles.didYouMeanLeft}>
+              <Sparkles size={16} color="#15803D" strokeWidth={2.4} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.didYouMeanTitle}>
+                  Did you mean:{' '}
+                  <Text style={styles.didYouMeanHighlight}>{didYouMean}</Text>?
+                </Text>
+                <Text style={styles.didYouMeanSubtitle}>
+                  Tap to search verified agricultural data for this term
+                </Text>
+              </View>
+            </View>
+            <View style={styles.didYouMeanBtn}>
+              <Text style={styles.didYouMeanBtnText}>Search</Text>
+            </View>
+          </Pressable>
+        )}
+
         {/* Google / Gemini AI Overview Card */}
         {isAiLoading ? (
           <View style={styles.aiLoadingBox}>
@@ -467,41 +435,38 @@ export default function FullDetailsSearchScreen() {
             <Text style={styles.aiHeadline}>{aiOverview.headline}</Text>
             <Text style={styles.aiSummary}>{aiOverview.summary}</Text>
 
-            {/* Bulleted Insights */}
             {aiOverview.keyInsights && aiOverview.keyInsights.length > 0 && (
               <View style={styles.insightsBox}>
                 {aiOverview.keyInsights.map((insight, idx) => (
                   <View key={idx} style={styles.insightRow}>
-                    <CheckCircle2 size={13} color="#15803D" style={{ marginTop: 2, flexShrink: 0 }} />
+                    <ShieldCheck size={14} color="#15803D" style={{ marginTop: 2 }} />
                     <Text style={styles.insightText}>{insight}</Text>
                   </View>
                 ))}
               </View>
             )}
 
-            {/* Recommended Action */}
-            {aiOverview.recommendedAction && (
+            {aiOverview.recommendedAction?.route && (
               <Pressable
-                style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.88 }]}
+                style={styles.actionBtn}
                 onPress={() => router.push(aiOverview.recommendedAction.route as any)}
               >
-                <Text style={styles.actionBtnText}>{aiOverview.recommendedAction.label}</Text>
-                <ArrowRight size={14} color="#FFFFFF" strokeWidth={2.4} />
+                <Text style={styles.actionBtnText}>{aiOverview.recommendedAction.label || 'View Details'}</Text>
+                <ArrowRight size={14} color="#FFFFFF" />
               </Pressable>
             )}
 
-            {/* Related Questions */}
             {aiOverview.relatedTopics && aiOverview.relatedTopics.length > 0 && (
               <View style={styles.relatedBox}>
-                <Text style={styles.relatedTitle}>Farmers also ask:</Text>
+                <Text style={styles.relatedTitle}>Related Agricultural Inquiries</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-                  {aiOverview.relatedTopics.map((topic, i) => (
+                  {aiOverview.relatedTopics.map((topic, idx) => (
                     <Pressable
-                      key={i}
+                      key={idx}
                       style={styles.topicPill}
                       onPress={() => handleSelectSearch(topic)}
                     >
-                      <Search size={11} color="#475569" />
+                      <Search size={11} color="#64748B" />
                       <Text style={styles.topicPillText}>{topic}</Text>
                     </Pressable>
                   ))}
@@ -511,7 +476,7 @@ export default function FullDetailsSearchScreen() {
           </View>
         ) : null}
 
-        {/* ── Initial State: Recent Searches & Trending Topics ── */}
+        {/* Initial Zero-Query State: Recent Searches & Trending Topics */}
         {!query.trim() && (
           <View style={styles.initialStateBox}>
             {/* Recent Searches */}
@@ -541,7 +506,7 @@ export default function FullDetailsSearchScreen() {
               </View>
             )}
 
-            {/* Trending Agricultural Topics */}
+            {/* Trending Mandi Topics */}
             <View style={styles.sectionBlock}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                 <TrendingUp size={16} color="#15803D" strokeWidth={2.4} />
@@ -566,41 +531,43 @@ export default function FullDetailsSearchScreen() {
           </View>
         )}
 
-        {/* ── Results List ────────────────────────────────────────── */}
+        {/* ── Results Header ──────────────────────────────────────── */}
         <View style={styles.resultsHeaderRow}>
           <Text style={styles.resultsCountText}>
             {query.trim()
-              ? `Found ${filteredResults.length} matches for "${query}"`
-              : `All Agricultural Categories (${filteredResults.length})`}
+              ? `Found ${searchResults.length} verified matches for "${query}"`
+              : `All Agricultural Categories (${totalCount})`}
           </Text>
         </View>
 
-        {filteredResults.length === 0 ? (
+        {/* Results List */}
+        {searchResults.length === 0 ? (
           <View style={styles.emptyState}>
-            <Search size={36} color="#CBD5E1" />
+            <Search size={40} color="#CBD5E1" />
             <Text style={styles.emptyTitle}>No exact matches found</Text>
             <Text style={styles.emptySubtitle}>
-              Try searching for common crop names, schemes like PM-KISAN, or ask Kisan AI Saathi.
+              Try typing common crop names (e.g., "Tomato", "Pyaaz", "Dhan"), schemes like "PM-Kisan",
+              or ask your personal Kisan AI advisor directly.
             </Text>
             <Pressable
               style={styles.askAiCta}
-              onPress={() => router.push('/ai-assistant')}
+              onPress={handleSwitchToAiMode}
             >
               <Sparkles size={16} color="#FFFFFF" strokeWidth={2.4} />
               <Text style={styles.askAiCtaText}>Ask Kisan AI Saathi Instead</Text>
             </Pressable>
           </View>
         ) : (
-          filteredResults.map((item) => (
+          searchResults.map((item: ComprehensiveSearchResult) => (
             <View key={item.id} style={styles.resultCard}>
               <View style={styles.cardTopRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
                 </View>
-                {item.rate && (
+                {item.mandiRate && (
                   <View style={styles.rateCol}>
-                    <Text style={styles.cardRate}>{item.rate}</Text>
+                    <Text style={styles.cardRate}>{item.mandiRate}</Text>
                     {item.badge && (
                       <View style={[styles.cardBadge, { backgroundColor: item.badgeColor || '#15803D' }]}>
                         <Text style={styles.cardBadgeText}>{item.badge}</Text>
@@ -617,6 +584,19 @@ export default function FullDetailsSearchScreen() {
               )}
 
               <View style={styles.cardFooter}>
+                <View style={styles.sourceTypeBadge}>
+                  <Text style={styles.sourceTypeText}>
+                    {item.sourceType === 'user_produce'
+                      ? '🌾 My Listed Harvest'
+                      : item.sourceType === 'buyer_request'
+                      ? '🏢 Verified Buyer'
+                      : item.sourceType === 'govt_scheme'
+                      ? '🏛️ Govt Benefit'
+                      : item.sourceType === 'pest_guide'
+                      ? '🩺 Agronomy Doctor'
+                      : '📊 APMC Benchmark'}
+                  </Text>
+                </View>
                 <Pressable
                   style={({ pressed }) => [styles.cardActionBtn, pressed && { opacity: 0.85 }]}
                   onPress={() => router.push(item.actionRoute as any)}
@@ -645,8 +625,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 10,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
   },
   backBtn: {
     padding: 6,
@@ -661,7 +639,8 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    height: 46,
+    height: 48,
+    paddingRight: 4,
   },
   textInput: {
     flex: 1,
@@ -670,15 +649,120 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontWeight: '500',
   },
-  micBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  micInsideBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#16A34A',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
+    elevation: 2,
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
   },
+  micInsideBtnActive: {
+    backgroundColor: '#DC2626',
+    shadowColor: '#DC2626',
+  },
+
+  /* In-Bar Mode Switcher */
+  modeSwitcherContainer: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  modeSegment: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+    padding: 3,
+    gap: 4,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 6,
+    borderRadius: 11,
+  },
+  modeBtnActive: {
+    backgroundColor: '#FFFFFF',
+    elevation: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  modeBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  modeBtnTextActive: {
+    color: '#15803D',
+    fontWeight: '800',
+  },
+  modeBtnAi: {
+    backgroundColor: '#15803D',
+  },
+  modeBtnTextAi: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  aiActiveMiniDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#86EFAC',
+  },
+
+  /* Voice Active Banner */
+  voiceActiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  voicePulseRing: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceActiveTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  voiceActiveSub: {
+    fontSize: 11,
+    color: '#FEE2E2',
+    marginTop: 1,
+  },
+  voiceStopBtn: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  voiceStopBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+
+  /* Location Bar */
   locationBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -715,6 +799,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#15803D',
   },
+
+  /* Category Filter Tabs */
   tabsWrapper: {
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
@@ -729,8 +815,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 6.5,
     borderRadius: 20,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
@@ -749,13 +835,62 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
+
+  /* Scrollable Container */
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
     padding: 16,
-    gap: 14,
+    gap: 12,
   },
+
+  /* Did You Mean Suggestion Banner */
+  didYouMeanBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    gap: 10,
+  },
+  didYouMeanLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  didYouMeanTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  didYouMeanHighlight: {
+    fontWeight: '900',
+    color: '#15803D',
+    textDecorationLine: 'underline',
+  },
+  didYouMeanSubtitle: {
+    fontSize: 11,
+    color: '#475569',
+    marginTop: 2,
+  },
+  didYouMeanBtn: {
+    backgroundColor: '#15803D',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  didYouMeanBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  /* Google AI Card */
   aiLoadingBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -818,7 +953,7 @@ const styles = StyleSheet.create({
     color: '#15803D',
   },
   aiHeadline: {
-    fontSize: 16,
+    fontSize: 15.5,
     fontWeight: '800',
     color: '#0F172A',
   },
@@ -885,8 +1020,10 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontWeight: '500',
   },
+
+  /* Initial State: Recent & Trending */
   initialStateBox: {
-    gap: 16,
+    gap: 14,
   },
   sectionBlock: {
     backgroundColor: '#FFFFFF',
@@ -962,11 +1099,13 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontWeight: '500',
   },
+
+  /* Results Display */
   resultsHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: 2,
   },
   resultsCountText: {
     fontSize: 12,
@@ -1036,10 +1175,22 @@ const styles = StyleSheet.create({
   },
   cardFooter: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     paddingTop: 8,
+  },
+  sourceTypeBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  sourceTypeText: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '600',
   },
   cardActionBtn: {
     flexDirection: 'row',
@@ -1055,6 +1206,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#15803D',
   },
+
+  /* Empty State */
   emptyState: {
     alignItems: 'center',
     paddingVertical: 36,
