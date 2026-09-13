@@ -78,7 +78,46 @@ MandiKart/
 ## Development Approach
 This repository follows a modular development setup where every domain has separate frontend and backend responsibilities. The docs in the root folder provide the master plan, frontend guidance, and backend guidance for the full project lifecycle.
 
+## Quick Start & App Execution Guide
+
+### 1. Installation
+Install all monorepo dependencies from the project root:
+```bash
+npm install
+```
+
+### 2. Environment Configuration
+Copy the root `.env.example` to `.env` or use localized `.env.example` files in each subproject:
+```bash
+cp .env.example .env
+```
+
+### 3. Microservice Backends & Ports
+
+| Service | Directory | Port | Run Command |
+| :--- | :--- | :--- | :--- |
+| **Farmer Backend** | `FarmerApp/mandikart-farmer-backend` | `4000` | `npm run dev:farmer` |
+| **User/Buyer Backend** | `UserApp/backend` | `4001` | `npm run dev:user` |
+| **Logistics Backend** | `Logistic/backend` | `4002` | `npm run dev:logistic` |
+| **Admin Backend** | `Admin/backend` | `4003` | `npm run dev:admin` |
+
+### 4. Frontend Web & Mobile Applications
+
+| Application | Technology | Directory | Run Command |
+| :--- | :--- | :--- | :--- |
+| **Admin Web Console** | React + Vite + TS | `Admin/Frontend` | `npm run dev:admin-frontend` |
+| **Logistics Web Dashboard** | React + Vite + TS | `Logistic/frontend` | `npm run dev:logistic-frontend` |
+| **Farmer Mobile App** | React Native / Expo | `FarmerApp/mandikart-farmer-frontend` | `npm run dev:farmer-app` |
+| **User/Buyer Mobile App** | React Native / Expo | `UserApp/Frontend` | `npm run dev:user-app` |
+| **Logistics Partner App** | React Native / Expo | `Logistic/partner-app` | `npm run dev:partner-app` |
+
+### 5. Build Verification
+Build all monorepo packages, shared libraries, and web frontends:
+```bash
+npm run build
+```
+
 ## Notes
-- Frontend and backend modules are kept separate for clean team ownership
-- Each app is designed around role-based access and workflow-specific functionality
-- The project is structured to support future growth, API integration, and operational monitoring
+- Shared libraries are located in `packages/` (`@mandikart/shared-core`, `@mandikart/shared-types`, `@mandikart/shared-config`).
+- All backends connect to Supabase for synchronized real-time data flow.
+- Mobile apps support both web preview (`npm run dev:...` then press `w`) and physical device/emulator testing via Expo Go.
