@@ -948,11 +948,12 @@ export class AdminController {
             ? 'IN_TRANSIT'
             : 'LOADING';
 
-        const dest = !o.deliveryAddress
+        const addr: any = o.deliveryAddress;
+        const dest = !addr
           ? 'Central Cold-Chain Hub, Mumbai'
-          : typeof o.deliveryAddress === 'string'
-          ? o.deliveryAddress
-          : [o.deliveryAddress.line1, o.deliveryAddress.city, o.deliveryAddress.state, o.deliveryAddress.pincode].filter(Boolean).join(', ') || 'Central Mandi Distribution Hub';
+          : typeof addr === 'string'
+          ? addr
+          : [addr.line1, addr.city, addr.state, addr.pincode].filter(Boolean).join(', ') || 'Central Mandi Distribution Hub';
 
         shipments.push({
           id: `SHP-${o.id || idx}-${idx}`,
