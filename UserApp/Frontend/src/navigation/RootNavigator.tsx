@@ -89,6 +89,8 @@ export default function RootNavigator() {
           <RootStack.Screen name="OrderDetails" component={OrderDetailsScreen as any} />
           <RootStack.Screen name="OrderTracking" component={OrderTrackingScreen as any} />
           <RootStack.Screen name="OrderConfirmation" component={OrderConfirmationScreen as any} />
+          <RootStack.Screen name="Chat" component={ChatScreen as any} />
+          <RootStack.Screen name="ChatList" component={ChatListScreen as any} />
           <RootStack.Screen name="BulkRequirement" component={BulkRequirementScreen as any} />
           <RootStack.Screen name="BulkMatchDiscovery" component={BulkMatchDiscoveryScreen as any} />
           <RootStack.Screen name="Analytics" component={AnalyticsDashboardScreen as any} />

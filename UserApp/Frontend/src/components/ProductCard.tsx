@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, BorderRadius, Spacing, Shadows } from '../theme';
 import { Product } from '../types';
 import { getFallbackProductImage } from '../utils/imageUtils';
+import { useCart } from '../context/CartContext';
 
 interface Props {
   product: Product;
@@ -21,6 +22,10 @@ export default function ProductCard({
   isWishlisted,
 }: Props) {
   const [hasImgError, setHasImgError] = useState(false);
+  const { items, addToCart, updateQty, removeItem } = useCart();
+
+  const cartItem = items.find((i) => i.product.id === product.id);
+  const qtyInCart = cartItem?.quantity || 0;
 
   React.useEffect(() => {
     setHasImgError(false);
@@ -33,6 +38,35 @@ export default function ProductCard({
   const discountedPrice = product.discount
     ? Math.round(product.price * (1 - product.discount / 100))
     : null;
+
+  const handleAdd = (e?: any) => {
+    e?.stopPropagation?.();
+    if (onAddToCart) {
+      onAddToCart();
+    } else {
+      addToCart(product, 1);
+    }
+  };
+
+  const handleIncrement = (e?: any) => {
+    e?.stopPropagation?.();
+    if (cartItem) {
+      updateQty(cartItem.id, qtyInCart + 1);
+    } else {
+      addToCart(product, 1);
+    }
+  };
+
+  const handleDecrement = (e?: any) => {
+    e?.stopPropagation?.();
+    if (cartItem) {
+      if (qtyInCart <= 1) {
+        removeItem(cartItem.id);
+      } else {
+        updateQty(cartItem.id, qtyInCart - 1);
+      }
+    }
+  };
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
@@ -92,14 +126,37 @@ export default function ProductCard({
               <Text style={styles.originalPrice} numberOfLines={1}>₹{product.price}</Text>
             )}
           </View>
-          {onAddToCart && (
+
+          {/* Direct Add to Cart / Interactive Stepper */}
+          {qtyInCart === 0 ? (
             <TouchableOpacity
-              style={styles.addBtn}
-              onPress={onAddToCart}
+              style={styles.addPillBtn}
+              onPress={handleAdd}
               activeOpacity={0.8}
             >
-              <Ionicons name="add" size={18} color={Colors.white} />
+              <Ionicons name="add" size={14} color={Colors.white} />
+              <Text style={styles.addPillText}>ADD</Text>
             </TouchableOpacity>
+          ) : (
+            <View style={styles.qtyStepperRow}>
+              <TouchableOpacity
+                style={styles.stepperBtn}
+                onPress={handleDecrement}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name={qtyInCart === 1 ? 'trash-outline' : 'remove'} size={12} color={Colors.white} />
+              </TouchableOpacity>
+              <Text style={styles.stepperCount}>{qtyInCart}</Text>
+              <TouchableOpacity
+                style={styles.stepperBtn}
+                onPress={handleIncrement}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add" size={12} color={Colors.white} />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -214,5 +271,47 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  addPillBtn: {
+    backgroundColor: Colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+    ...Shadows.sm,
+  },
+  addPillText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  qtyStepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+    gap: 6,
+    ...Shadows.sm,
+  },
+  stepperBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperCount: {
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: '800',
+    minWidth: 16,
+    textAlign: 'center',
   },
 });

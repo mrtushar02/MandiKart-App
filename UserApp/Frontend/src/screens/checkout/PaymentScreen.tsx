@@ -6,8 +6,10 @@ import { Colors, Spacing, BorderRadius } from '../../theme';
 import PrimaryButton from '../../components/PrimaryButton';
 import { apiClient } from '../../services/apiClient';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function PaymentScreen({ navigation, route }: any) {
+  const { user } = useAuth();
   const { items: cartItems, clearCart } = useCart();
   const [selected, setSelected] = useState('upi');
   const [upiId, setUpiId] = useState('9876543210@oksbi');
@@ -136,15 +138,32 @@ export default function PaymentScreen({ navigation, route }: any) {
             },
           ];
 
+      const recipientName =
+        route.params?.recipientName ||
+        route.params?.address?.fullName ||
+        route.params?.address?.name ||
+        user?.fullName ||
+        cardName ||
+        'Valued Buyer';
+
+      const recipientPhone =
+        route.params?.recipientPhone ||
+        route.params?.address?.phone ||
+        user?.phone ||
+        '+91 98765 43210';
+
       const resolvedAddress =
         route.params?.address?.formattedAddress ||
         (typeof route.params?.address === 'string' ? route.params.address : null) ||
         route.params?.deliveryAddress ||
-        'Pune APMC Zone, Maharashtra';
+        '123, Model Town, near SBI Bank, Pune, Maharashtra - 411016';
 
       const res = await apiClient.orders.placeOrder({
         items,
         deliveryAddress: resolvedAddress,
+        buyerName: recipientName,
+        recipientName,
+        recipientPhone,
         targetBuyerType: isBulk ? 'BULK' : 'RETAIL',
       });
 
@@ -159,11 +178,22 @@ export default function PaymentScreen({ navigation, route }: any) {
         farmerId: items[0]?.farmerId || 'farmer_ramesh_01',
       });
 
+      const enrichedOrder = {
+        ...res.order,
+        recipientName,
+        buyerName: recipientName,
+        recipientPhone,
+        deliveryAddress: resolvedAddress,
+      };
+
       const pendingData = {
-        order: res.order,
+        order: enrichedOrder,
         orderId,
         paymentIntent,
         items,
+        recipientName,
+        recipientPhone,
+        deliveryAddress: resolvedAddress,
       };
       setPendingOrderResult(pendingData);
       setStripeIntentData(paymentIntent);
@@ -182,7 +212,9 @@ export default function PaymentScreen({ navigation, route }: any) {
       navigation.navigate('OrderConfirmation', {
         orderId,
         deliveryOtp: res.order?.deliveryOtp || '719284',
-        order: res.order,
+        order: enrichedOrder,
+        recipientName,
+        deliveryAddress: resolvedAddress,
         stripePaymentIntentId: paymentIntent?.paymentIntentId,
         paymentMethod: 'ESCROW_COD',
       });
@@ -213,6 +245,8 @@ export default function PaymentScreen({ navigation, route }: any) {
           orderId: pendingOrderResult.orderId,
           deliveryOtp: pendingOrderResult.order?.deliveryOtp || '719284',
           order: pendingOrderResult.order,
+          recipientName: pendingOrderResult.recipientName || pendingOrderResult.order?.recipientName,
+          deliveryAddress: pendingOrderResult.deliveryAddress || pendingOrderResult.order?.deliveryAddress,
           stripePaymentIntentId: intentId,
           paymentMethod: selected === 'card' ? 'STRIPE_CARD' : 'STRIPE_UPI',
         });

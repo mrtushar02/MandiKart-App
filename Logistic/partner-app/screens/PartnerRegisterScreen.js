@@ -34,7 +34,7 @@ export default function PartnerRegisterScreen({ navigation }) {
   const [otpInput, setOtpInput] = useState('334455');
   const [resendTimer, setResendTimer] = useState(30);
 
-  const { loginWithGoogle } = usePartner();
+  const { registerPartner, loginWithGoogle } = usePartner();
 
   useEffect(() => {
     let timer;
@@ -84,16 +84,24 @@ export default function PartnerRegisterScreen({ navigation }) {
     } else if (currentStep === 2) {
       setCurrentStep(3);
     } else {
+      registerPartner({
+        fullName,
+        phone,
+        selectedVehicle,
+        dlNumber,
+        bankAccount,
+        ifsc,
+      });
       Alert.alert(
         'Registration Successful! 🎉',
-        'Welcome to MandiKart Partner! Your profile and mobile have been verified. Please login to start delivering.',
+        'Welcome to MandiKart Partner! Your profile and mobile have been verified.',
         [
           {
-            text: 'Proceed to Login',
+            text: 'Go to Dashboard',
             onPress: () => {
               navigation.reset({
                 index: 0,
-                routes: [{ name: 'Login' }],
+                routes: [{ name: 'MainTabs' }],
               });
             },
           },

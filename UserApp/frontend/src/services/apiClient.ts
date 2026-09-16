@@ -766,6 +766,10 @@ export const apiClient = {
       items: Array<{ productId: string; cropName: string; grade: 'A' | 'B' | 'C'; quantity: number; unit: string; pricePerUnit: number; imageUrl?: string; farmerId?: string; farmerName?: string }>;
       deliveryAddress: string;
       targetBuyerType?: 'RETAIL' | 'BULK';
+      buyerName?: string;
+      buyerPhone?: string;
+      recipientName?: string;
+      recipientPhone?: string;
     }): Promise<{ success: boolean; order?: any; error?: string }> {
       const fallbackOrder = {
         id: `ord_${Date.now()}`,
@@ -800,6 +804,14 @@ export const apiClient = {
       }
 
       return { success: true, order: createdOrder };
+    },
+
+    async getById(orderId: string): Promise<any> {
+      const res = await safeFetch<any>(`/orders/${orderId}`, { method: 'GET' }, null);
+      if (res.data) return res.data;
+      const fromMem = localPlacedOrdersMemory.find(x => x.id === orderId || x.orderNumber === orderId);
+      if (fromMem) return fromMem;
+      return null;
     },
 
     async confirmDelivery(orderId: string, deliveryOtp: string): Promise<{ success: boolean; message: string }> {
@@ -1041,6 +1053,18 @@ export const apiClient = {
         {
           method: 'POST',
           body: JSON.stringify({ deliveryAddress: deliveryAddress || '123 Market Road, Pune' }),
+        },
+        null
+      );
+      return res.data;
+    },
+
+    async confirmOrder(negotiationId: string, deliveryAddress?: string): Promise<any> {
+      const res = await safeFetch<any>(
+        `/negotiations/${negotiationId}/confirm-order`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ deliveryAddress: deliveryAddress || 'Selected Delivery Address' }),
         },
         null
       );
@@ -1356,5 +1380,6 @@ export const apiClient = {
     },
   },
 };
+
 
 

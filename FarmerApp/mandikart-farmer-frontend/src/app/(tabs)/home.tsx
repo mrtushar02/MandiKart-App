@@ -403,19 +403,25 @@ export default function HomeScreen() {
 
       {/* ── 2. Full Search Screen Launchpad & Kisan AI Saathi ────── */}
       <View style={styles.searchSectionWrap}>
-        {/* Full Details Search Bar Launchpad */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open Full Agricultural Search"
-          style={({ pressed }) => [styles.searchBarContainer, pressed && { opacity: 0.95 }]}
-          onPress={() => router.push('/search')}
-        >
-          <Search size={21} color="#16A34A" style={styles.searchIcon} />
-          <View style={{ flex: 1, justifyContent: 'center' }}>
-            <Text style={{ fontSize: 13.5, color: '#64748B', fontWeight: '500' }}>
-              Search crops, mandis, buyers, schemes, pests...
-            </Text>
-          </View>
+        {/* Full Details Search Bar Container */}
+        <View style={styles.searchBarContainer}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open Full Agricultural Search"
+            style={({ pressed }) => [
+              { flex: 1, flexDirection: 'row', alignItems: 'center', height: '100%' },
+              pressed && { opacity: 0.8 },
+            ]}
+            onPress={() => router.push('/search')}
+          >
+            <Search size={21} color="#16A34A" style={styles.searchIcon} />
+            <View style={{ flex: 1, justifyContent: 'center' }}>
+              <Text style={{ fontSize: 13.5, color: '#64748B', fontWeight: '500' }}>
+                Search crops, mandis, buyers, schemes, pests...
+              </Text>
+            </View>
+          </Pressable>
+
           {/* AI Kisan Saathi Toggle Button directly on search bar */}
           <Pressable
             accessibilityRole="button"
@@ -424,17 +430,14 @@ export default function HomeScreen() {
               styles.kisanAiSearchBarToggle,
               pressed && { transform: [{ scale: 0.94 }], opacity: 0.9 },
             ]}
-            onPress={(e) => {
-              e.stopPropagation();
-              router.push('/ai-assistant');
-            }}
+            onPress={() => router.push('/ai-assistant')}
             hitSlop={6}
           >
             <Sparkles size={14} color="#FFFFFF" strokeWidth={2.5} />
             <Text style={styles.kisanAiSearchBarToggleText}>Kisan AI</Text>
             <View style={styles.kisanAiTogglePulseDot} />
           </Pressable>
-        </Pressable>
+        </View>
       </View>
 
       {/* ── Live Mandi Price Ticker (3D Floating Strip) ────── */}
@@ -1083,8 +1086,9 @@ export default function HomeScreen() {
         animationType="fade"
         onRequestClose={handleCloseVoice}
       >
-        <Pressable style={styles.modalOverlay} onPress={handleCloseVoice}>
-          <Pressable style={styles.voiceModalCard} onPress={(e) => e.stopPropagation()}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleCloseVoice} />
+          <View style={styles.voiceModalCard}>
             <Animated.View style={[styles.voiceMicGlow, { transform: [{ scale: pulseAnim }] }]} />
             <View style={styles.voiceMicCircle}>
               <Mic size={36} color="#FFFFFF" strokeWidth={2.4} />
@@ -1135,8 +1139,8 @@ export default function HomeScreen() {
             <Pressable style={styles.voiceCloseBtn} onPress={handleCloseVoice}>
               <Text style={styles.voiceCloseBtnText}>Done / Close</Text>
             </Pressable>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {/* ── Floating Kisan AI Saathi Quick Access FAB ── */}

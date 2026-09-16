@@ -8,6 +8,8 @@ import { Colors, Spacing } from '../../theme';
 import ProductCard from '../../components/ProductCard';
 import SearchBar from '../../components/SearchBar';
 import { useCatalog } from '../../context/CatalogContext';
+import { useCart } from '../../context/CartContext';
+import FloatingCartBanner from '../../components/FloatingCartBanner';
 import { Product } from '../../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductStack'>;
@@ -15,6 +17,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ProductStack'>;
 export default function SearchScreen({ navigation }: any) {
   const [query, setQuery] = useState('');
   const { products } = useCatalog();
+  const { addToCart } = useCart();
 
   const results = query.length > 1
     ? products.filter((p) =>
@@ -49,7 +52,7 @@ export default function SearchScreen({ navigation }: any) {
           data={results}
           numColumns={2}
           keyExtractor={(p) => p.id}
-          contentContainerStyle={styles.grid}
+          contentContainerStyle={[styles.grid, { paddingBottom: 90 }]}
           columnWrapperStyle={{ gap: Spacing.sm }}
           ListEmptyComponent={<Text style={styles.noResults}>No results for "{query}"</Text>}
           renderItem={({ item }) => (
@@ -57,12 +60,14 @@ export default function SearchScreen({ navigation }: any) {
               <ProductCard
                 product={item}
                 onPress={() => navigation.navigate('ProductDetails', { productId: item.id, product: item })}
-                onAddToCart={() => {}}
+                onAddToCart={() => addToCart(item, 1)}
               />
             </View>
           )}
         />
       )}
+
+      <FloatingCartBanner bottomOffset={12} />
     </SafeAreaView>
   );
 }

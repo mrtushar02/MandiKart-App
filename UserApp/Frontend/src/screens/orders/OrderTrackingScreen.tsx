@@ -42,9 +42,27 @@ export default function OrderTrackingScreen({ navigation, route }: any) {
   const [selectedTip, setSelectedTip] = useState<number | null>(null);
   const [selectedInstruction, setSelectedInstruction] = useState<string | null>(null);
   const [isWsActive, setIsWsActive] = useState(false);
+  const [liveEta, setLiveEta] = useState<number>(24);
+  const [liveDistance, setLiveDistance] = useState<number>(4.2);
 
-  // Subscribe to Supabase Realtime WebSocket for live order tracking
+  // Poll backend & subscribe to Supabase Realtime for live order tracking
   useEffect(() => {
+    let isMounted = true;
+    const fetchLatestStatus = async () => {
+      try {
+        const res = await apiClient.orders.getById(orderId);
+        const latest = res?.data || res;
+        if (latest?.status && isMounted) {
+          setCurrentStatus(latest.status);
+        }
+      } catch (err) {
+        // Safe failover
+      }
+    };
+
+    fetchLatestStatus();
+    const pollInterval = setInterval(fetchLatestStatus, 2500);
+
     const channel = supabase
       .channel(`order-tracking-${orderId}`)
       .on(
@@ -56,16 +74,18 @@ export default function OrderTrackingScreen({ navigation, route }: any) {
           filter: `id=eq.${orderId}`,
         },
         (payload: any) => {
-          if (payload.new?.status) {
+          if (payload.new?.status && isMounted) {
             setCurrentStatus(payload.new.status);
           }
         }
       )
       .subscribe((status: string) => {
-        setIsWsActive(status === 'SUBSCRIBED');
+        if (isMounted) setIsWsActive(status === 'SUBSCRIBED');
       });
 
     return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
   }, [orderId]);
@@ -202,12 +222,12 @@ export default function OrderTrackingScreen({ navigation, route }: any) {
                   </View>
                 )}
               </View>
-              <Text style={styles.heroEtaTitle}>Arriving in 25 mins</Text>
-              <Text style={styles.heroSub}>Suresh is 1.8 km away • FC Road, Pune</Text>
+              <Text style={styles.heroEtaTitle}>Arriving in {liveEta} mins</Text>
+              <Text style={styles.heroSub}>{order.driverName} is {liveDistance} km away • {order.deliveryAddress}</Text>
             </View>
 
             <View style={styles.timerCircle}>
-              <Text style={styles.timerNumber}>25</Text>
+              <Text style={styles.timerNumber}>{liveEta}</Text>
               <Text style={styles.timerUnit}>MINS</Text>
             </View>
           </View>
@@ -230,11 +250,15 @@ export default function OrderTrackingScreen({ navigation, route }: any) {
             subTitle: 'Harvest Lot #2026-09',
           }}
           destination={{
-            title: 'Your Delivery Address',
-            subTitle: order.deliveryAddress || 'FC Road, Shivajinagar, Pune',
+            title: paramOrder?.recipientName || (order as any).recipientName || 'Your Delivery Address',
+            subTitle: order.deliveryAddress || 'Pune, Maharashtra',
           }}
-          driverName="Suresh Patil"
-          vehicleNumber="MH 12 AB 4821"
+          driverName={order.driverName || 'Suresh Patil'}
+          vehicleNumber={order.driverVehicle || 'MH 12 AB 4821'}
+          onTelemetryChange={(t) => {
+            if (t.remainingEtaMinutes) setLiveEta(t.remainingEtaMinutes);
+            if (t.remainingDistanceKm !== undefined) setLiveDistance(t.remainingDistanceKm);
+          }}
         />
 
         {/* Secure 6-Digit Delivery OTP Card */}

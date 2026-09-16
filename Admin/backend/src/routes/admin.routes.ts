@@ -31,3 +31,9 @@ adminRouter.get('/shipments', AdminController.getAllShipments);
 // Dispute resolution
 adminRouter.get('/disputes', AdminController.getAllDisputes);
 adminRouter.post('/disputes/:orderId/resolve', AdminController.resolveDispute);
+
+// Push notifications and alerts broadcast
+adminRouter.post('/notifications/broadcast', AdminController.broadcastNotification);
+adminRouter.get('/notifications/history', AdminController.getBroadcastHistory);
+adminRouter.get('/notifications/stats', AdminController.getBroadcastStats);
+

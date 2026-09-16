@@ -42,6 +42,18 @@ export default function OrderConfirmationScreen({ navigation, route }: any) {
             Share this 6-digit OTP with your MandiKart delivery partner only after inspecting and accepting produce.
           </Text>
         </View>
+        {/* Confirmed Delivery Destination & Recipient Name */}
+        <View style={styles.deliveryBadge}>
+          <Ionicons name="location" size={16} color="#15803D" />
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Text style={styles.recipientNameText}>
+              Deliver to: {route.params?.recipientName || route.params?.order?.recipientName || route.params?.order?.buyerName || 'Valued Customer'}
+            </Text>
+            <Text style={styles.addressSubText} numberOfLines={2}>
+              {route.params?.deliveryAddress || route.params?.order?.deliveryAddress || 'Pune, Maharashtra'}
+            </Text>
+          </View>
+        </View>
       </View>
 
       <View style={styles.footer}>
@@ -50,10 +62,14 @@ export default function OrderConfirmationScreen({ navigation, route }: any) {
           onPress={() =>
             navigation.navigate('OrderTracking', {
               orderId,
+              deliveryOtp,
               order: {
                 id: orderId,
                 status: 'PLACED',
                 deliveryOtp,
+                recipientName: route.params?.recipientName || route.params?.order?.recipientName || route.params?.order?.buyerName || 'Valued Customer',
+                deliveryAddress: route.params?.deliveryAddress || route.params?.order?.deliveryAddress || 'Pune, Maharashtra',
+                total: route.params?.order?.totalAmount || route.params?.order?.total || 395,
               },
             })
           }
@@ -151,6 +167,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 16,
+  },
+  deliveryBadge: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    marginTop: Spacing.sm,
+    ...Shadows.sm,
+  },
+  recipientNameText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  addressSubText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
     lineHeight: 16,
   },
   footer: {

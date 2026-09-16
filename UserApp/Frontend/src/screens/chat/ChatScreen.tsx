@@ -26,6 +26,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Shadows } from '../../theme';
 import { apiClient } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
+import { useLocation } from '../../context/LocationContext';
 
 interface ChatItem {
   id: string;
@@ -51,16 +52,50 @@ export default function ChatScreen({ navigation, route }: any) {
   const currentUserId = user?.id || 'buyer_default_01';
   const currentUserName = user?.fullName || 'You';
   const params = route?.params ?? {};
-  const [activeNegId, setActiveNegId] = useState<string>(params.negotiationId || '');
-  const [farmerName, setFarmerName] = useState<string>(params.farmerName || 'Ramesh Patel');
-  const [cropName, setCropName] = useState<string>(params.cropName || 'Produce');
-  const [productImage, setProductImage] = useState<string>(params.productImage || '');
+  const [activeNegId, setActiveNegId] = useState<string>(params.negotiationId || params.id || '');
+  const [farmerName, setFarmerName] = useState<string>(params.farmerName || params.farmer || 'Ramesh Patel');
+  const [cropName, setCropName] = useState<string>(params.cropName || params.crop || 'Produce');
+  const [productImage, setProductImage] = useState<string>(params.productImage || params.cropImage || '');
 
+  const defaultNeg = React.useMemo(() => {
+    const p = Number(params.offeredPrice || params.price || params.ratePerKg || 30);
+    const q = Number(params.quantity || params.qty || 100);
+    const u = params.unit || 'kg';
+    return {
+      id: activeNegId || `neg_${Date.now()}`,
+      cropName: cropName,
+      farmerName: farmerName,
+      cropImage: productImage,
+      originalPrice: Number(params.originalPrice || p * 1.1),
+      offeredPrice: p,
+      counterPrice: null,
+      quantity: q,
+      unit: u,
+      status: 'PENDING_FARMER',
+    };
+  }, [params, activeNegId, cropName, farmerName, productImage]);
 
+  const defaultInitialOfferMsg: ChatItem = React.useMemo(() => ({
+    id: `msg_init_${activeNegId || Date.now()}`,
+    negotiationId: activeNegId || defaultNeg.id,
+    senderId: currentUserId,
+    senderRole: 'BUYER',
+    senderName: currentUserName,
+    messageType: 'OFFER',
+    text: `Price Proposal: ₹${defaultNeg.offeredPrice}/${defaultNeg.unit} for ${defaultNeg.quantity} ${defaultNeg.unit}`,
+    price: defaultNeg.offeredPrice,
+    quantity: defaultNeg.quantity,
+    unit: defaultNeg.unit,
+    totalAmount: Math.round(defaultNeg.offeredPrice * defaultNeg.quantity),
+    offerStatus: 'PENDING',
+    timestamp: new Date().toISOString(),
+  }), [activeNegId, defaultNeg, currentUserId, currentUserName]);
+
+  const { activeSavedAddress } = useLocation();
   const [negotiation, setNegotiation] = useState<any>(null);
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [text, setText] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Counter offer modal state
@@ -195,16 +230,16 @@ export default function ChatScreen({ navigation, route }: any) {
           onPress: async () => {
             try {
               setSubmitting(true);
-              const res = await apiClient.negotiations.accept(
+              const res = await apiClient.negotiations.confirmOrder(
                 activeNegId,
-                'Selected Delivery Address'
+                activeSavedAddress?.formattedAddress || 'Selected Delivery Address'
               );
 
               // Update local state
               loadNegotiation(false);
 
               Alert.alert(
-                'Deal Accepted! 🎉',
+                'Order Confirmed! 🎉',
                 `Your order #${res?.order?.orderNumber || res?.orderNumber || 'CONFIRMED'} has been placed.`,
                 [
                   {
@@ -234,9 +269,63 @@ export default function ChatScreen({ navigation, route }: any) {
     );
   };
 
+  const effectiveNeg = negotiation || defaultNeg;
+  const displayMessages = messages.length > 0 ? messages : [defaultInitialOfferMsg];
+
+  const isAccepted = effectiveNeg?.status === 'ACCEPTED';
+  const isPendingBuyerConfirm =
+    effectiveNeg?.status === 'PENDING_BUYER_CONFIRMATION' ||
+    (!isAccepted &&
+      displayMessages.some(
+        (m) =>
+          m.senderRole === 'FARMER' &&
+          (m.offerStatus === 'ACCEPTED' ||
+            (m.offerStatus as any) === 'ACCEPTED_BY_FARMER' ||
+            m.text?.toLowerCase().includes('accepted the offer') ||
+            m.text?.toLowerCase().includes('accepted your offer'))
+      ));
+
+  const handleConfirmOrderFromChat = async () => {
+    if (!activeNegId && !effectiveNeg) return;
+    const targetId = activeNegId || effectiveNeg?.id;
+    if (!targetId) return;
+
+    try {
+      setSubmitting(true);
+      const destAddr = activeSavedAddress?.formattedAddress || 'Selected Delivery Address';
+      const res = await apiClient.negotiations.confirmOrder(targetId, destAddr);
+
+      // Reload negotiation to reflect updated order event
+      await loadNegotiation(false);
+
+      const placedOrder = res?.order;
+      const ordNum = placedOrder?.orderNumber || res?.orderNumber || 'CONFIRMED';
+
+      if (Platform.OS === 'web') {
+        window.alert(`Order Confirmed! 🎉\nYour order #${ordNum} has been placed.\n\nIt is now active in your Orders screen.`);
+      } else {
+        Alert.alert(
+          'Order Confirmed! 🎉',
+          `Your order #${ordNum} has been placed successfully!\n\nIt is now visible in your Orders screen.`,
+          [
+            {
+              text: 'View My Orders',
+              onPress: () => (navigation as any).navigate('MainTabs', { screen: 'Orders' }),
+            },
+            { text: 'Stay in Chat' },
+          ]
+        );
+      }
+    } catch (err: any) {
+      Alert.alert('Confirmation Error', err.message || 'Failed to confirm order.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const openCounterModal = () => {
-    if (!negotiation) return;
-    setCounterPrice(String(negotiation.counterPrice || negotiation.offeredPrice));
+    if (!effectiveNeg) return;
+    setCounterPrice(String(effectiveNeg.counterPrice || effectiveNeg.offeredPrice));
     setCounterNote('');
     setCounterModalVisible(true);
   };
@@ -247,9 +336,8 @@ export default function ChatScreen({ navigation, route }: any) {
     return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  const isAccepted = negotiation?.status === 'ACCEPTED';
-  const currentPrice = negotiation ? negotiation.counterPrice || negotiation.offeredPrice : 0;
-  const currentTotal = negotiation ? Math.round(currentPrice * negotiation.quantity) : 0;
+  const currentPrice = effectiveNeg ? effectiveNeg.counterPrice || effectiveNeg.offeredPrice : 0;
+  const currentTotal = effectiveNeg ? Math.round(currentPrice * effectiveNeg.quantity) : 0;
 
   const renderMessage = ({ item }: { item: ChatItem }) => {
     const isMine = item.senderRole === 'BUYER';
@@ -391,7 +479,7 @@ export default function ChatScreen({ navigation, route }: any) {
       </View>
 
       {/* Product Context Mini Card */}
-      {negotiation && (
+      {effectiveNeg && (
         <View style={styles.productMiniCard}>
           {productImage ? (
             <Image source={{ uri: productImage }} style={styles.productThumb} />
@@ -402,15 +490,15 @@ export default function ChatScreen({ navigation, route }: any) {
           )}
           <View style={styles.productInfo}>
             <Text style={styles.productTitle} numberOfLines={1}>
-              {cropName} {negotiation.grade ? `(Grade ${negotiation.grade})` : ''}
+              {effectiveNeg.cropName || cropName} {effectiveNeg.grade ? `(Grade ${effectiveNeg.grade})` : ''}
             </Text>
             <Text style={styles.productSubInfo}>
-              Qty: <Text style={{ fontWeight: '700', color: Colors.textPrimary }}>{negotiation.quantity} {negotiation.unit}</Text> • Listed: ₹{negotiation.originalPrice}/{negotiation.unit}
+              Qty: <Text style={{ fontWeight: '700', color: Colors.textPrimary }}>{effectiveNeg.quantity} {effectiveNeg.unit}</Text> • Listed: ₹{effectiveNeg.originalPrice}/{effectiveNeg.unit}
             </Text>
           </View>
           <View style={styles.dealPill}>
             <Text style={styles.dealPillLabel}>CURRENT</Text>
-            <Text style={styles.dealPillValue}>₹{currentPrice}/{negotiation.unit}</Text>
+            <Text style={styles.dealPillValue}>₹{currentPrice}/{effectiveNeg.unit}</Text>
           </View>
         </View>
       )}
@@ -421,7 +509,7 @@ export default function ChatScreen({ navigation, route }: any) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
       >
-        {loading ? (
+        {loading && !effectiveNeg ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator
               size="large"
@@ -434,13 +522,59 @@ export default function ChatScreen({ navigation, route }: any) {
         ) : (
           <FlatList
             ref={flatRef}
-            data={messages}
+            data={displayMessages}
             keyExtractor={(m) => m.id}
             renderItem={renderMessage}
             contentContainerStyle={styles.msgList}
             onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
             showsVerticalScrollIndicator={false}
           />
+        )}
+
+        {/* Farmer Acceptance & Pending Buyer Confirmation Card */}
+        {isPendingBuyerConfirm && !isAccepted && (
+          <View style={styles.pendingConfirmCard}>
+            <View style={styles.pendingConfirmHeader}>
+              <View style={styles.sparkleBadge}>
+                <Ionicons name="sparkles" size={16} color={Colors.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pendingConfirmTitle}>Farmer Accepted Your Deal! 🌾</Text>
+                <Text style={styles.pendingConfirmSub}>
+                  ₹{currentPrice}/{effectiveNeg?.unit || 'kg'} • {effectiveNeg?.quantity || 100} {effectiveNeg?.unit || 'kg'}
+                </Text>
+              </View>
+              <View style={styles.totalBadge}>
+                <Text style={styles.totalBadgeLabel}>DEAL TOTAL</Text>
+                <Text style={styles.totalBadgeVal}>₹{currentTotal.toLocaleString('en-IN')}</Text>
+              </View>
+            </View>
+
+            <View style={styles.addressPillRow}>
+              <Ionicons name="location-sharp" size={14} color={Colors.primary} />
+              <Text style={styles.addressPillText} numberOfLines={1}>
+                Deliver to: {activeSavedAddress?.formattedAddress || 'Your Saved Delivery Address'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.confirmOrderBtn}
+              onPress={handleConfirmOrderFromChat}
+              disabled={submitting}
+              activeOpacity={0.88}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={19} color={Colors.white} />
+                  <Text style={styles.confirmOrderBtnText}>
+                    Confirm & Place Order (₹{currentTotal.toLocaleString('en-IN')})
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* Input Bar */}
@@ -998,5 +1132,84 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Colors.white,
+  },
+  pendingConfirmCard: {
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: '#F0FDF4',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    ...Shadows.md,
+  },
+  pendingConfirmHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  sparkleBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#16A34A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingConfirmTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#14532D',
+  },
+  pendingConfirmSub: {
+    fontSize: 12,
+    color: '#15803D',
+    fontWeight: '600',
+  },
+  totalBadge: {
+    alignItems: 'flex-end',
+  },
+  totalBadgeLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  totalBadgeVal: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#15803D',
+  },
+  addressPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 5,
+    borderRadius: BorderRadius.sm,
+    marginVertical: Spacing.xs,
+  },
+  addressPillText: {
+    fontSize: 11,
+    color: '#14532D',
+    fontWeight: '500',
+    flex: 1,
+  },
+  confirmOrderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#16A34A',
+    paddingVertical: 11,
+    borderRadius: BorderRadius.md,
+    marginTop: 4,
+    ...Shadows.sm,
+  },
+  confirmOrderBtnText: {
+    color: Colors.white,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

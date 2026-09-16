@@ -273,6 +273,22 @@ export default function PartnerLoginScreen({ navigation }) {
               <Ionicons name="logo-google" size={18} color="#EA4335" />
               <Text style={styles.googleBtnText}>Continue with Google</Text>
             </TouchableOpacity>
+
+            {/* Quick 1-Click Demo Login */}
+            <TouchableOpacity
+              style={styles.demoLoginBtn}
+              onPress={() => {
+                login('9876543210', 'verified');
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'MainTabs' }],
+                });
+              }}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="flash" size={16} color={COLORS.primary} />
+              <Text style={styles.demoLoginBtnText}>Quick Partner Demo Login (1-Click)</Text>
+            </TouchableOpacity>
           </View>
 
           {/* New Partner Register */}
@@ -679,5 +695,22 @@ const styles = StyleSheet.create({
     fontSize: FONT.sm,
     fontWeight: '700',
     color: COLORS.onSurface,
+  },
+  demoLoginBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primaryBg,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    height: 48,
+    marginTop: SPACING.md,
+    gap: SPACING.xs,
+  },
+  demoLoginBtnText: {
+    fontSize: FONT.sm,
+    fontWeight: '800',
+    color: COLORS.primary,
   },
 });

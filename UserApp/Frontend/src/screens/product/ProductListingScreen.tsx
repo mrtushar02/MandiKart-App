@@ -6,6 +6,8 @@ import { Colors, Spacing, BorderRadius } from '../../theme';
 import ProductCard from '../../components/ProductCard';
 import SearchBar from '../../components/SearchBar';
 import { useCatalog } from '../../context/CatalogContext';
+import { useCart } from '../../context/CartContext';
+import FloatingCartBanner from '../../components/FloatingCartBanner';
 import { Product } from '../../types';
 
 const SORT_OPTIONS = ['Relevance', 'Price: Low to High', 'Price: High to Low', 'Rating'];
@@ -16,6 +18,7 @@ export default function ProductListingScreen({ navigation, route }: any) {
   const [sort, setSort] = useState(0);
   const [wishlisted, setWishlisted] = useState<string[]>([]);
   const { products } = useCatalog();
+  const { addToCart } = useCart();
 
   const filtered = products
     .filter((p) => {
@@ -38,15 +41,15 @@ export default function ProductListingScreen({ navigation, route }: any) {
       <StatusBar barStyle="dark-content" backgroundColor={Colors.white} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}><Ionicons name="arrow-back" size={22} color={Colors.textPrimary} /></TouchableOpacity>
-        <Text style={styles.title}>{categoryName ?? 'Products'}</Text>
-        <TouchableOpacity><Ionicons name="options-outline" size={22} color={Colors.textPrimary} /></TouchableOpacity>
+        <Text style={styles.title}>{categoryName || 'Products'}</Text>
+        <View style={{ width: 22 }} />
       </View>
 
       <View style={styles.toolbar}>
-        <SearchBar value={search} onChangeText={setSearch} style={styles.search} />
+        <SearchBar value={search} onChangeText={setSearch} placeholder="Filter items..." style={styles.search} />
         <FlatList
-          data={SORT_OPTIONS}
           horizontal
+          data={SORT_OPTIONS}
           showsHorizontalScrollIndicator={false}
           keyExtractor={(_, i) => `${i}`}
           contentContainerStyle={styles.chips}
@@ -65,20 +68,22 @@ export default function ProductListingScreen({ navigation, route }: any) {
         data={filtered}
         numColumns={2}
         keyExtractor={(p) => p.id}
-        contentContainerStyle={styles.grid}
+        contentContainerStyle={[styles.grid, { paddingBottom: 90 }]}
         columnWrapperStyle={{ gap: Spacing.sm }}
         renderItem={({ item }) => (
           <View style={{ flex: 1 }}>
             <ProductCard
               product={item}
               onPress={() => navigation.navigate('ProductDetails', { productId: item.id, product: item })}
-              onAddToCart={() => {}}
+              onAddToCart={() => addToCart(item, 1)}
               onWishlistToggle={() => setWishlisted((prev) => prev.includes(item.id) ? prev.filter((i) => i !== item.id) : [...prev, item.id])}
               isWishlisted={wishlisted.includes(item.id)}
             />
           </View>
         )}
       />
+
+      <FloatingCartBanner bottomOffset={12} />
     </SafeAreaView>
   );
 }

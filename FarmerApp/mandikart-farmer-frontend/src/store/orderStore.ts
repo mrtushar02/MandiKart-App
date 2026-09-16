@@ -240,7 +240,7 @@ export const useOrderStore = create<OrderStoreState>()(
         const newOrder: OrderItem = {
           id: newId,
           orderNumber,
-          tab: 'Active',
+          tab: 'Pending',
           cropName: params.cropName,
           cropVariety: params.cropVariety || 'Harvest Batch',
           grade: params.grade || 'Grade A',
@@ -252,17 +252,12 @@ export const useOrderStore = create<OrderStoreState>()(
           ratePerKg: `₹${params.ratePerKg.toFixed(2)}/kg`,
           netPayout: `₹${params.netPayout.toLocaleString()}`,
           transportDeduction: `₹${params.transportDeduction.toLocaleString()}`,
-          pickupDate: 'Today (Live Scheduled)',
-          pickupTime: '11:30 AM - 01:30 PM',
+          pickupDate: 'Pending Dispatch',
+          pickupTime: 'Awaiting farmer stock confirmation',
           location: params.location || 'Farmgate, Main Farm Storage',
-          statusLabel: 'Vehicle Dispatched (4.8 km away)',
-          statusType: 'en_route',
-          stepIndex: 3,
-          driverName: 'Ramesh Pawar',
-          driverPhone: '+91 98231 44510',
-          vehicleNumber: `MH 15 CP ${randomSuffix}`,
-          vehicleModel: 'Tata Ace Gold (1.5T)',
-          etaMins: 18,
+          statusLabel: 'Buyer Order Placed • Awaiting Farmer Stock Confirmation',
+          statusType: 'pending',
+          stepIndex: 1,
           paymentMode: params.paymentMode || 'MandiKart Escrow Guaranteed',
           createdAt: new Date().toISOString(),
         };
@@ -275,6 +270,11 @@ export const useOrderStore = create<OrderStoreState>()(
       },
 
       acceptOrderOffer: (orderId) => {
+        try {
+          const { apiClient } = require('@/services/apiClient');
+          apiClient.acceptOrder(orderId).catch(() => {});
+        } catch {}
+
         set((state) => ({
           orders: state.orders.map((o) =>
             o.id === orderId

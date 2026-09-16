@@ -99,13 +99,64 @@ interface NegotiationDetail {
 
 export default function FarmerNegotiationChatScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string; buyerName?: string; cropName?: string }>();
-  const negotiationId = params.id || 'neg_101';
+  const params = useLocalSearchParams<{
+    id?: string;
+    negotiationId?: string;
+    buyerName?: string;
+    buyer?: string;
+    cropName?: string;
+    crop?: string;
+    price?: string;
+    ratePerKg?: string;
+    quantity?: string;
+    qty?: string;
+    unit?: string;
+  }>();
+  const negotiationId = params.id || params.negotiationId || 'neg_101';
+  const effectiveBuyerName = params.buyerName || params.buyer || 'Verified Buyer';
+  const effectiveCropName = params.cropName || params.crop || 'Fresh Produce';
+  const effectivePrice = Number(params.price || params.ratePerKg || 30);
+  const effectiveQty = Number(params.quantity || params.qty || 100);
+  const effectiveUnit = params.unit || 'kg';
+
+  const defaultNeg: NegotiationDetail = useMemo(() => ({
+    id: negotiationId,
+    productId: 'prod_default',
+    cropName: effectiveCropName,
+    farmerId: useAuthStore.getState().user?.id || 'd1111111-1111-1111-1111-111111111111',
+    farmerName: 'Ramesh Patel',
+    buyerId: 'buyer_default_01',
+    buyerName: effectiveBuyerName,
+    originalPrice: effectivePrice,
+    offeredPrice: effectivePrice,
+    counterPrice: null,
+    quantity: effectiveQty,
+    unit: effectiveUnit,
+    status: 'PENDING_FARMER',
+    messages: [],
+    updatedAt: new Date().toISOString(),
+  }), [negotiationId, effectiveCropName, effectiveBuyerName, effectivePrice, effectiveQty, effectiveUnit]);
+
+  const defaultInitialOfferMsg: ChatMessage = useMemo(() => ({
+    id: `msg_init_${negotiationId}`,
+    negotiationId,
+    senderId: 'buyer_default_01',
+    senderRole: 'BUYER',
+    senderName: effectiveBuyerName,
+    messageType: 'OFFER',
+    text: `Buyer Offer: ₹${effectivePrice}/${effectiveUnit} for ${effectiveQty} ${effectiveUnit}`,
+    price: effectivePrice,
+    quantity: effectiveQty,
+    unit: effectiveUnit,
+    totalAmount: Math.round(effectivePrice * effectiveQty),
+    offerStatus: 'PENDING',
+    timestamp: new Date().toISOString(),
+  }), [negotiationId, effectiveBuyerName, effectivePrice, effectiveQty, effectiveUnit]);
 
   const [negotiation, setNegotiation] = useState<NegotiationDetail | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Counter offer modal state
@@ -253,69 +304,97 @@ export default function FarmerNegotiationChatScreen() {
     }
   };
 
-  // Accept Offer
-  const handleAcceptOffer = () => {
-    if (!negotiation) return;
-    const currentPrice = negotiation.counterPrice || negotiation.offeredPrice;
-    const total = Math.round(currentPrice * negotiation.quantity);
+  // Execute Accept Offer
+  const executeAcceptOffer = async () => {
+    if (!effectiveNegotiation) return;
+    const currentPrice = effectiveNegotiation.counterPrice || effectiveNegotiation.offeredPrice;
+    const total = Math.round(currentPrice * effectiveNegotiation.quantity);
 
-    Alert.alert(
-      'Accept Offer & Create Order?',
-      `Are you sure you want to accept ₹${currentPrice}/${negotiation.unit} for ${negotiation.quantity} ${negotiation.unit}?\n\nTotal Deal Value: ₹${total.toLocaleString('en-IN')}\n\nA confirmed order will be created immediately.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Accept & Create Order',
-          style: 'default',
-          onPress: async () => {
-            try {
-              setSubmitting(true);
-              const apiBase = resolveFarmerApiBaseUrl();
-              const token = useAuthStore.getState().token || '';
-              const res = await fetch(`${apiBase}/negotiations/${negotiationId}/accept`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                  'Idempotency-Key': `idemp-acc-${Date.now()}`,
-                },
-                body: JSON.stringify({
-                  action: 'ACCEPT',
-                  deliveryAddress: 'Farmgate Direct Collection Point',
-                }),
-              });
-              const json = await res.json();
-              if (json.data) {
-                setNegotiation(json.data);
-                fetchNegotiation(false);
-                Alert.alert(
-                  'Deal Accepted! 🎉',
-                  `Order #${json.data.orderNumber || json.data.orderId || 'CONFIRMED'} has been generated. You can now prepare the produce for pickup.`,
-                  [
-                    {
-                      text: 'View Orders',
-                      onPress: () => router.push('/(tabs)/orders'),
-                    },
-                    { text: 'Stay Here' },
-                  ]
-                );
-              }
-            } catch (err: any) {
-              Alert.alert('Acceptance Error', err.message || 'Failed to accept deal.');
-            } finally {
-              setSubmitting(false);
-            }
-          },
+    try {
+      setSubmitting(true);
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Idempotency-Key': `idemp-acc-${Date.now()}`,
         },
-      ]
-    );
+        body: JSON.stringify({
+          action: 'ACCEPT',
+          deliveryAddress: 'Farmgate Direct Collection Point',
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        setNegotiation(json.data);
+        await fetchNegotiation(false);
+
+        const noticeMsg = `Offer Accepted! 🌾\n\nYou accepted the deal (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit} • Total ₹${total.toLocaleString('en-IN')}).\n\nThe buyer has been notified in their chat to confirm and submit their delivery address.\n\nOnce the buyer confirms, this order will appear in your Orders > Pending section for dispatch!`;
+
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.alert(noticeMsg);
+        } else {
+          Alert.alert(
+            'Offer Accepted! 🌾',
+            `You have accepted the offer (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit}).\n\nThe buyer has been notified in their chat to confirm and submit their delivery address. Once confirmed, it will appear in your Orders Pending section.`,
+            [
+              {
+                text: 'View Orders',
+                onPress: () => router.push('/(tabs)/orders'),
+              },
+              { text: 'Stay Here' },
+            ]
+          );
+        }
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || 'Failed to accept deal.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.alert(`Acceptance Error: ${errMsg}`);
+      } else {
+        Alert.alert('Acceptance Error', errMsg);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Accept Offer Trigger
+  const handleAcceptOffer = () => {
+    if (!effectiveNegotiation || submitting) return;
+    const currentPrice = effectiveNegotiation.counterPrice || effectiveNegotiation.offeredPrice;
+    const total = Math.round(currentPrice * effectiveNegotiation.quantity);
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        `Accept Offer & Notify Buyer?\n\nRate: ₹${currentPrice}/${effectiveNegotiation.unit}\nVolume: ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit}\nTotal Deal Value: ₹${total.toLocaleString('en-IN')}\n\nClick OK to accept. The buyer will receive a confirmation card in their chat to confirm and place the order.`
+      );
+      if (confirmed) {
+        executeAcceptOffer();
+      }
+    } else {
+      Alert.alert(
+        'Accept Offer & Notify Buyer?',
+        `Are you sure you want to accept ₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit}?\n\nTotal Deal Value: ₹${total.toLocaleString('en-IN')}\n\nThe buyer will confirm in chat to finalize the order.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Accept Deal',
+            style: 'default',
+            onPress: executeAcceptOffer,
+          },
+        ]
+      );
+    }
   };
 
   // Open Counter Modal with prefilled values
   const openCounterModal = () => {
-    if (!negotiation) return;
-    setCounterPrice(String(negotiation.counterPrice || negotiation.offeredPrice));
-    setCounterQty(String(negotiation.quantity));
+    if (!effectiveNegotiation) return;
+    setCounterPrice(String(effectiveNegotiation.counterPrice || effectiveNegotiation.offeredPrice));
+    setCounterQty(String(effectiveNegotiation.quantity));
     setCounterNote('');
     setCounterModalVisible(true);
   };
@@ -326,9 +405,11 @@ export default function FarmerNegotiationChatScreen() {
     return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
 
-  const isAccepted = negotiation?.status === 'ACCEPTED';
-  const currentPrice = negotiation ? negotiation.counterPrice || negotiation.offeredPrice : 0;
-  const currentTotal = negotiation ? Math.round(currentPrice * negotiation.quantity) : 0;
+  const effectiveNegotiation = negotiation || defaultNeg;
+  const isAccepted = effectiveNegotiation?.status === 'ACCEPTED';
+  const currentPrice = effectiveNegotiation ? effectiveNegotiation.counterPrice || effectiveNegotiation.offeredPrice : 0;
+  const currentTotal = effectiveNegotiation ? Math.round(currentPrice * effectiveNegotiation.quantity) : 0;
+  const displayMessages = messages.length > 0 ? messages : [defaultInitialOfferMsg];
 
   // Render chat item
   const renderItem = ({ item }: { item: ChatMessage }) => {
@@ -497,10 +578,10 @@ export default function FarmerNegotiationChatScreen() {
       </View>
 
       {/* Product Mini Context Card */}
-      {negotiation && (
+      {effectiveNegotiation && (
         <View style={styles.productMiniCard}>
-          {negotiation.cropImage ? (
-            <Image source={{ uri: negotiation.cropImage }} style={styles.productThumb} />
+          {effectiveNegotiation.cropImage ? (
+            <Image source={{ uri: effectiveNegotiation.cropImage }} style={styles.productThumb} />
           ) : (
             <View style={styles.productPlaceholder}>
               <Package size={20} color="#15803D" />
@@ -509,29 +590,29 @@ export default function FarmerNegotiationChatScreen() {
 
           <View style={styles.productDetails}>
             <Text style={styles.cropTitle} numberOfLines={1}>
-              {negotiation.cropName} {negotiation.grade ? `(Grade ${negotiation.grade})` : ''}
+              {effectiveNegotiation.cropName} {effectiveNegotiation.grade ? `(Grade ${effectiveNegotiation.grade})` : ''}
             </Text>
             <Text style={styles.cropSubInfo}>
-              Req: <Text style={{ fontWeight: '700', color: '#1F2937' }}>{negotiation.quantity} {negotiation.unit}</Text> • Listed: ₹{negotiation.originalPrice}/{negotiation.unit}
+              Req: <Text style={{ fontWeight: '700', color: '#1F2937' }}>{effectiveNegotiation.quantity} {effectiveNegotiation.unit}</Text> • Listed: ₹{effectiveNegotiation.originalPrice}/{effectiveNegotiation.unit}
             </Text>
           </View>
 
           <View style={styles.pricePill}>
             <Text style={styles.pricePillLabel}>CURRENT DEAL</Text>
-            <Text style={styles.pricePillValue}>₹{currentPrice}/{negotiation.unit}</Text>
+            <Text style={styles.pricePillValue}>₹{currentPrice}/{effectiveNegotiation.unit}</Text>
           </View>
         </View>
       )}
 
       {/* Current Offer Banner with Quick Action CTAs */}
-      {negotiation && (
+      {effectiveNegotiation && (
         <View style={[styles.currentOfferBanner, isAccepted && styles.currentOfferBannerAccepted]}>
           <View style={styles.bannerInfoCol}>
             <Text style={styles.bannerLabel}>
               {isAccepted ? 'DEAL ACCEPTED' : 'ACTIVE PROPOSED OFFER'}
             </Text>
             <Text style={styles.bannerValue}>
-              ₹{currentPrice}/{negotiation.unit} • {negotiation.quantity} {negotiation.unit} = ₹{currentTotal.toLocaleString('en-IN')}
+              ₹{currentPrice}/{effectiveNegotiation.unit} • {effectiveNegotiation.quantity} {effectiveNegotiation.unit} = ₹{currentTotal.toLocaleString('en-IN')}
             </Text>
           </View>
 
@@ -565,7 +646,7 @@ export default function FarmerNegotiationChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {loading ? (
+        {loading && !effectiveNegotiation ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator
               size="large"
@@ -578,7 +659,7 @@ export default function FarmerNegotiationChatScreen() {
         ) : (
           <FlatList
             ref={flatListRef}
-            data={messages}
+            data={displayMessages}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             contentContainerStyle={styles.messagesList}

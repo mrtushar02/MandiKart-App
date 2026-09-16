@@ -15,6 +15,7 @@ import { useLocation } from '../../context/LocationContext';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useCatalog } from '../../context/CatalogContext';
+import FloatingCartBanner from '../../components/FloatingCartBanner';
 
 import { getFallbackProductImage } from '../../utils/imageUtils';
 
@@ -29,6 +30,7 @@ export default function ProductDetailsScreen({ navigation, route }: any) {
   const { addToCart } = useCart();
   const { toggleWishlist, isWishlisted } = useWishlist();
   const [qty, setQty] = useState(1);
+  const [justAdded, setJustAdded] = useState(false);
   const [isNegotiating, setIsNegotiating] = useState(false);
   const [imgUri, setImgUri] = useState<string>(product?.imageUrl || '');
 
@@ -46,25 +48,20 @@ export default function ProductDetailsScreen({ navigation, route }: any) {
     );
   }
 
-  const favorited = product ? isWishlisted(product.id) : false;
-
-  if (!product) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Ionicons name="alert-circle-outline" size={48} color={Colors.textSecondary} />
-        <Text style={{ marginTop: 16, fontSize: 16, color: Colors.textSecondary }}>Product not found</Text>
-        <PrimaryButton title="Go Back" onPress={() => navigation.goBack()} style={{ marginTop: 24, width: 200 }} />
-      </View>
-    );
-  }
-
+  const favorited = isWishlisted(product.id);
   const activeImage = imgUri || product.imageUrl || getFallbackProductImage(product.category, product.name);
+
+  const handleAddToCart = () => {
+    addToCart(product, qty);
+    setJustAdded(true);
+    setTimeout(() => setJustAdded(false), 2500);
+  };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
         {/* Image & Header */}
         <View style={styles.imageHeader}>
           <Image
@@ -166,14 +163,13 @@ export default function ProductDetailsScreen({ navigation, route }: any) {
           <Text style={styles.negotiateBtnText}>Negotiate</Text>
         </TouchableOpacity>
         <PrimaryButton
-          title={`Add • ₹${product.price * qty}`}
-          onPress={() => {
-            addToCart(product, qty);
-            navigation.navigate('Main', { screen: 'Cart' } as any);
-          }}
-          style={styles.addBtn}
+          title={justAdded ? `✓ Added ${qty} to Cart!` : `Add to Cart • ₹${(product.price * qty).toLocaleString('en-IN')}`}
+          onPress={handleAddToCart}
+          style={{ ...styles.addBtn, ...(justAdded ? { backgroundColor: '#15803D' } : {}) }}
         />
       </View>
+
+      <FloatingCartBanner bottomOffset={82} />
 
       <NegotiationModal
         visible={isNegotiating}
@@ -181,15 +177,19 @@ export default function ProductDetailsScreen({ navigation, route }: any) {
         initialQuantity={qty}
         onClose={() => setIsNegotiating(false)}
         onOfferSubmitted={(offer: any) => {
-          navigation.navigate('ChatStack', {
-            screen: 'Chat',
-            params: {
-              negotiationId: offer?.id,
-              farmerName: product.farmer?.name || 'Ramesh Patel',
-              cropName: product.name,
-              productImage: product.images?.[0],
-            },
-          });
+          const navParams = {
+            id: offer?.id,
+            negotiationId: offer?.id,
+            farmerName: product.farmer?.name || (product as any).farmerName || 'Ramesh Patel',
+            cropName: product.name,
+            productImage: product.images?.[0] || product.imageUrl,
+            offeredPrice: offer?.offeredPrice,
+            originalPrice: offer?.originalPrice || product.price,
+            quantity: offer?.quantity || qty,
+            unit: offer?.unit || product.unit || 'kg',
+            offer,
+          };
+          navigation.navigate('Chat', navParams);
         }}
       />
     </View>

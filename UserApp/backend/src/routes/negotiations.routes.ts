@@ -30,5 +30,6 @@ negotiationsRouter.post('/offer', permissiveBuyerAuth, requireIdempotency, Buyer
 negotiationsRouter.post('/:id/messages', permissiveBuyerAuth, BuyerNegotiationsController.sendMessage);
 negotiationsRouter.post('/:id/respond', permissiveBuyerAuth, requireIdempotency, BuyerNegotiationsController.respondToCounterOffer);
 negotiationsRouter.post('/:id/accept', permissiveBuyerAuth, requireIdempotency, BuyerNegotiationsController.convertToOrder);
+negotiationsRouter.post('/:id/confirm-order', permissiveBuyerAuth, requireIdempotency, BuyerNegotiationsController.convertToOrder);
 negotiationsRouter.post('/:id/convert-to-order', permissiveBuyerAuth, requireIdempotency, BuyerNegotiationsController.convertToOrder);
 

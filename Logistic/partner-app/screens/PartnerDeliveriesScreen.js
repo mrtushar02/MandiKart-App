@@ -56,11 +56,16 @@ export default function PartnerDeliveriesScreen({ navigation }) {
                   <View style={styles.badgeInTransit}>
                     <Text style={styles.badgeInTransitText}>● {activeDelivery.status.replace('_', ' ')}</Text>
                   </View>
-                  <Text style={styles.payoutText}>₹{activeDelivery.payout}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: COLORS.primary, textTransform: 'uppercase' }}>Payout</Text>
+                    <Text style={styles.payoutText}>+₹{activeDelivery.payout}</Text>
+                  </View>
                 </View>
 
                 <Text style={styles.orderTitle}>{activeDelivery.title}</Text>
-                <Text style={styles.orderQty}>{activeDelivery.quantity} • Order #{activeDelivery.id}</Text>
+                <Text style={styles.orderQty}>
+                  {activeDelivery.quantity} • Value: ₹{Number(activeDelivery.totalPrice || activeDelivery.totalAmount || 0).toLocaleString('en-IN')} • Order #{activeDelivery.id}
+                </Text>
 
                 <View style={styles.routeBox}>
                   <View style={styles.routePoint}>
@@ -132,13 +137,20 @@ export default function PartnerDeliveriesScreen({ navigation }) {
               <View key={item.id} style={styles.deliveryCard}>
                 <View style={styles.cardBadgeRow}>
                   <View style={styles.badgePromo}>
-                    <Text style={styles.badgePromoText}>{item.tag}</Text>
+                    <Text style={styles.badgePromoText}>{item.tag || 'PRODUCE DISPATCH'}</Text>
                   </View>
-                  <Text style={styles.payoutText}>₹{item.payout}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.payoutText}>₹{item.payout}</Text>
+                    <Text style={{ fontSize: 10, color: COLORS.onSurfaceVariant, fontWeight: '700' }}>
+                      Payout • ₹{Number(item.totalPrice || item.totalAmount || (item.payout * 8)).toLocaleString('en-IN')} Value
+                    </Text>
+                  </View>
                 </View>
 
                 <Text style={styles.orderTitle}>{item.title}</Text>
-                <Text style={styles.orderQty}>{item.quantity} • {item.distanceKm} km</Text>
+                <Text style={styles.orderQty}>
+                  {item.quantity} • {item.pricePerKg ? `₹${item.pricePerKg}/kg • ` : ''}{item.distanceKm} km
+                </Text>
 
                 <View style={styles.routeBox}>
                   <View style={styles.routePoint}>
@@ -152,15 +164,15 @@ export default function PartnerDeliveriesScreen({ navigation }) {
                 </View>
 
                 <TouchableOpacity
-                  style={styles.actionBtn}
+                  style={styles.acceptPickupCardBtn}
                   onPress={() => {
                     acceptDelivery(item.id);
                     setSelectedTab('ACTIVE');
                   }}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.actionBtnText}>Accept Pickup (₹{item.payout})</Text>
-                  <Ionicons name="arrow-forward" size={18} color={COLORS.white} />
+                  <Text style={styles.acceptPickupCardBtnText}>Accept Pickup (₹{item.payout})</Text>
+                  <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -354,44 +366,72 @@ const styles = StyleSheet.create({
   },
   cardActions: {
     flexDirection: 'row',
-    gap: SPACING.sm,
+    gap: SPACING.md,
     marginTop: SPACING.sm,
   },
   detailsBtn: {
     flex: 1,
-    height: 48,
+    minHeight: 50,
     borderWidth: 1.5,
     borderColor: COLORS.primary,
-    borderRadius: RADIUS.md,
+    borderRadius: 14,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.xs,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.sm,
   },
   detailsBtnText: {
-    fontSize: FONT.base,
+    fontSize: 15,
     fontWeight: '800',
     color: COLORS.primary,
   },
   actionBtn: {
     flex: 1.5,
-    height: 48,
+    minHeight: 50,
     backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.md,
+    borderRadius: 14,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.xs,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.sm,
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 6,
-    elevation: 2,
+    elevation: 3,
   },
   actionBtnText: {
-    fontSize: FONT.base,
+    fontSize: 15,
     fontWeight: '800',
     color: COLORS.white,
+  },
+  acceptPickupCardBtn: {
+    width: '100%',
+    minHeight: 52,
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingVertical: 14,
+    paddingHorizontal: SPACING.lg,
+    marginTop: SPACING.xs,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  acceptPickupCardBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.white,
+    letterSpacing: 0.3,
   },
   completedCard: {
     backgroundColor: COLORS.white,

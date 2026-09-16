@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, StatusBar, Alert, Switch, Platform,
+  TextInput, StatusBar, Alert, Switch, Platform, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,45 +9,111 @@ import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, BorderRadius, Shadows } from '../../theme';
 import PrimaryButton from '../../components/PrimaryButton';
 import { useLocation } from '../../context/LocationContext';
-import InteractiveMapView from '../../components/InteractiveMapView';
+import AddressPickerMapView, { AddressPickerCoords } from '../../components/AddressPickerMapView';
 
 type AddressType = 'HOME' | 'WORK' | 'OTHER';
 
 export default function AddAddressScreen() {
   const navigation = useNavigation();
-  const { fetchCurrentLocation, currentAddress, currentLocation, setManualLocation, addSavedAddress, isLoadingLocation } = useLocation();
+  const {
+    fetchCurrentLocation,
+    currentAddress,
+    currentLocation,
+    reverseGeocode,
+    addSavedAddress,
+    activeSavedAddress,
+    isLoadingLocation,
+  } = useLocation();
 
-  // Form State
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
+  // Selected Pin Coordinates on Map
+  const [pinCoords, setPinCoords] = useState<AddressPickerCoords>(() => ({
+    latitude: currentLocation?.latitude || 18.5204,
+    longitude: currentLocation?.longitude || 73.8567,
+  }));
+  const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
+
+  // Form State with prefilled defaults from active profile
+  const [fullName, setFullName] = useState(activeSavedAddress?.fullName || 'Ramesh Sharma');
+  const [phone, setPhone] = useState(activeSavedAddress?.phone?.replace('+91', '').trim() || '9876543210');
   const [houseNo, setHouseNo] = useState('');
   const [street, setStreet] = useState('');
   const [landmark, setLandmark] = useState('');
-  const [city, setCity] = useState('Pune');
-  const [state, setState] = useState('Maharashtra');
-  const [pincode, setPincode] = useState('411005');
+  const [city, setCity] = useState(currentAddress?.city || 'Pune');
+  const [state, setState] = useState(currentAddress?.state || 'Maharashtra');
+  const [pincode, setPincode] = useState(currentAddress?.pincode || '411005');
   const [addressType, setAddressType] = useState<AddressType>('HOME');
   const [isDefault, setIsDefault] = useState(true);
 
-  // Real GPS detection
-  const handleDetectLocation = async () => {
-    const loc = await fetchCurrentLocation(true);
-    if (loc && currentAddress) {
-      setHouseNo(currentAddress.street || 'Flat 402');
-      setStreet(currentAddress.area || currentAddress.formattedAddress.split(',')[0]);
-      setCity(currentAddress.city || 'Pune');
-      setState(currentAddress.state || 'Maharashtra');
-      setPincode(currentAddress.pincode || '411005');
-      Alert.alert('GPS Location Detected 📍', `Address auto-filled from live device GPS:\n${currentAddress.formattedAddress}`);
-    } else {
-      setHouseNo('Flat 402, Shivajinagar');
-      setStreet('FC Road, Near Goodluck Cafe');
-      setCity('Pune');
-      setState('Maharashtra');
-      setPincode('411005');
-      Alert.alert('Location Detected 📍', 'Address updated using your current GPS coordinates.');
+  // Auto-detect realtime GPS location on mount
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const loc = await fetchCurrentLocation(false);
+        if (loc && active) {
+          setPinCoords({ latitude: loc.latitude, longitude: loc.longitude });
+          const resolved = await reverseGeocode(loc);
+          if (resolved && active) {
+            applyResolvedAddress(resolved);
+          }
+        }
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const applyResolvedAddress = (resolved: any) => {
+    if (resolved.street) setHouseNo(resolved.street);
+    if (resolved.area) setStreet(resolved.area);
+    if (resolved.city) setCity(resolved.city);
+    if (resolved.state) setState(resolved.state);
+    if (resolved.pincode) setPincode(resolved.pincode);
+  };
+
+  // Reverse geocode when pin moves or is tapped on the map
+  const handlePinMoved = async (newCoords: AddressPickerCoords) => {
+    setPinCoords(newCoords);
+    setIsReverseGeocoding(true);
+    try {
+      const resolved = await reverseGeocode(newCoords);
+      if (resolved) {
+        applyResolvedAddress(resolved);
+      }
+    } catch {} finally {
+      setIsReverseGeocoding(false);
     }
   };
+
+  // Explicit GPS detection button
+  const handleDetectLocation = async () => {
+    setIsReverseGeocoding(true);
+    const loc = await fetchCurrentLocation(true);
+    if (loc) {
+      setPinCoords({ latitude: loc.latitude, longitude: loc.longitude });
+      const resolved = await reverseGeocode(loc);
+      setIsReverseGeocoding(false);
+      if (resolved) {
+        applyResolvedAddress(resolved);
+        const msg = `Address auto-filled from live device GPS:\n${resolved.formattedAddress}`;
+        if (Platform.OS === 'web') {
+          window.alert(`GPS Location Detected 📍\n${msg}`);
+        } else {
+          Alert.alert('GPS Location Detected 📍', msg);
+        }
+      }
+    } else {
+      setIsReverseGeocoding(false);
+    }
+  };
+
+  const currentFormattedText = [
+    houseNo,
+    street,
+    landmark,
+    city,
+    state,
+    pincode,
+  ].filter(Boolean).join(', ');
 
   const handleSave = () => {
     if (!fullName.trim()) {
@@ -94,6 +160,8 @@ export default function AddAddressScreen() {
       state,
       pincode,
       isDefault,
+      latitude: pinCoords.latitude,
+      longitude: pinCoords.longitude,
     });
 
     if (Platform.OS === 'web') {
@@ -137,22 +205,13 @@ export default function AddAddressScreen() {
           <Ionicons name="chevron-forward" size={16} color={Colors.primary} />
         </TouchableOpacity>
 
-        {/* Live Interactive Map Pinpoint View */}
+        {/* Live Interactive Address Picker Pinpoint Map View */}
         <View style={{ marginBottom: Spacing.md }}>
-          <InteractiveMapView
-            destination={{
-              title: houseNo ? `${houseNo}, ${street}` : 'Pinned Delivery Point',
-              subTitle: `${city}, ${state} - ${pincode}`,
-            }}
-            onLocationDetected={(coords) => {
-              if (currentAddress) {
-                setHouseNo(currentAddress.street || 'Flat 402');
-                setStreet(currentAddress.area || currentAddress.formattedAddress.split(',')[0]);
-                setCity(currentAddress.city || 'Pune');
-                setState(currentAddress.state || 'Maharashtra');
-                setPincode(currentAddress.pincode || '411005');
-              }
-            }}
+          <AddressPickerMapView
+            initialCoords={pinCoords}
+            onLocationSelected={handlePinMoved}
+            selectedAddressText={currentFormattedText}
+            isLoadingAddress={isReverseGeocoding || isLoadingLocation}
           />
         </View>
 

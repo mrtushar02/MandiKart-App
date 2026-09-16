@@ -13,6 +13,7 @@ import {
   OrderRegistryService,
   getCropImageUrl,
   geminiAiService,
+  NotificationService,
 } from '@mandikart/shared-core';
 
 export class AdminController {
@@ -984,6 +985,94 @@ export class AdminController {
       res.status(200).json({ data: shipments, meta: { total: shipments.length }, error: null });
     } catch (err) {
       res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
+
+  static async broadcastNotification(req: Request, res: Response): Promise<void> {
+    try {
+      const adminId = (req as any).user?.id || 'admin_super_01';
+      const { targetApp, targetSegment, category, title, body, deepLink } = req.body;
+
+      if (!title || !body) {
+        res.status(400).json({
+          data: null,
+          meta: null,
+          error: { code: 'MISSING_FIELDS', message: 'Title and body are required for push broadcast.' },
+        });
+        return;
+      }
+
+      const broadcastRecord = await NotificationService.broadcastNotification({
+        targetApp: targetApp || 'ALL',
+        targetSegment: targetSegment || 'all_users',
+        category: category || 'MARKET_SURGE',
+        title,
+        body,
+        deepLink: deepLink || 'mandikart://home',
+      });
+
+      await auditLog({
+        actorId: adminId,
+        role: UserRole.ADMIN,
+        action: 'BROADCAST_PUSH_ALERT',
+        resourceType: 'USER',
+        resourceId: broadcastRecord.id,
+        metadata: {
+          title,
+          targetApp: broadcastRecord.targetApp,
+          category: broadcastRecord.category,
+          recipientCount: broadcastRecord.recipientCount,
+        },
+      });
+
+      res.status(200).json({
+        data: broadcastRecord,
+        meta: {
+          dispatchedAt: broadcastRecord.sentAt,
+          status: 'SUCCESS',
+        },
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({
+        data: null,
+        meta: null,
+        error: { code: 'BROADCAST_FAILED', message: (err as Error).message },
+      });
+    }
+  }
+
+  static async getBroadcastHistory(_req: Request, res: Response): Promise<void> {
+    try {
+      const history = NotificationService.getBroadcastHistory();
+      res.status(200).json({
+        data: history,
+        meta: { total: history.length },
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({
+        data: null,
+        meta: null,
+        error: { code: 'HISTORY_FETCH_FAILED', message: (err as Error).message },
+      });
+    }
+  }
+
+  static async getBroadcastStats(_req: Request, res: Response): Promise<void> {
+    try {
+      const stats = NotificationService.getBroadcastStats();
+      res.status(200).json({
+        data: stats,
+        meta: null,
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({
+        data: null,
+        meta: null,
+        error: { code: 'STATS_FETCH_FAILED', message: (err as Error).message },
+      });
     }
   }
 }

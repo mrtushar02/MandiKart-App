@@ -31,15 +31,18 @@ export const PartnerProvider = ({ children }) => {
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Poll available tasks from Logistics Backend (Port 4002)
+  // Poll available tasks from Logistics Backend (Port 4002) with dynamic host resolution
   React.useEffect(() => {
     let isMounted = true;
     const fetchBackendTasks = async () => {
-      const endpoints = [
-        'http://192.168.1.9:4002/api/v1/tasks/available',
-        'http://localhost:4002/api/v1/tasks/available',
-        'http://10.0.2.2:4002/api/v1/tasks/available',
-      ];
+      const endpoints = [];
+      if (typeof window !== 'undefined' && window.location?.hostname) {
+        endpoints.push(`http://${window.location.hostname}:4002/api/v1/tasks/available`);
+      }
+      endpoints.push('http://localhost:4002/api/v1/tasks/available');
+      endpoints.push('http://192.168.1.9:4002/api/v1/tasks/available');
+      endpoints.push('http://10.0.2.2:4002/api/v1/tasks/available');
+
       for (const url of endpoints) {
         try {
           const res = await fetch(url);
@@ -48,21 +51,35 @@ export const PartnerProvider = ({ children }) => {
             if (json && Array.isArray(json.data) && isMounted) {
               const mapped = json.data.map((task) => ({
                 id: task.id || task.orderId,
+                orderId: task.id || task.orderId,
+                orderNumber: task.orderNumber || task.order_number || `#MK-${String(task.id).slice(-4)}`,
                 title: task.title || task.cropName || 'Fresh Consignment',
+                cropName: task.cropName || task.title || 'Fresh Produce',
                 quantity: task.quantity || `${task.quantityKg || 100} kg`,
+                quantityKg: task.quantityKg || (typeof task.quantity === 'string' ? parseInt(task.quantity) : 100) || 100,
+                pricePerKg: task.pricePerKg || 32,
+                totalPrice: task.totalPrice || task.totalAmount || 3200,
+                totalAmount: task.totalAmount || task.totalPrice || 3200,
                 payout: task.payout || 380,
                 distanceKm: task.distanceKm || 9.5,
+                estimatedTimeMins: task.estimatedTimeMins || 25,
                 pickupName: task.pickupName || task.farmerName || 'Farmer Gate Pickup',
                 dropName: task.dropName || 'Mandi Hub Receiving',
                 pickupLocation: task.pickupLocation || 'Farm Gate',
                 deliveryLocation: task.deliveryLocation || 'Mandi Hub',
+                farmerName: task.farmerName || task.pickup?.contactPerson || 'Farmer Producer',
+                farmerPhone: task.farmerPhone || task.pickup?.phone || '+91 94370 12345',
+                dropContact: task.dropContact || task.drop?.contactPerson || 'Mandi Hub Manager',
+                dropPhone: task.dropPhone || task.drop?.phone || '+91 94371 98765',
                 pickupOtp: task.pickupOtp || '482910',
                 deliveryOtp: task.deliveryOtp || '8392',
                 status: task.status || 'CONFIRMED',
+                pickup: task.pickup,
+                drop: task.drop,
+                manifest: task.manifest,
               }));
-              if (mapped.length > 0) {
-                setAvailableDeliveries(mapped);
-              }
+              const filtered = mapped.filter(m => !activeDelivery || (m.id !== activeDelivery.id && m.orderId !== activeDelivery.id));
+              setAvailableDeliveries(filtered);
               break;
             }
           }
@@ -78,14 +95,17 @@ export const PartnerProvider = ({ children }) => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [activeDelivery]);
 
   const callLogisticApi = async (path, method = 'POST', body = null) => {
-    const endpoints = [
-      'http://192.168.1.9:4002/api/v1',
-      'http://localhost:4002/api/v1',
-      'http://10.0.2.2:4002/api/v1',
-    ];
+    const endpoints = [];
+    if (typeof window !== 'undefined' && window.location?.hostname) {
+      endpoints.push(`http://${window.location.hostname}:4002/api/v1`);
+    }
+    endpoints.push('http://localhost:4002/api/v1');
+    endpoints.push('http://192.168.1.9:4002/api/v1');
+    endpoints.push('http://10.0.2.2:4002/api/v1');
+
     for (const base of endpoints) {
       try {
         const res = await fetch(`${base}${path}`, {
@@ -107,19 +127,33 @@ export const PartnerProvider = ({ children }) => {
   const login = (mobileNumber, password) => {
     setIsAuthenticated(true);
     setIsOnline(true);
+    if (mobileNumber) {
+      setPartnerProfile(prev => ({
+        ...prev,
+        phone: mobileNumber.startsWith('+91') ? mobileNumber : `+91 ${mobileNumber}`,
+      }));
+    }
     return true;
   };
 
   const loginWithGoogle = (driverData) => {
-    if (driverData?.user) {
+    const user = driverData?.user || driverData?.profile;
+    if (user) {
       setPartnerProfile(prev => ({
         ...prev,
-        id: driverData.user.id || prev.id,
-        name: driverData.user.fullName || prev.name,
-        email: driverData.user.email || prev.email,
-        avatar: driverData.user.avatarUrl || prev.avatar,
-        avatarUrl: driverData.user.avatarUrl || prev.avatarUrl,
-        phone: driverData.user.phone || prev.phone,
+        id: user.id || prev.id,
+        name: user.fullName || user.name || prev.name,
+        email: user.email || prev.email,
+        avatar: user.avatarUrl || prev.avatar,
+        avatarUrl: user.avatarUrl || prev.avatarUrl,
+        phone: user.phone || prev.phone,
+        badge: user.badge || prev.badge || 'Verified Google Partner',
+        vehicle: {
+          model: 'Tata Ace EV (750 kg)',
+          plateNumber: 'OD-02-BX-4910',
+          maxLoadKg: 750,
+          ...(prev?.vehicle || {}),
+        },
       }));
     }
     setIsAuthenticated(true);
@@ -133,8 +167,18 @@ export const PartnerProvider = ({ children }) => {
   };
 
   const registerPartner = (data) => {
-    if (data?.fullName) {
-      setPartnerProfile(prev => ({ ...prev, name: data.fullName }));
+    if (data) {
+      setPartnerProfile(prev => ({
+        ...prev,
+        name: data.fullName || prev.name,
+        phone: data.phone ? (data.phone.startsWith('+91') ? data.phone : `+91 ${data.phone}`) : prev.phone,
+        vehicle: {
+          model: data.selectedVehicle === '2_wheeler' ? 'Electric Bike (EV)' : data.selectedVehicle === '3_wheeler' ? 'Electric 3W Cargo' : 'Tata Ace EV (750 kg)',
+          plateNumber: data.dlNumber || prev.vehicle?.plateNumber || 'OD-02-AX-9124',
+          maxLoadKg: data.selectedVehicle === '2_wheeler' ? 120 : data.selectedVehicle === '3_wheeler' ? 450 : 750,
+          ...(prev?.vehicle || {}),
+        },
+      }));
     }
     setIsAuthenticated(true);
     setIsOnline(true);
@@ -153,38 +197,56 @@ export const PartnerProvider = ({ children }) => {
 
     callLogisticApi(`/tasks/${orderId}/start-pickup`, 'POST').catch(() => {});
 
+    const quantityKg = Number(order.quantityKg || (typeof order.quantity === 'string' ? parseInt(order.quantity) : 100) || 100);
+    const totalPrice = Number(order.totalPrice || order.totalAmount || (quantityKg * 32));
+    const pricePerKg = Number(order.pricePerKg || (quantityKg > 0 ? Math.round(totalPrice / quantityKg) : 32));
+
     const newActive = {
       id: order.id,
-      title: order.title,
-      quantity: order.quantity,
-      payout: order.payout,
+      orderId: order.id,
+      orderNumber: order.orderNumber || `#MK-${String(order.id).slice(-4)}`,
+      title: order.title || order.cropName || 'Fresh Consignment',
+      cropName: order.cropName || order.title || 'Fresh Consignment',
+      quantity: order.quantity || `${quantityKg} kg`,
+      quantityKg,
+      pricePerKg,
+      totalPrice,
+      totalAmount: totalPrice,
+      payout: order.payout || Math.max(380, Math.round(totalPrice * 0.08)),
       status: 'PICKUP',
       currentStepIndex: 0,
       requiresColdStorage: false,
-      estimatedTimeMins: 25,
-      distanceKm: order.distanceKm,
+      estimatedTimeMins: order.estimatedTimeMins || 25,
+      distanceKm: order.distanceKm || 9.5,
       pickupOtp: order.pickupOtp || '482910',
       deliveryOtp: order.deliveryOtp || '8392',
-      pickup: {
-        name: order.pickupName,
-        contactPerson: 'Farm Dispatch Coordinator',
-        phone: '+91 94370 55443',
-        address: `${order.pickupName}, Rural Mandi Corridor`,
+      pickup: order.pickup || {
+        name: order.pickupName || 'Farmgate Pickup',
+        contactPerson: order.farmerName || 'Ramesh Patel',
+        phone: order.farmerPhone || '+91 94370 12345',
+        address: order.pickupLocation || `${order.pickupName || 'Ramesh Farm'}, Patia Green Corridor`,
         pin: '751024',
         time: 'Just now',
         isDone: false,
       },
-      drop: {
-        name: order.dropName,
-        contactPerson: 'Receiving Officer',
-        phone: '+91 94371 66778',
-        address: `${order.dropName}, Produce Bay 4`,
+      drop: order.drop || {
+        name: order.dropName || 'Mandi Receiving Hub Gate 3',
+        contactPerson: order.dropContact || 'Mandi Gate 3 Manager',
+        phone: order.dropPhone || '+91 94371 98765',
+        address: order.deliveryLocation || `${order.dropName || 'Bhubaneswar Central Mandi'}, Platform 3`,
         pin: '751019',
         time: 'In 35 mins',
         isDone: false,
       },
-      manifest: [
-        { item: order.title, crates: 4, weightKg: 120, grade: 'Verified Grade A' },
+      manifest: order.manifest || [
+        {
+          item: order.title || order.cropName || 'Fresh Produce',
+          crates: Math.ceil(quantityKg / 25),
+          weightKg: quantityKg,
+          grade: 'Grade A',
+          pricePerKg,
+          totalPrice,
+        },
       ],
       otpCode: order.pickupOtp || '482910',
     };
@@ -196,6 +258,52 @@ export const PartnerProvider = ({ children }) => {
   // Decline an available delivery
   const declineDelivery = (orderId) => {
     setAvailableDeliveries(prev => prev.filter(o => o.id !== orderId));
+  };
+
+  // Explicit complete delivery & proof of delivery (POD)
+  const completeActiveDelivery = (otp, recipientName, podImageUrl, finalWeightKg) => {
+    if (!activeDelivery) return false;
+
+    const enteredOtp = otp || activeDelivery.deliveryOtp || '8392';
+    const orderId = activeDelivery.id || activeDelivery.orderId;
+    const recipient = recipientName || activeDelivery.drop?.contactPerson || activeDelivery.drop?.name || 'Mandi Hub Receiving';
+    const payoutAmount = Number(activeDelivery.payout) || 380;
+
+    // Call backend endpoint to mark order as DELIVERED in OrderRegistry and trigger webhook
+    callLogisticApi(`/tasks/${orderId}/complete-delivery`, 'POST', {
+      deliveryOtp: enteredOtp,
+      recipientName: recipient,
+      podImageUrl: podImageUrl || '',
+      weightKg: finalWeightKg || activeDelivery.quantityKg || 120,
+    }).catch((err) => {
+      console.warn('Failed to call complete-delivery on backend:', err);
+    });
+
+    const completedOrder = {
+      id: orderId,
+      orderNumber: activeDelivery.orderNumber || `#MK-${String(orderId).slice(-4)}`,
+      title: activeDelivery.title || activeDelivery.cropName || 'Fresh Produce',
+      quantity: activeDelivery.quantity || `${activeDelivery.quantityKg || 100} kg`,
+      payout: payoutAmount,
+      totalPrice: activeDelivery.totalPrice || activeDelivery.totalAmount,
+      deliveredAt: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      customer: recipient,
+      recipientName: recipient,
+      podImageUrl: podImageUrl || '',
+      rating: 5,
+    };
+
+    setCompletedDeliveries(prev => [completedOrder, ...prev.filter(c => c.id !== orderId)]);
+    setTodayStats(prev => ({
+      ...prev,
+      earnings: prev.earnings + payoutAmount,
+      deliveriesCompleted: prev.deliveriesCompleted + 1,
+      distanceKm: parseFloat(((prev.distanceKm || 0) + (activeDelivery.distanceKm || 8.5)).toFixed(1)),
+    }));
+
+    // Reset activeDelivery to null so the active delivery card disappears immediately
+    setActiveDelivery(null);
+    return true;
   };
 
   // Advance delivery lifecycle (Pickup -> In Transit -> Delivered)
@@ -218,35 +326,9 @@ export const PartnerProvider = ({ children }) => {
         pickup: { ...prev.pickup, isDone: true },
         otpCode: prev.deliveryOtp || '8392',
       }));
-    } else if (activeDelivery.currentStepIndex === 1) {
-      // Delivered to customer / Mandi hub
-      const enteredOtp = otp || activeDelivery.deliveryOtp || '8392';
-      callLogisticApi(`/tasks/${activeDelivery.id}/complete-delivery`, 'POST', {
-        deliveryOtp: enteredOtp,
-        recipientName: recipientName || activeDelivery.drop?.name || 'Mandi Hub Receiving',
-        podImageUrl: podImageUrl || '',
-      }).catch(() => {});
-
-      const payoutAmount = activeDelivery.payout;
-      const completedOrder = {
-        id: activeDelivery.id,
-        title: activeDelivery.title,
-        quantity: activeDelivery.quantity,
-        payout: payoutAmount,
-        deliveredAt: 'Just now',
-        customer: activeDelivery.drop.name,
-        rating: 5,
-      };
-
-      setCompletedDeliveries(prev => [completedOrder, ...prev]);
-      setTodayStats(prev => ({
-        ...prev,
-        earnings: prev.earnings + payoutAmount,
-        deliveriesCompleted: prev.deliveriesCompleted + 1,
-        distanceKm: parseFloat((prev.distanceKm + activeDelivery.distanceKm).toFixed(1)),
-      }));
-
-      setActiveDelivery(null);
+    } else {
+      // Final delivery step
+      completeActiveDelivery(otp, recipientName, podImageUrl);
     }
   };
 
@@ -272,6 +354,7 @@ export const PartnerProvider = ({ children }) => {
         acceptDelivery,
         declineDelivery,
         advanceDeliveryStep,
+        completeActiveDelivery,
         selectedScreenModalVisible,
         setSelectedScreenModalVisible,
         activeScreenOverride,

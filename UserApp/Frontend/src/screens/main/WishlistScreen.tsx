@@ -11,6 +11,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { Colors, Spacing, BorderRadius } from '../../theme';
 import ProductCard from '../../components/ProductCard';
 import EmptyState from '../../components/EmptyState';
+import FloatingCartBanner from '../../components/FloatingCartBanner';
 import { useWishlist } from '../../context/WishlistContext';
 import { useCart } from '../../context/CartContext';
 
@@ -144,6 +145,7 @@ export default function WishlistScreen() {
           </View>
         )}
       />
+      <FloatingCartBanner />
     </SafeAreaView>
   );
 }

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Pressable, FlatList, StatusBar, Image, Dimensions, Alert,
-  Modal, ActivityIndicator, RefreshControl,
+  Modal, ActivityIndicator, RefreshControl, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
 import { useLanguage, LANGUAGE_OPTIONS, SupportedLanguage } from '../../context/LanguageContext';
 import { useCatalog } from '../../context/CatalogContext';
+import { useCart } from '../../context/CartContext';
+import FloatingCartBanner from '../../components/FloatingCartBanner';
 import InteractiveMapView from '../../components/InteractiveMapView';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -115,6 +117,7 @@ export default function HomeScreen() {
   } = useLocation();
   const { t, currentLanguageOption, setLanguage } = useLanguage();
   const { products, refresh: refreshCatalog } = useCatalog();
+  const { addToCart } = useCart();
   const [searchText, setSearchText] = useState('');
   const [wishlisted, setWishlisted] = useState<string[]>([]);
   const [isRefreshingProducts, setIsRefreshingProducts] = useState<boolean>(false);
@@ -443,7 +446,7 @@ export default function HomeScreen() {
                     screen: 'ProductDetails',
                     params: { productId: item.id },
                   })}
-                  onAddToCart={() => {}}
+                  onAddToCart={() => addToCart(item, 1)}
                   onWishlistToggle={() => toggleWishlist(item.id)}
                   isWishlisted={wishlisted.includes(item.id)}
                 />
@@ -466,7 +469,7 @@ export default function HomeScreen() {
                     screen: 'ProductDetails',
                     params: { productId: item.id },
                   })}
-                  onAddToCart={() => {}}
+                  onAddToCart={() => addToCart(item, 1)}
                   onWishlistToggle={() => toggleWishlist(item.id)}
                   isWishlisted={wishlisted.includes(item.id)}
                 />
@@ -691,6 +694,8 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      <FloatingCartBanner bottomOffset={Platform.OS === 'web' ? 70 : 80} />
     </SafeAreaView>
   );
 }

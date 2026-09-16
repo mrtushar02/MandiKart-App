@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Alert, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { apiClient } from '../services/apiClient';
@@ -20,6 +20,10 @@ export interface GeoAddress {
   state: string;
   pincode: string;
   country: string;
+  fullName?: string;
+  phone?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface SavedAddress {
@@ -34,6 +38,8 @@ export interface SavedAddress {
   state: string;
   pincode: string;
   isDefault: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface TrackingPoint {
@@ -51,6 +57,7 @@ interface LocationContextType {
   currentAddress: GeoAddress | null;
   savedAddresses: SavedAddress[];
   selectedAddressId: string;
+  activeSavedAddress: SavedAddress | null;
   isLoadingLocation: boolean;
   locationError: string | null;
   permissionStatus: PermissionStatus;
@@ -209,9 +216,10 @@ function resolveLocalAddress(lat: number, lon: number): GeoAddress {
 
 const LocationContext = createContext<LocationContextType>({
   currentLocation: DEFAULT_PUNE_COORDS,
-  currentAddress: DEFAULT_PUNE_ADDRESS,
+  currentAddress: { ...DEFAULT_PUNE_ADDRESS, fullName: 'Ramesh Sharma', phone: '+91 98765 43210' },
   savedAddresses: DEFAULT_SAVED_ADDRESSES,
   selectedAddressId: 'addr-1',
+  activeSavedAddress: DEFAULT_SAVED_ADDRESSES[0],
   isLoadingLocation: false,
   locationError: null,
   permissionStatus: 'undetermined',
@@ -227,12 +235,20 @@ const LocationContext = createContext<LocationContextType>({
 
 export function LocationProvider({ children }: { children: React.ReactNode }) {
   const [currentLocation, setCurrentLocation] = useState<GeoCoordinates | null>(DEFAULT_PUNE_COORDS);
-  const [currentAddress, setCurrentAddress] = useState<GeoAddress | null>(DEFAULT_PUNE_ADDRESS);
+  const [currentAddress, setCurrentAddress] = useState<GeoAddress | null>({
+    ...DEFAULT_PUNE_ADDRESS,
+    fullName: DEFAULT_SAVED_ADDRESSES[0].fullName,
+    phone: DEFAULT_SAVED_ADDRESSES[0].phone,
+  });
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>(DEFAULT_SAVED_ADDRESSES);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('addr-1');
   const [isLoadingLocation, setIsLoadingLocation] = useState<boolean>(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>('undetermined');
+
+  const activeSavedAddress = useMemo(() => {
+    return savedAddresses.find((a) => a.id === selectedAddressId) || savedAddresses[0] || null;
+  }, [savedAddresses, selectedAddressId]);
 
   const addSavedAddress = (addr: Omit<SavedAddress, 'id'>): SavedAddress => {
     const newAddr: SavedAddress = {
@@ -254,6 +270,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       state: newAddr.state,
       pincode: newAddr.pincode,
       country: 'India',
+      fullName: newAddr.fullName,
+      phone: newAddr.phone,
     });
     return newAddr;
   };
@@ -270,6 +288,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         state: target.state,
         pincode: target.pincode,
         country: 'India',
+        fullName: target.fullName,
+        phone: target.phone,
       });
     }
   };
@@ -278,25 +298,69 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     setSavedAddresses((prev) => prev.filter((a) => a.id !== id));
   };
 
-  // Reverse geocode wrapper: queries backend API first (zero CORS), then falls back to local dictionary
+  // Reverse geocode wrapper: queries backend API first (zero CORS), then direct Nominatim, then local dictionary
   const reverseGeocode = async (coords: { latitude: number; longitude: number }): Promise<GeoAddress> => {
     try {
-      const serverAddr = await apiClient.tracking.reverseGeocode(coords.latitude, coords.longitude);
-      if (serverAddr && serverAddr.city) {
+      const res = await apiClient.tracking.reverseGeocode(coords.latitude, coords.longitude);
+      const serverAddr = (res as any)?.data || res;
+      if (serverAddr && (serverAddr.city || serverAddr.formattedAddress)) {
         return {
           formattedAddress: serverAddr.formattedAddress || `${serverAddr.area || ''}, ${serverAddr.city}, ${serverAddr.state}`,
           street: serverAddr.street || '',
           area: serverAddr.area || '',
-          city: serverAddr.city,
-          state: serverAddr.state || '',
-          pincode: serverAddr.pincode || '',
-          country: 'India',
+          city: serverAddr.city || 'Pune',
+          state: serverAddr.state || 'Maharashtra',
+          pincode: serverAddr.pincode || '411005',
+          country: serverAddr.country || 'India',
+          latitude: coords.latitude,
+          longitude: coords.longitude,
         };
       }
     } catch {
-      // API fallback
+      // Backend unavailable, fallback to direct OSM Nominatim
     }
-    return resolveLocalAddress(coords.latitude, coords.longitude);
+
+    try {
+      const osmUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.latitude}&lon=${coords.longitude}&zoom=18&addressdetails=1`;
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 4000);
+      const osmRes = await fetch(osmUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: ctrl.signal,
+      });
+      clearTimeout(tid);
+      if (osmRes.ok) {
+        const osmData = await osmRes.json();
+        const addr = osmData.address || {};
+        const city = addr.city || addr.town || addr.village || addr.county || addr.state_district || 'Pune';
+        const state = addr.state || 'Maharashtra';
+        const pincode = addr.postcode || '411005';
+        const street = addr.road || addr.suburb || addr.neighbourhood || '';
+        const area = addr.suburb || addr.neighbourhood || addr.residential || city;
+        const formatted = osmData.display_name || `${street ? street + ', ' : ''}${area}, ${city}, ${state} - ${pincode}`;
+
+        return {
+          formattedAddress: formatted,
+          street: street || area,
+          area,
+          city,
+          state,
+          pincode,
+          country: addr.country || 'India',
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        };
+      }
+    } catch {
+      // Fall through to regional dictionary
+    }
+
+    const local = resolveLocalAddress(coords.latitude, coords.longitude);
+    return {
+      ...local,
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+    };
   };
 
   const fetchCurrentLocation = async (highAccuracy: boolean = false): Promise<GeoCoordinates | null> => {
@@ -428,6 +492,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         currentAddress,
         savedAddresses,
         selectedAddressId,
+        activeSavedAddress,
         isLoadingLocation,
         locationError,
         permissionStatus,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, BorderRadius, Spacing, Shadows } from '../theme';
 import { useLocation, GeoCoordinates } from '../context/LocationContext';
 import { apiClient } from '../services/apiClient';
+import RealOsmMapView from './RealOsmMapView';
+import {
+  generateRoutePolyline,
+  getVehicleTelemetryAlongPolyline,
+} from '../services/dijkstraRouting';
 
 interface InteractiveMapViewProps {
   orderId?: string;
@@ -27,6 +32,7 @@ interface InteractiveMapViewProps {
   driverName?: string;
   vehicleNumber?: string;
   onLocationDetected?: (coords: GeoCoordinates) => void;
+  onTelemetryChange?: (telemetry: { remainingDistanceKm: number; remainingEtaMinutes: number }) => void;
   style?: any;
 }
 
@@ -46,6 +52,7 @@ export default function InteractiveMapView({
   driverName = 'Suresh Patil',
   vehicleNumber = 'MH 12 AB 4821',
   onLocationDetected,
+  onTelemetryChange,
   style,
 }: InteractiveMapViewProps) {
   const {
@@ -56,13 +63,38 @@ export default function InteractiveMapView({
   } = useLocation();
 
   const [mapMode, setMapMode] = useState<'street' | 'satellite'>('street');
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [driverProgress, setDriverProgress] = useState<number>(0.65); // 65% completed
-  const [driverSpeed, setDriverSpeed] = useState<number>(28);
-  const [focusTarget, setFocusTarget] = useState<'driver' | 'destination'>('driver');
+  const [driverProgress, setDriverProgress] = useState<number>(0.65); // 65% completed along Dijkstra polyline
+  const [driverSpeed, setDriverSpeed] = useState<number>(36);
   const [liveTelemetry, setLiveTelemetry] = useState<any>(null);
 
-  // Periodic driver movement along route and polling live telemetry if orderId present
+  // 1. Calculate optimal shortest path polyline using Dijkstra algorithm
+  const fullPolyline = useMemo(() => {
+    return generateRoutePolyline(
+      origin.coordinates,
+      destination.coordinates || { latitude: 18.5204, longitude: 73.8567 }
+    );
+  }, [
+    origin.coordinates?.latitude,
+    origin.coordinates?.longitude,
+    destination.coordinates?.latitude,
+    destination.coordinates?.longitude,
+  ]);
+
+  // 2. Compute dynamic vehicle position, heading, and distance along polyline
+  const routeTelemetry = useMemo(() => {
+    return getVehicleTelemetryAlongPolyline(fullPolyline, driverProgress, driverSpeed);
+  }, [fullPolyline, driverProgress, driverSpeed]);
+
+  React.useEffect(() => {
+    if (onTelemetryChange) {
+      onTelemetryChange({
+        remainingDistanceKm: routeTelemetry.remainingDistanceKm,
+        remainingEtaMinutes: routeTelemetry.remainingEtaMinutes,
+      });
+    }
+  }, [routeTelemetry.remainingDistanceKm, routeTelemetry.remainingEtaMinutes]);
+
+  // Periodic driver movement along polyline and polling backend telemetry if orderId present
   useEffect(() => {
     let isMounted = true;
 
@@ -75,15 +107,15 @@ export default function InteractiveMapView({
             if (telemetry.speedKmh) setDriverSpeed(telemetry.speedKmh);
           }
         } catch {
-          // fallback to simulated movement
+          // fallback to Dijkstra route progression
         }
       }
 
       setDriverProgress((prev) => {
-        if (prev >= 0.95) return 0.2; // loop for demo
-        return prev + 0.015;
+        if (prev >= 0.96) return 0.25; // loop smoothly for continuous demo
+        return prev + 0.012;
       });
-      setDriverSpeed(Math.round(25 + Math.sin(Date.now() / 3000) * 8));
+      setDriverSpeed(Math.round(34 + Math.sin(Date.now() / 2500) * 6));
     }, 2500);
 
     return () => {
@@ -99,132 +131,38 @@ export default function InteractiveMapView({
     }
   };
 
-  // Calculate coordinates on visual grid (percentages)
-  const originX = 18;
-  const originY = 65;
-
-  const destX = 82;
-  const destY = 32;
-
-  // Linear position of driver along vector
-  const driverX = originX + (destX - originX) * driverProgress;
-  const driverY = originY + (destY - originY) * driverProgress;
-
-  // Real user live GPS marker location
-  const userX = Math.min(92, destX + 4);
-  const userY = Math.min(84, destY + 28);
-
-  const remainingDistKm = Math.max(0.2, Math.round((1 - driverProgress) * 4.2 * 10) / 10);
-  const remainingEtaMin = Math.max(2, Math.round((remainingDistKm / 26) * 60));
-
   const isSatellite = mapMode === 'satellite';
+  const remainingDistKm = routeTelemetry.remainingDistanceKm;
+  const remainingEtaMin = routeTelemetry.remainingEtaMinutes;
 
   return (
     <View style={[styles.container, isSatellite && styles.containerSatellite, style]}>
-      {/* Visual Map Canvas Grid */}
-      <View style={styles.mapGrid}>
-        {/* Geographic Route Line */}
-        <View
-          style={[
-            styles.routeTrack,
-            {
-              left: `${originX}%`,
-              top: `${originY}%`,
-              width: `${Math.hypot(destX - originX, destY - originY) * 3.4}%`,
-              transform: [
-                {
-                  rotate: `${Math.atan2(destY - originY, destX - originX) * (180 / Math.PI)}deg`,
-                },
-              ],
-            },
-          ]}
-        >
-          {/* Animated Dashed Progress */}
-          <View
-            style={[
-              styles.routeProgress,
-              { width: `${Math.min(100, driverProgress * 100)}%` },
-            ]}
-          />
-        </View>
-
-        {/* Ambient Topography Lines */}
-        <View style={[styles.topoLine, { top: '25%', left: '10%' }]} />
-        <View style={[styles.topoLine, { top: '55%', left: '40%' }]} />
-        <View style={[styles.topoLine, { top: '75%', left: '20%' }]} />
-
-        {/* 1. Origin Marker (Farm) */}
-        <View style={[styles.markerContainer, { left: `${originX}%`, top: `${originY}%` }]}>
-          <View style={styles.farmBubble}>
-            <Text style={styles.bubbleEmoji}>🌾</Text>
-          </View>
-          <View style={styles.markerLabelWrap}>
-            <Text style={styles.markerTitle}>{origin.title}</Text>
-            <Text style={styles.markerSubtitle}>{origin.subTitle}</Text>
-          </View>
-        </View>
-
-        {/* 2. Destination Marker (Buyer Location) */}
-        <View style={[styles.markerContainer, { left: `${destX}%`, top: `${destY}%` }]}>
-          <View style={styles.destBubble}>
-            <Ionicons name="home" size={16} color={Colors.white} />
-          </View>
-          <View style={styles.markerLabelWrap}>
-            <Text style={styles.markerTitle}>{destination.title}</Text>
-            <Text style={styles.markerSubtitle} numberOfLines={1}>
-              {currentAddress?.street || destination.subTitle}
-            </Text>
-          </View>
-        </View>
-
-        {/* 3. Live Moving Logistics Driver Marker */}
-        <View
-          style={[
-            styles.markerContainer,
-            styles.driverContainer,
-            {
-              left: `${driverX}%`,
-              top: `${driverY}%`,
-              transform: [{ scale: zoomLevel }],
-            },
-          ]}
-        >
-          {/* Radar Pulse Halo */}
-          <View style={styles.pulseRadar} />
-
-          <View style={styles.driverBubble}>
-            <Ionicons name="car" size={18} color={Colors.white} />
-          </View>
-
-          <View style={styles.driverLabelPill}>
-            <View style={styles.liveBlinker} />
-            <Text style={styles.driverNameText}>{driverName}</Text>
-            <Text style={styles.driverSpeedText}>{driverSpeed} km/h</Text>
-          </View>
-        </View>
-
-        {/* 4. Live User Marker (You Are Here) */}
-        <View
-          style={[
-            styles.markerContainer,
-            styles.userContainer,
-            {
-              left: `${userX}%`,
-              top: `${userY}%`,
-            },
-          ]}
-        >
-          {/* User Pulsing Accuracy Halo */}
-          <View style={styles.userPulseRadar} />
-          <View style={styles.userBubble}>
-            <Ionicons name="person" size={14} color={Colors.white} />
-          </View>
-          <View style={styles.userLabelWrap}>
-            <View style={styles.userBlinker} />
-            <Text style={styles.userLabelText}>You (Live GPS)</Text>
-          </View>
-        </View>
-      </View>
+      {/* Real OpenStreetMap View with Leaflet & Dijkstra Polyline */}
+      <RealOsmMapView
+        origin={{
+          latitude: origin.coordinates.latitude,
+          longitude: origin.coordinates.longitude,
+          title: origin.title,
+          subtitle: origin.subTitle,
+        }}
+        destination={{
+          latitude: destination.coordinates?.latitude || 18.5204,
+          longitude: destination.coordinates?.longitude || 73.8567,
+          title: destination.title,
+          subtitle: currentAddress?.street || destination.subTitle,
+        }}
+        vehiclePosition={{
+          latitude: routeTelemetry.currentPosition.latitude,
+          longitude: routeTelemetry.currentPosition.longitude,
+          heading: routeTelemetry.heading,
+          driverName: `${driverName} (${vehicleNumber})`,
+          speedKmh: driverSpeed,
+        }}
+        completedPolyline={routeTelemetry.completedPolyline}
+        remainingPolyline={routeTelemetry.remainingPolyline}
+        mapMode={mapMode}
+        style={styles.osmMapInner}
+      />
 
       {/* Top Floating Control Bar */}
       <View style={styles.topControls}>
@@ -233,14 +171,14 @@ export default function InteractiveMapView({
             style={[styles.modeBtn, !isSatellite && styles.modeBtnActive]}
             onPress={() => setMapMode('street')}
           >
-            <Ionicons name="map-outline" size={14} color={!isSatellite ? Colors.primary : Colors.textSecondary} />
+            <Ionicons name="map-outline" size={13} color={!isSatellite ? Colors.primary : Colors.textSecondary} />
             <Text style={[styles.modeText, !isSatellite && styles.modeTextActive]}>Road</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.modeBtn, isSatellite && styles.modeBtnActive]}
             onPress={() => setMapMode('satellite')}
           >
-            <Ionicons name="planet-outline" size={14} color={isSatellite ? Colors.primary : Colors.textSecondary} />
+            <Ionicons name="planet-outline" size={13} color={isSatellite ? Colors.primary : Colors.textSecondary} />
             <Text style={[styles.modeText, isSatellite && styles.modeTextActive]}>Satellite</Text>
           </TouchableOpacity>
         </View>
@@ -254,27 +192,33 @@ export default function InteractiveMapView({
             <ActivityIndicator size="small" color={Colors.primary} />
           ) : (
             <>
-              <Ionicons name="locate" size={16} color={Colors.primary} />
+              <Ionicons name="locate" size={15} color={Colors.primary} />
               <Text style={styles.locateMeText}>My GPS</Text>
             </>
           )}
         </TouchableOpacity>
       </View>
 
+      {/* Floating GPS Live Indicator */}
+      <View style={styles.gpsLivePill}>
+        <View style={styles.gpsLiveDot} />
+        <Text style={styles.gpsLiveText}>OSM LIVE ROUTING</Text>
+      </View>
+
       {/* Bottom Floating Telemetry Card */}
       <View style={styles.bottomHud}>
         <View style={styles.hudMetric}>
-          <Ionicons name="navigate-circle" size={20} color={Colors.primary} />
+          <Ionicons name="navigate-circle" size={19} color={Colors.primary} />
           <View>
             <Text style={styles.hudValue}>{remainingDistKm} km</Text>
-            <Text style={styles.hudLabel}>Distance</Text>
+            <Text style={styles.hudLabel}>Dijkstra Route</Text>
           </View>
         </View>
 
         <View style={styles.hudDivider} />
 
         <View style={styles.hudMetric}>
-          <Ionicons name="time" size={20} color="#0284C7" />
+          <Ionicons name="time" size={19} color="#0284C7" />
           <View>
             <Text style={styles.hudValue}>{remainingEtaMin} mins</Text>
             <Text style={styles.hudLabel}>Live ETA</Text>
@@ -284,10 +228,10 @@ export default function InteractiveMapView({
         <View style={styles.hudDivider} />
 
         <View style={styles.hudMetric}>
-          <Ionicons name="snow" size={18} color="#0D9488" />
+          <Ionicons name="speedometer" size={18} color="#EA580C" />
           <View>
-            <Text style={styles.hudValue}>4.2°C</Text>
-            <Text style={styles.hudLabel}>Cold-Chain</Text>
+            <Text style={styles.hudValue}>{driverSpeed} km/h</Text>
+            <Text style={styles.hudLabel}>Telemetry</Text>
           </View>
         </View>
       </View>
@@ -297,8 +241,8 @@ export default function InteractiveMapView({
 
 const styles = StyleSheet.create({
   container: {
-    height: 240,
-    backgroundColor: '#EEF6F0',
+    height: 310,
+    backgroundColor: '#0F172A',
     borderRadius: BorderRadius.xl,
     overflow: 'hidden',
     borderWidth: 1.5,
@@ -308,181 +252,12 @@ const styles = StyleSheet.create({
   },
   containerSatellite: {
     backgroundColor: '#0F172A',
-    borderColor: '#1E293B',
+    borderColor: '#334155',
   },
-  mapGrid: {
-    flex: 1,
-    position: 'relative',
-  },
-  topoLine: {
-    position: 'absolute',
-    width: 140,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.15)',
-  },
-  routeTrack: {
-    position: 'absolute',
-    height: 4,
-    backgroundColor: 'rgba(2, 132, 199, 0.25)',
-    borderRadius: 2,
-    transformOrigin: '0% 50%',
-  },
-  routeProgress: {
+  osmMapInner: {
+    width: '100%',
     height: '100%',
-    backgroundColor: '#0284C7',
-    borderRadius: 2,
-  },
-  markerContainer: {
-    position: 'absolute',
-    alignItems: 'center',
-    marginLeft: -18,
-    marginTop: -18,
-  },
-  farmBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.white,
-    borderWidth: 2,
-    borderColor: '#16A34A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.sm,
-  },
-  destBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#DC2626',
-    borderWidth: 2,
-    borderColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.sm,
-  },
-  bubbleEmoji: {
-    fontSize: 18,
-  },
-  markerLabelWrap: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-    marginTop: 2,
-    alignItems: 'center',
-    maxWidth: 120,
-    ...Shadows.sm,
-  },
-  markerTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  markerSubtitle: {
-    fontSize: 8,
-    color: Colors.textSecondary,
-  },
-  driverContainer: {
-    zIndex: 10,
-  },
-  pulseRadar: {
-    position: 'absolute',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(2, 132, 199, 0.2)',
-    top: -7,
-    left: -7,
-  },
-  driverBubble: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#0284C7',
-    borderWidth: 2.5,
-    borderColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.md,
-  },
-  driverLabelPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.white,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: BorderRadius.full,
-    marginTop: 3,
-    borderWidth: 1,
-    borderColor: '#BAE6FD',
-    ...Shadows.sm,
-  },
-  liveBlinker: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#16A34A',
-  },
-  driverNameText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#0369A1',
-  },
-  driverSpeedText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  // User Live Marker Styles
-  userContainer: {
-    zIndex: 12,
-  },
-  userPulseRadar: {
-    position: 'absolute',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(124, 58, 237, 0.22)',
-    top: -5,
-    left: -5,
-  },
-  userBubble: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#7C3AED',
-    borderWidth: 2.5,
-    borderColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.md,
-  },
-  userLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.white,
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    borderRadius: BorderRadius.full,
-    marginTop: 3,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    ...Shadows.sm,
-  },
-  userBlinker: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#7C3AED',
-  },
-  userLabelText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#6D28D9',
+    borderRadius: 0,
   },
   topControls: {
     position: 'absolute',
@@ -492,29 +267,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    zIndex: 10,
   },
   modeToggle: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    backgroundColor: 'rgba(255,255,255,0.94)',
     borderRadius: BorderRadius.full,
-    padding: 2,
+    padding: 3,
     ...Shadows.sm,
   },
   modeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
     borderRadius: BorderRadius.full,
   },
   modeBtnActive: {
     backgroundColor: Colors.primaryLight,
   },
   modeText: {
-    fontSize: 10,
-    color: Colors.textSecondary,
+    fontSize: 11,
     fontWeight: '600',
+    color: Colors.textSecondary,
   },
   modeTextActive: {
     color: Colors.primary,
@@ -523,53 +299,78 @@ const styles = StyleSheet.create({
   locateMeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.white,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: Colors.primaryLight,
     ...Shadows.sm,
   },
   locateMeText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
     color: Colors.primary,
   },
+  gpsLivePill: {
+    position: 'absolute',
+    top: 52,
+    left: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: BorderRadius.full,
+    zIndex: 10,
+  },
+  gpsLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
+  },
+  gpsLiveText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
   bottomHud: {
     position: 'absolute',
-    bottom: 8,
-    left: 8,
-    right: 8,
+    bottom: 10,
+    left: 10,
+    right: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: BorderRadius.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
     ...Shadows.md,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    zIndex: 10,
   },
   hudMetric: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
   },
   hudValue: {
-    fontSize: 12,
+    fontSize: 13.5,
     fontWeight: '800',
     color: Colors.textPrimary,
   },
   hudLabel: {
-    fontSize: 9,
+    fontSize: 10,
     color: Colors.textSecondary,
+    fontWeight: '500',
   },
   hudDivider: {
     width: 1,
-    height: 20,
-    backgroundColor: Colors.borderLight,
+    height: 24,
+    backgroundColor: Colors.gray200,
   },
 });

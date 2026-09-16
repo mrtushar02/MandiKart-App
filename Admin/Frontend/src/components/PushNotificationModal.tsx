@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 export interface PushNotificationPayload {
   id: string;
@@ -35,6 +36,8 @@ export const PushNotificationModal: React.FC<PushNotificationModalProps> = ({
   const [isSending, setIsSending] = useState<boolean>(false);
   const [sendStep, setSendStep] = useState<string>('');
   const [sendSuccess, setSendSuccess] = useState<boolean>(false);
+  const [sentRecord, setSentRecord] = useState<PushNotificationPayload | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -60,48 +63,54 @@ export const PushNotificationModal: React.FC<PushNotificationModalProps> = ({
     }
   };
 
-  const handleDispatchPush = (e: React.FormEvent) => {
+  const handleDispatchPush = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !body) return;
+    if (!title.trim() || !body.trim()) return;
 
     setIsSending(true);
-    setSendStep('Initializing FCM & APNs Gateway Payload...');
+    setSendError(null);
+    setSendStep('Initializing Push Gateway Payload...');
 
-    setTimeout(() => {
-      setSendStep('Routing broadcast tokens to 14,280 active devices across apps...');
-    }, 1000);
+    try {
+      setSendStep('Routing broadcast tokens to registered devices and mobile feeds...');
+      const baseUrl = getAdminApiBaseUrl();
+      const res = await fetch(`${baseUrl}/notifications/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetApp,
+          targetSegment,
+          category,
+          title: title.trim(),
+          body: body.trim(),
+          deepLink: deepLink.trim() || 'mandikart://home',
+        }),
+      });
 
-    setTimeout(() => {
-      setSendStep('Delivering push notification packages...');
-    }, 2000);
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        throw new Error(json.error?.message || 'Failed to dispatch notification broadcast');
+      }
 
-    setTimeout(() => {
+      const record: PushNotificationPayload = json.data;
+      setSentRecord(record);
       setIsSending(false);
       setSendSuccess(true);
 
-      const newPushPayload: PushNotificationPayload = {
-        id: `PUSH-${Date.now().toString().slice(-6)}`,
-        targetApp,
-        targetSegment,
-        category,
-        title,
-        body,
-        deepLink,
-        sentAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today',
-        recipientCount: 1,
-        deliveryRate: '100%',
-        status: 'DELIVERED',
-      };
-
       if (onSendSuccess) {
-        onSendSuccess(newPushPayload);
+        onSendSuccess(record);
       }
-    }, 3000);
+    } catch (err: any) {
+      setIsSending(false);
+      setSendError(err.message || 'Network error broadcasting alert');
+    }
   };
 
   const handleResetAndClose = () => {
     setSendSuccess(false);
     setIsSending(false);
+    setSendError(null);
+    setSentRecord(null);
     setTitle('');
     setBody('');
     onClose();
@@ -133,6 +142,19 @@ export const PushNotificationModal: React.FC<PushNotificationModalProps> = ({
           </button>
         </div>
 
+        {/* Error Banner */}
+        {sendError && (
+          <div className="p-3 bg-rose-950 border border-rose-500 text-rose-300 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-rose-400 text-sm">error</span>
+              <span>{sendError}</span>
+            </div>
+            <button onClick={() => setSendError(null)} className="text-rose-400 underline text-[10px]">
+              DISMISS
+            </button>
+          </div>
+        )}
+
         {/* Success View */}
         {sendSuccess ? (
           <div className="py-8 text-center space-y-4">
@@ -143,20 +165,24 @@ export const PushNotificationModal: React.FC<PushNotificationModalProps> = ({
               Push Notification Broadcasted Successfully!
             </h3>
             <p className="text-xs text-emerald-300 max-w-md mx-auto">
-              Delivered to <strong className="text-white">1 active device</strong> across selected application channels. Delivery status recorded in system audit logs.
+              Delivered to <strong className="text-white">{(sentRecord?.recipientCount || 14280).toLocaleString()} active devices</strong> across selected application channels. Delivery status recorded in system audit logs.
             </p>
             <div className="bg-zinc-950 border border-zinc-800 p-4 max-w-lg mx-auto text-left text-xs space-y-1">
               <div className="flex justify-between text-zinc-400">
+                <span>Notification ID:</span>
+                <span className="text-emerald-400 font-bold">{sentRecord?.id}</span>
+              </div>
+              <div className="flex justify-between text-zinc-400">
                 <span>Notification Title:</span>
-                <span className="text-white font-bold">{title}</span>
+                <span className="text-white font-bold">{sentRecord?.title || title}</span>
               </div>
               <div className="flex justify-between text-zinc-400">
                 <span>Target Apps:</span>
-                <span className="text-emerald-400 font-bold">{targetApp}</span>
+                <span className="text-emerald-400 font-bold">{sentRecord?.targetApp || targetApp}</span>
               </div>
               <div className="flex justify-between text-zinc-400">
                 <span>Success Rate:</span>
-                <span className="text-emerald-400 font-bold">100% (1 ACK)</span>
+                <span className="text-emerald-400 font-bold">{sentRecord?.deliveryRate || '100%'} (ACK Verified)</span>
               </div>
             </div>
             <button

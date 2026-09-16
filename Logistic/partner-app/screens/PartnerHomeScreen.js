@@ -117,13 +117,16 @@ export default function PartnerHomeScreen({ navigation }) {
             <View style={styles.activeTopStripe} />
 
             <View style={styles.activeCardTop}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.orderId}>Order #{activeDelivery.id}</Text>
                 <Text style={styles.orderTitle}>{activeDelivery.title}</Text>
-                <Text style={styles.orderQuantity}>{activeDelivery.quantity}</Text>
+                <Text style={styles.orderQuantity}>
+                  {activeDelivery.quantity} • Value: ₹{Number(activeDelivery.totalPrice || activeDelivery.totalAmount || 0).toLocaleString('en-IN')}
+                </Text>
               </View>
               <View style={styles.payoutBadge}>
-                <Text style={styles.payoutBadgeText}>₹{activeDelivery.payout}</Text>
+                <Text style={{ fontSize: 9, fontWeight: '700', color: COLORS.primary, textTransform: 'uppercase' }}>Payout</Text>
+                <Text style={styles.payoutBadgeText}>+₹{activeDelivery.payout}</Text>
               </View>
             </View>
 
@@ -133,7 +136,7 @@ export default function PartnerHomeScreen({ navigation }) {
                 <Ionicons name="leaf" size={18} color={COLORS.primary} />
                 <View style={styles.locInfo}>
                   <Text style={styles.locRole}>Pickup Farm</Text>
-                  <Text style={styles.locName}>{activeDelivery.pickup.name}</Text>
+                  <Text style={styles.locName}>{activeDelivery.pickup?.name || activeDelivery.pickupName || 'Farmgate Pickup'}</Text>
                 </View>
               </View>
 
@@ -142,8 +145,8 @@ export default function PartnerHomeScreen({ navigation }) {
               <View style={styles.locationRow}>
                 <Ionicons name="location" size={18} color={COLORS.error} />
                 <View style={styles.locInfo}>
-                  <Text style={styles.locRole}>Destination Mandi</Text>
-                  <Text style={styles.locName}>{activeDelivery.drop.name}</Text>
+                  <Text style={styles.locRole}>Destination Mandi / Customer</Text>
+                  <Text style={styles.locName}>{activeDelivery.drop?.name || activeDelivery.dropName || 'Destination Hub'}</Text>
                   <Text style={styles.locDistance}>{activeDelivery.distanceKm} km away • Est. {activeDelivery.estimatedTimeMins} mins</Text>
                 </View>
               </View>
@@ -202,13 +205,20 @@ export default function PartnerHomeScreen({ navigation }) {
             <View key={item.id} style={styles.availableCard}>
               <View style={styles.availHeader}>
                 <View style={styles.availBadge}>
-                  <Text style={styles.availBadgeText}>{item.tag}</Text>
+                  <Text style={styles.availBadgeText}>{item.tag || 'FRESH HARVEST'}</Text>
                 </View>
-                <Text style={styles.availPayout}>₹{item.payout}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.availPayout}>₹{item.payout}</Text>
+                  <Text style={{ fontSize: 10, color: COLORS.onSurfaceVariant, fontWeight: '700' }}>
+                    Payout • ₹{Number(item.totalPrice || item.totalAmount || (item.payout * 8)).toLocaleString('en-IN')} Value
+                  </Text>
+                </View>
               </View>
 
               <Text style={styles.availTitle}>{item.title}</Text>
-              <Text style={styles.availQuantity}>{item.quantity} • {item.distanceKm} km</Text>
+              <Text style={styles.availQuantity}>
+                {item.quantity} • {item.pricePerKg ? `₹${item.pricePerKg}/kg • ` : ''}{item.distanceKm} km
+              </Text>
 
               <View style={styles.availRouteRow}>
                 <Ionicons name="business-outline" size={16} color={COLORS.onSurfaceVariant} />
@@ -643,29 +653,36 @@ const styles = StyleSheet.create({
   },
   declineBtn: {
     flex: 1,
-    height: 42,
-    borderRadius: RADIUS.md,
+    minHeight: 48,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.surfaceContainerLow,
+    paddingVertical: 12,
   },
   declineBtnText: {
-    fontSize: FONT.base,
+    fontSize: 15,
     fontWeight: '700',
     color: COLORS.onSurfaceVariant,
   },
   acceptBtn: {
     flex: 2,
-    height: 42,
-    borderRadius: RADIUS.md,
+    minHeight: 48,
+    borderRadius: 12,
     backgroundColor: COLORS.primary,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: SPACING.xs,
+    paddingVertical: 12,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   acceptBtnText: {
-    fontSize: FONT.base,
+    fontSize: 15,
     fontWeight: '800',
     color: COLORS.white,
   },

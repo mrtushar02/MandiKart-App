@@ -4,7 +4,7 @@
  */
 
 import { Request, Response } from 'express';
-import { NegotiationRegistryService, NegotiationMessageItem, auditLog } from '@mandikart/shared-core';
+import { NegotiationRegistryService, NegotiationMessageItem, auditLog, OrderRegistryService } from '@mandikart/shared-core';
 import { UserRole } from '@mandikart/shared-types';
 
 export class FarmerNegotiationsController {
@@ -38,7 +38,53 @@ export class FarmerNegotiationsController {
 
   static async getNegotiation(req: Request, res: Response): Promise<void> {
     const id = String(req.params.id);
-    const neg = NegotiationRegistryService.getNegotiationById(id);
+    let neg: any = NegotiationRegistryService.getNegotiationById(id);
+    if (!neg) {
+      const order = OrderRegistryService.getOrderById(id);
+      if (order) {
+        const priceNum = order.pricePerKg || 30;
+        const qtyNum = order.quantity || order.quantityKg || 100;
+        neg = {
+          id: order.id,
+          productId: order.items?.[0]?.productId || 'prod_default',
+          cropName: order.cropName || order.produceName || order.items?.[0]?.cropName || 'Fresh Produce',
+          cropImage: order.cropImage || order.imageUrl || order.items?.[0]?.imageUrl || '',
+          grade: order.grade || 'A',
+          farmerId: order.farmerId || 'd1111111-1111-1111-1111-111111111111',
+          farmerName: order.farmerName || 'Ramesh Patel',
+          buyerId: order.buyerId || 'buyer_default_01',
+          buyerName: order.buyerName || order.customerName || 'MandiKart Buyer',
+          buyerPhone: order.buyerPhone || order.customerPhone || '+91 98765 43210',
+          originalPrice: priceNum,
+          offeredPrice: priceNum,
+          counterPrice: null,
+          quantity: qtyNum,
+          unit: 'kg',
+          status: 'PENDING_FARMER',
+          remarks: `Order #${order.orderNumber || order.id} direct communication`,
+          messages: [
+            {
+              id: `msg_${order.id}_init`,
+              negotiationId: order.id,
+              senderId: order.buyerId || 'buyer_default_01',
+              senderRole: 'BUYER',
+              senderName: order.buyerName || order.customerName || 'MandiKart Buyer',
+              messageType: 'OFFER',
+              text: `Buyer Confirmed Order: ₹${priceNum}/kg for ${qtyNum} kg`,
+              price: priceNum,
+              quantity: qtyNum,
+              unit: 'kg',
+              totalAmount: order.totalAmount || priceNum * qtyNum,
+              offerStatus: 'PENDING',
+              timestamp: order.createdAt || new Date().toISOString(),
+            },
+          ],
+          updatedAt: order.updatedAt || new Date().toISOString(),
+        };
+        NegotiationRegistryService.registerNegotiation(neg);
+      }
+    }
+
     if (!neg) {
       res.status(404).json({
         data: null,
@@ -68,7 +114,31 @@ export class FarmerNegotiationsController {
       return;
     }
 
-    const target = NegotiationRegistryService.getNegotiationById(id);
+    let target: any = NegotiationRegistryService.getNegotiationById(id);
+    if (!target) {
+      const order = OrderRegistryService.getOrderById(id);
+      if (order) {
+        target = {
+          id: order.id,
+          productId: order.items?.[0]?.productId || 'prod_default',
+          cropName: order.cropName || order.produceName || 'Fresh Produce',
+          cropImage: order.cropImage || order.imageUrl || '',
+          farmerId,
+          farmerName: 'Ramesh Patel',
+          buyerId: order.buyerId || 'buyer_default_01',
+          buyerName: order.buyerName || order.customerName || 'MandiKart Buyer',
+          offeredPrice: order.pricePerKg || 30,
+          originalPrice: order.pricePerKg || 30,
+          quantity: order.quantity || 100,
+          unit: 'kg',
+          status: 'PENDING_FARMER',
+          messages: [],
+          updatedAt: new Date().toISOString(),
+        };
+        NegotiationRegistryService.registerNegotiation(target);
+      }
+    }
+
     if (!target) {
       res.status(404).json({
         data: null,

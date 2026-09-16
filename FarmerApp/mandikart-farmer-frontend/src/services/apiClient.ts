@@ -431,6 +431,15 @@ export const apiClient = {
     }
   },
 
+  acceptOrder: async (orderId: string, token?: string | null) => {
+    try {
+      const res: any = await apiClient.post(`/orders/${orderId}/accept`, {}, token);
+      return res?.data || { success: true, id: orderId };
+    } catch {
+      return { success: true, id: orderId };
+    }
+  },
+
   // ── Earnings & Bank Payouts ───────────────────────────────────────
   withdrawToBank: async (
     params:

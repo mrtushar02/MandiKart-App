@@ -3,7 +3,7 @@
  * Realtime GPS telemetry, animated vehicle route, driver details, ETA countdown, and loading PIN.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,19 +13,10 @@ import {
   Image,
   Alert,
   Dimensions,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import Svg, {
-  Rect,
-  Circle,
-  Path,
-  G,
-  Line,
-  Defs,
-  LinearGradient,
-  Stop,
-} from 'react-native-svg';
 import {
   ChevronLeft,
   Phone,
@@ -39,9 +30,15 @@ import {
   Navigation,
   Scale,
   Share2,
+  Layers,
 } from 'lucide-react-native';
 import { MKLayout } from '@/constants/layout';
 import { useOrderStore } from '@/store/orderStore';
+import RealOsmMapView from '@/components/RealOsmMapView';
+import {
+  generateRoutePolyline,
+  getVehicleTelemetryAlongPolyline,
+} from '@/services/dijkstraRouting';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -53,14 +50,14 @@ export default function TrackLiveVehicleScreen() {
   const orderId = params.orderId || 'MK-8921';
   const orderFromStore = useOrderStore((state) => state.getOrderById(orderId));
 
-  const driverName = orderFromStore?.driverName || 'Ramesh Pawar (EV Logistics)';
-  const driverPhone = orderFromStore?.driverPhone || '+91 98231 44510';
+  const driverName = orderFromStore?.driverName || 'Sunil Jadhav (Logistics Partner)';
+  const driverPhone = orderFromStore?.driverPhone || '+91 94222 18904';
   const vehicleNumber = orderFromStore?.vehicleNumber || 'Tata Ace EV • MH 15 BX 4022';
   const displayCrop = orderFromStore ? `${orderFromStore.cropName} (${orderFromStore.quantity})` : params.crop || 'Sharbati Wheat (500 KG)';
   const displayBuyer = orderFromStore?.buyerName || params.buyer || 'Reliance Fresh Sourcing Hub';
 
   // Deterministic 4-digit security PIN based on orderId
-  const pinCode = React.useMemo(() => {
+  const pinCode = useMemo(() => {
     let hash = 0;
     for (let i = 0; i < orderId.length; i++) {
       hash = (hash * 31 + orderId.charCodeAt(i)) % 9000;
@@ -68,8 +65,50 @@ export default function TrackLiveVehicleScreen() {
     return (Math.abs(hash) + 1000).toString();
   }, [orderId]);
 
-  const [etaMinutes, setEtaMinutes] = useState(orderFromStore?.etaMins || 24);
+  const [speed, setSpeed] = useState(42);
+  const [progress, setProgress] = useState(0.42);
+  const [mapMode, setMapMode] = useState<'street' | 'satellite'>('street');
+
+  // Farmgate Origin & Buyer Destination Coordinates
+  const origin = useMemo(() => ({
+    latitude: 19.9975,
+    longitude: 73.7898,
+    title: 'Your Farmgate',
+    subtitle: orderFromStore?.location || 'Nashik Agri Belt',
+  }), [orderFromStore?.location]);
+
+  const destination = useMemo(() => ({
+    latitude: 18.5204,
+    longitude: 73.8567,
+    title: displayBuyer,
+    subtitle: 'Buyer Mandi Receiving Center',
+  }), [displayBuyer]);
+
+  // Compute full Dijkstra shortest path polyline
+  const fullPolyline = useMemo(() => {
+    return generateRoutePolyline(origin, destination);
+  }, [origin, destination]);
+
+  // Real-time dynamic vehicle telemetry along polyline
+  const telemetry = useMemo(() => {
+    return getVehicleTelemetryAlongPolyline(fullPolyline, progress, speed);
+  }, [fullPolyline, progress, speed]);
+
+  const etaMinutes = telemetry.remainingEtaMinutes;
   const topPadding = MKLayout.getTopHeaderPadding(insets);
+
+  useEffect(() => {
+    // Smooth progress simulation along Dijkstra road polyline
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 0.96) return 0.96;
+        return prev + 0.012;
+      });
+      setSpeed(Math.floor(38 + Math.random() * 8));
+    }, 2800);
+
+    return () => clearInterval(timer);
+  }, []);
 
   const handleCallDriver = () => {
     Alert.alert('Calling Driver', `Dialing ${driverName} at ${driverPhone}...`);
@@ -100,81 +139,43 @@ export default function TrackLiveVehicleScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Realtime SVG Route Map ── */}
+        {/* ── Realtime OpenStreetMap (OSM) Route Map ── */}
         <View style={styles.mapContainer}>
-          <Svg width="100%" height={240} viewBox="0 0 360 240">
-            <Defs>
-              <LinearGradient id="routeGrad" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#1E5A2A" />
-                <Stop offset="100%" stopColor="#2E7D32" />
-              </LinearGradient>
-              <LinearGradient id="pulseOrange" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#EF6C00" stopOpacity="0.5" />
-                <Stop offset="100%" stopColor="#EF6C00" stopOpacity="0" />
-              </LinearGradient>
-            </Defs>
-
-            {/* Satellite Map Background */}
-            <Rect width="360" height="240" fill="#243E2B" />
-
-            {/* Grid Coordinates Lines */}
-            <Line x1="0" y1="60" x2="360" y2="60" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="5 5" />
-            <Line x1="0" y1="120" x2="360" y2="120" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="5 5" />
-            <Line x1="0" y1="180" x2="360" y2="180" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="5 5" />
-            <Line x1="120" y1="0" x2="120" y2="240" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="5 5" />
-            <Line x1="240" y1="0" x2="240" y2="240" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="5 5" />
-
-            {/* Road Route Path */}
-            <Path
-              d="M 50,200 C 110,190 140,110 220,100 S 290,60 320,40"
-              fill="none"
-              stroke="#4B5563"
-              strokeWidth="10"
-              strokeLinecap="round"
-            />
-            {/* Road Green Highlight Completed */}
-            <Path
-              d="M 50,200 C 110,190 140,110 180,105"
-              fill="none"
-              stroke="#22C55E"
-              strokeWidth="5"
-              strokeLinecap="round"
-            />
-            <Path
-              d="M 180,105 C 200,102 290,60 320,40"
-              fill="none"
-              stroke="#FACC15"
-              strokeWidth="4"
-              strokeDasharray="6 4"
-              strokeLinecap="round"
-            />
-
-            {/* Farmer Farmgate Destination Pin (Left) */}
-            <G>
-              <Circle cx="50" cy="200" r="16" fill="rgba(34,197,94,0.3)" />
-              <Circle cx="50" cy="200" r="10" fill="#15803D" />
-              <Circle cx="50" cy="200" r="4" fill="#FFFFFF" />
-            </G>
-
-            {/* Buyer Mandi Warehouse Origin Pin (Right) */}
-            <G>
-              <Circle cx="320" cy="40" r="12" fill="rgba(239,108,0,0.3)" />
-              <Circle cx="320" cy="40" r="7" fill="#EF6C00" />
-            </G>
-
-            {/* Current Moving Vehicle Position (Tata Ace) */}
-            <G transform="translate(180, 105)">
-              <Circle cx="0" cy="0" r="22" fill="url(#pulseOrange)" />
-              <Circle cx="0" cy="0" r="14" fill="#EF6C00" />
-              <Circle cx="0" cy="0" r="6" fill="#FFFFFF" />
-            </G>
-          </Svg>
+          <RealOsmMapView
+            origin={origin}
+            destination={destination}
+            vehiclePosition={{
+              latitude: telemetry.currentPosition.latitude,
+              longitude: telemetry.currentPosition.longitude,
+              heading: telemetry.heading,
+              driverName: `${driverName} (${vehicleNumber.split('•')[0].trim()})`,
+              speedKmh: speed,
+            }}
+            completedPolyline={telemetry.completedPolyline}
+            remainingPolyline={telemetry.remainingPolyline}
+            mapMode={mapMode}
+            style={{ width: '100%', height: 250, borderRadius: 24 }}
+          />
 
           {/* Floating Speed & Telemetry Pill */}
           <View style={styles.telemetryPill}>
             <Navigation size={12} color="#15803D" />
-            <Text style={styles.telemetryText}>Speed: 42 km/h • 6.2 km away</Text>
+            <Text style={styles.telemetryText}>
+              Speed: {speed} km/h • {telemetry.remainingDistanceKm} km away
+            </Text>
           </View>
+
+          {/* Floating Layer Switcher (Street / Satellite) */}
+          <TouchableOpacity
+            style={styles.layerSwitcherBtn}
+            onPress={() => setMapMode(mapMode === 'street' ? 'satellite' : 'street')}
+            activeOpacity={0.85}
+          >
+            <Layers size={13} color="#166534" />
+            <Text style={styles.layerSwitcherText}>
+              {mapMode === 'street' ? 'Satellite' : 'Street'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Floating Live Indicator */}
           <View style={styles.liveIndicator}>
@@ -188,7 +189,9 @@ export default function TrackLiveVehicleScreen() {
           <View style={styles.etaHeaderRow}>
             <View style={styles.etaTimeCol}>
               <Text style={styles.etaTime}>{etaMinutes} Mins</Text>
-              <Text style={styles.etaSubtext}>Arriving at your Farmgate by 10:25 AM</Text>
+              <Text style={styles.etaSubtext}>
+                Arriving at your Farmgate in {telemetry.remainingDistanceKm} km
+              </Text>
             </View>
             <View style={styles.clockIconWrap}>
               <Clock size={24} color="#EF6C00" />
@@ -198,7 +201,7 @@ export default function TrackLiveVehicleScreen() {
           <View style={styles.etaStatusNotice}>
             <Truck size={15} color="#1E5A2A" />
             <Text style={styles.etaStatusText}>
-              Tata Ace on route from Nashik Highway Hub
+              {vehicleNumber.split('•')[0].trim()} en route via {telemetry.currentRoadName}
             </Text>
           </View>
         </View>
@@ -396,6 +399,28 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '700',
     color: '#1F2937',
+  },
+  layerSwitcherBtn: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  layerSwitcherText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#166534',
   },
   liveIndicator: {
     position: 'absolute',

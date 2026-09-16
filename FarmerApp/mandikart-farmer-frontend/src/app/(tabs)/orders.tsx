@@ -53,6 +53,7 @@ import { MKScreen, MKCard } from '@/components/ui';
 import { MKColors } from '@/constants/colors';
 import { MKSpacing } from '@/constants/spacing';
 import { useOrderStore, OrderItem, OrderTab } from '@/store/orderStore';
+import { useProduceStore } from '@/store/produceStore';
 import { useAuthStore } from '@/store/authStore';
 import FPOAnalyticsScreen from '@/components/fpo/FPOAnalyticsScreen';
 
@@ -65,13 +66,14 @@ export default function OrdersScreen() {
   }
 
   const router = useRouter();
-  const [selectedTab, setSelectedTab] = useState<OrderTab>('Active');
+  const [selectedTab, setSelectedTab] = useState<OrderTab>('Pending');
   const [searchQuery, setSearchQuery] = useState('');
   const orders = useOrderStore((state) => state.orders);
   const acceptOrderOffer = useOrderStore((state) => state.acceptOrderOffer);
   const updateOrderStatus = useOrderStore((state) => state.updateOrderStatus);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<OrderItem | null>(null);
   const [invoiceModalOrder, setInvoiceModalOrder] = useState<OrderItem | null>(null);
+  const [acceptedOrderSuccess, setAcceptedOrderSuccess] = useState<OrderItem | null>(null);
 
   const handleExportFarmerReceipt = (orderNum: string) => {
     Alert.alert(
@@ -89,6 +91,7 @@ export default function OrdersScreen() {
 
   React.useEffect(() => {
     useOrderStore.getState().syncWithBackend().catch(() => {});
+    useProduceStore.getState().syncWithBackend().catch(() => {});
     const interval = setInterval(() => {
       useOrderStore.getState().syncWithBackend().catch(() => {});
     }, 3000);
@@ -114,11 +117,56 @@ export default function OrdersScreen() {
   });
 
   function handleAcceptOffer(orderId: string) {
-    acceptOrderOffer(orderId);
-    Alert.alert(
-      'Offer Accepted! 🚛',
-      'Order is now Active. A MandiKart transit vehicle has been scheduled for dispatch to your farmgate.'
-    );
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) return;
+
+    const targetCropName = (targetOrder.cropName || '').toLowerCase().trim();
+    const crops = useProduceStore.getState().crops || [];
+    const matchedCrop = crops.find((c) => {
+      const cn = (c.cropName || '').toLowerCase().trim();
+      return cn.includes(targetCropName) || targetCropName.includes(cn);
+    });
+
+    const executeAccept = (allocatedCrop?: any) => {
+      if (allocatedCrop) {
+        const reqQty = parseInt(String(targetOrder.quantity).replace(/[^0-9]/g, '')) || 50;
+        const newAvailable = Math.max(0, (allocatedCrop.availableKg || 0) - reqQty);
+        const newReserved = (allocatedCrop.reservedKg || 0) + reqQty;
+        useProduceStore.getState().updateCropQuantity(allocatedCrop.id, newAvailable, newReserved);
+      }
+      acceptOrderOffer(orderId);
+      setSelectedTab('Active');
+      setAcceptedOrderSuccess({
+        ...targetOrder,
+        tab: 'Active',
+        statusType: 'scheduled',
+        statusLabel: 'Offer Accepted • Vehicle Scheduled',
+        driverName: targetOrder.driverName || 'Sunil Jadhav',
+        driverPhone: targetOrder.driverPhone || '+91 94222 18904',
+        vehicleNumber: targetOrder.vehicleNumber || 'MH 15 CT 8812',
+        vehicleModel: targetOrder.vehicleModel || 'Mahindra Bolero Maxi Truck',
+        pickupDate: 'Tomorrow Morning',
+        pickupTime: '09:00 AM - 11:00 AM',
+      });
+    };
+
+    if (matchedCrop && (matchedCrop.availableKg > 0 || matchedCrop.totalKg > 0)) {
+      // Farmer has this crop in inventory
+      executeAccept(matchedCrop);
+    } else {
+      // Farmer does not have this crop listed or 0 stock
+      Alert.alert(
+        'Crop Stock Verification 🌾',
+        `"${targetOrder.cropName}" is not currently in your active farm inventory.\n\nDo you have ready harvested stock available to confirm and dispatch this order?`,
+        [
+          { text: 'Decline / Back', style: 'cancel' },
+          {
+            text: 'I Have Stock — Accept Order',
+            onPress: () => executeAccept(),
+          },
+        ]
+      );
+    }
   }
 
   function handleCounterOffer(order: OrderItem) {
@@ -156,9 +204,12 @@ export default function OrdersScreen() {
             router.push({
               pathname: '/sell/chat',
               params: {
+                id: order.id,
                 negotiationId: order.id,
                 crop: order.cropName,
+                cropName: order.cropName,
                 buyer: order.buyerName,
+                buyerName: order.buyerName,
               },
             });
           },
@@ -801,11 +852,184 @@ export default function OrdersScreen() {
           </View>
         </Modal>
       )}
+
+      {/* ════ Order Accepted Confirmation Modal ════ */}
+      {acceptedOrderSuccess && (
+        <Modal
+          visible={Boolean(acceptedOrderSuccess)}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setAcceptedOrderSuccess(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.acceptedModalCard}>
+              <View style={styles.acceptedIconCircle}>
+                <Truck size={38} color="#15803D" strokeWidth={2.4} />
+              </View>
+
+              <Text style={styles.acceptedModalTitle}>Offer Accepted! 🚛</Text>
+              <Text style={styles.acceptedModalSubTitle}>
+                Order has been moved to your Active pipeline. A transit vehicle has been reserved for your harvest.
+              </Text>
+
+              <View style={styles.acceptedOrderSummaryCard}>
+                <View style={styles.acceptedOrderRow}>
+                  <Text style={styles.acceptedOrderLabel}>Produce</Text>
+                  <Text style={styles.acceptedOrderVal}>{acceptedOrderSuccess.cropName} ({acceptedOrderSuccess.quantity})</Text>
+                </View>
+                <View style={styles.acceptedOrderRow}>
+                  <Text style={styles.acceptedOrderLabel}>Agreed Rate</Text>
+                  <Text style={[styles.acceptedOrderVal, { color: '#15803D', fontWeight: '800' }]}>{acceptedOrderSuccess.ratePerKg}</Text>
+                </View>
+                <View style={styles.acceptedOrderRow}>
+                  <Text style={styles.acceptedOrderLabel}>Buyer</Text>
+                  <Text style={styles.acceptedOrderVal}>{acceptedOrderSuccess.buyerName}</Text>
+                </View>
+                <View style={styles.acceptedOrderRow}>
+                  <Text style={styles.acceptedOrderLabel}>Assigned Driver</Text>
+                  <Text style={[styles.acceptedOrderVal, { fontWeight: '700' }]}>{acceptedOrderSuccess.driverName || 'Sunil Jadhav'}</Text>
+                </View>
+                <View style={[styles.acceptedOrderRow, { borderBottomWidth: 0 }]}>
+                  <Text style={styles.acceptedOrderLabel}>Vehicle Number</Text>
+                  <Text style={[styles.acceptedOrderVal, { color: '#0F172A', fontWeight: '800' }]}>{acceptedOrderSuccess.vehicleNumber || 'MH 15 CT 8812'}</Text>
+                </View>
+              </View>
+
+              <Pressable
+                style={styles.acceptedTrackBtn}
+                onPress={() => {
+                  const current = acceptedOrderSuccess;
+                  setAcceptedOrderSuccess(null);
+                  router.push({
+                    pathname: '/orders/track-vehicle',
+                    params: {
+                      orderId: current.id,
+                      crop: `${current.cropName} (${current.quantity})`,
+                      buyer: current.buyerName,
+                    },
+                  });
+                }}
+              >
+                <Navigation size={18} color="#FFFFFF" strokeWidth={2.4} />
+                <Text style={styles.acceptedTrackBtnText}>Track Live Vehicle on Map</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.acceptedCloseBtn}
+                onPress={() => setAcceptedOrderSuccess(null)}
+              >
+                <Text style={styles.acceptedCloseBtnText}>View in Active Orders</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      )}
     </MKScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  /* ── Order Accepted Modal Styles ── */
+  acceptedModalCard: {
+    width: '92%',
+    maxWidth: 420,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: 'auto',
+    marginBottom: 'auto',
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+  },
+  acceptedIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  acceptedModalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  acceptedModalSubTitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 8,
+    lineHeight: 18,
+  },
+  acceptedOrderSummaryCard: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginBottom: 16,
+  },
+  acceptedOrderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  acceptedOrderLabel: {
+    fontSize: 12.5,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  acceptedOrderVal: {
+    fontSize: 13,
+    color: '#1E293B',
+    fontWeight: '600',
+  },
+  acceptedTrackBtn: {
+    width: '100%',
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#15803D',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 10,
+    elevation: 3,
+  },
+  acceptedTrackBtnText: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  acceptedCloseBtn: {
+    width: '100%',
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  acceptedCloseBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#475569',
+  },
+
   /* ── Header ── */
   header: {
     flexDirection: 'row',

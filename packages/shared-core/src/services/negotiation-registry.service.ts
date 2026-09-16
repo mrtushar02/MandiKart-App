@@ -25,7 +25,7 @@ export interface NegotiationMessageItem {
   quantity?: number;
   unit?: string;
   totalAmount?: number;
-  offerStatus?: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'COUNTERED';
+  offerStatus?: 'PENDING' | 'ACCEPTED' | 'ACCEPTED_BY_FARMER' | 'REJECTED' | 'EXPIRED' | 'COUNTERED';
   orderId?: string;
   orderNumber?: string;
   timestamp: string;
@@ -51,7 +51,7 @@ export interface RegisteredNegotiation {
   counterPrice?: number | null;
   quantity: number;
   unit: string;
-  status: 'PENDING_FARMER' | 'COUNTER_OFFERED' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+  status: 'PENDING_FARMER' | 'PENDING_BUYER_CONFIRMATION' | 'COUNTER_OFFERED' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
   remarks?: string | null;
   orderId?: string | null;
   orderNumber?: string | null;
@@ -181,6 +181,11 @@ export class NegotiationRegistryService {
    * Atomic offer acceptance: accepts the active deal, creates the confirmed order in OrderRegistryService,
    * and appends system/order events to the conversation.
    */
+  /**
+   * Atomic offer acceptance: accepts the active deal.
+   * If farmer accepts, status is set to PENDING_BUYER_CONFIRMATION awaiting buyer order placement.
+   * If buyer confirms, order is created in OrderRegistryService with status PLACED.
+   */
   static acceptNegotiation(
     id: string,
     actorRole: 'BUYER' | 'FARMER',
@@ -194,12 +199,73 @@ export class NegotiationRegistryService {
     const finalPrice = target.counterPrice || target.offeredPrice;
     const finalQty = target.quantity;
     const totalAmount = Math.round(finalPrice * finalQty);
+    const now = new Date().toISOString();
+
+    // 1. If FARMER accepts: prompt buyer for final order confirmation in chat
+    if (actorRole === 'FARMER') {
+      target.messages?.forEach((m) => {
+        if (m.messageType === 'OFFER' && (m.offerStatus === 'PENDING' || !m.offerStatus)) {
+          m.offerStatus = 'ACCEPTED_BY_FARMER';
+        }
+      });
+
+      const acceptMsg: NegotiationMessageItem = {
+        id: `msg_sys_acc_${Date.now()}`,
+        negotiationId: id,
+        senderId: actorId,
+        senderRole: 'FARMER',
+        senderName: actorName,
+        messageType: 'SYSTEM',
+        text: `🌾 Farmer ${actorName} accepted the offer of ₹${finalPrice}/${target.unit || 'kg'} for ${finalQty} ${target.unit || 'kg'}! Please confirm to place your order.`,
+        timestamp: now,
+      };
+
+      if (!target.messages) target.messages = [];
+      target.messages.push(acceptMsg);
+
+      target.status = 'PENDING_BUYER_CONFIRMATION';
+      target.updatedAt = now;
+      this.updateNegotiation(id, target);
+
+      return {
+        negotiation: target,
+        order: null,
+      };
+    }
+
+    // 2. If BUYER accepts / confirms: finalize order into OrderRegistryService
+    return this.confirmBuyerNegotiationOrder(
+      id,
+      actorId,
+      actorName,
+      deliveryAddress,
+      target.buyerPhone
+    );
+  }
+
+  /**
+   * Buyer finalizes and confirms the accepted negotiation into a PLACED order.
+   * Order appears in User Orders and Farmer Orders (Pending Tab).
+   */
+  static confirmBuyerNegotiationOrder(
+    id: string,
+    buyerId: string,
+    buyerName: string,
+    deliveryAddress?: string,
+    buyerPhone?: string
+  ): { negotiation: RegisteredNegotiation; order: any } | undefined {
+    const target = this.getNegotiationById(id);
+    if (!target) return undefined;
+
+    const finalPrice = target.counterPrice || target.offeredPrice;
+    const finalQty = target.quantity;
+    const totalAmount = Math.round(finalPrice * finalQty);
     const orderNumber = `MK-ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const orderId = `ord_neg_${Date.now()}`;
     const pickupOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const now = new Date().toISOString();
 
-    // 1. Create order in OrderRegistryService
     const createdOrder = {
       id: orderId,
       orderNumber,
@@ -207,9 +273,11 @@ export class NegotiationRegistryService {
       farmerName: target.farmerName || 'Ramesh Patel',
       farmerPhone: target.farmerPhone || '+91 98220 11111',
       farmerLocation: target.farmerLocation || 'Nashik, Maharashtra',
-      buyerId: target.buyerId || 'buyer_default_01',
-      buyerName: target.buyerName || 'MandiKart Buyer',
-      buyerPhone: target.buyerPhone || '+91 98765 43210',
+      buyerId: buyerId || target.buyerId || 'buyer_default_01',
+      buyerName: buyerName || target.buyerName || 'MandiKart Buyer',
+      buyerPhone: buyerPhone || target.buyerPhone || '+91 98765 43210',
+      recipientName: buyerName || target.buyerName || 'MandiKart Buyer',
+      recipientPhone: buyerPhone || target.buyerPhone || '+91 98765 43210',
       cropName: target.cropName,
       produceName: target.cropName,
       category: 'Vegetables',
@@ -218,14 +286,14 @@ export class NegotiationRegistryService {
       pricePerKg: finalPrice,
       totalAmount,
       totalPrice: totalAmount,
-      status: OrderStatus.CONFIRMED,
+      status: OrderStatus.PLACED,
       escrowStatus: 'HELD_IN_ESCROW',
       deliveryAddress: deliveryAddress || 'Selected Delivery Location',
       pickupOtp,
       deliveryOtp,
       imageUrl: target.cropImage,
-      createdAt: new Date().toISOString(),
-      timestamp: new Date().toISOString(),
+      createdAt: now,
+      timestamp: now,
       items: [
         {
           id: `item_${orderId}_0`,
@@ -242,34 +310,32 @@ export class NegotiationRegistryService {
 
     OrderRegistryService.registerOrder(createdOrder);
 
-    // 2. Mark previous offers as ACCEPTED
+    // Mark previous offers as ACCEPTED
     target.messages?.forEach((m) => {
-      if (m.messageType === 'OFFER' && m.offerStatus === 'PENDING') {
+      if (m.messageType === 'OFFER' && (m.offerStatus === 'PENDING' || m.offerStatus === 'ACCEPTED_BY_FARMER')) {
         m.offerStatus = 'ACCEPTED';
       }
     });
 
-    // 3. Add system messages
-    const now = new Date().toISOString();
-    const systemMsg: NegotiationMessageItem = {
-      id: `msg_sys_acc_${Date.now()}`,
+    const confirmMsg: NegotiationMessageItem = {
+      id: `msg_sys_cnf_${Date.now()}`,
       negotiationId: id,
-      senderId: actorId,
-      senderRole: actorRole,
-      senderName: actorName,
+      senderId: buyerId,
+      senderRole: 'BUYER',
+      senderName: buyerName,
       messageType: 'SYSTEM',
-      text: `${actorName} accepted the offer of ₹${finalPrice}/${target.unit || 'kg'}.`,
+      text: `✅ ${buyerName} confirmed and placed the order for ₹${finalPrice}/${target.unit || 'kg'} (${finalQty} ${target.unit || 'kg'}).`,
       timestamp: now,
     };
 
-    const orderMsg: NegotiationMessageItem = {
+    const orderEvtMsg: NegotiationMessageItem = {
       id: `msg_ord_evt_${Date.now() + 1}`,
       negotiationId: id,
       senderId: 'system',
       senderRole: 'SYSTEM',
       senderName: 'MandiKart System',
       messageType: 'ORDER_EVENT',
-      text: `Order #${orderNumber} has been successfully created! Both parties can track logistics in Orders.`,
+      text: `Order #${orderNumber} placed! Awaiting farmer confirmation in Farmer App Pending section.`,
       orderId,
       orderNumber,
       totalAmount,
@@ -277,20 +343,7 @@ export class NegotiationRegistryService {
     };
 
     if (!target.messages) target.messages = [];
-    target.messages.push(systemMsg, orderMsg);
-
-    if (!target.history) target.history = [];
-    target.history.push({
-      id: systemMsg.id,
-      sender: actorRole,
-      senderName: actorName,
-      price: finalPrice,
-      pricePerKg: finalPrice,
-      quantityKg: finalQty,
-      text: systemMsg.text,
-      message: systemMsg.text,
-      timestamp: now,
-    });
+    target.messages.push(confirmMsg, orderEvtMsg);
 
     target.status = 'ACCEPTED';
     target.orderId = orderId;

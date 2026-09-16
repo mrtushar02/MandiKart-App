@@ -11,7 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 export default function CheckoutReviewScreen({ navigation, route }: any) {
   const { user } = useAuth();
   const { items: cartItems, subtotal: cartSubtotal, deliveryFee: cartDeliveryFee, handlingFee: cartHandlingFee, couponSavings: cartCouponSavings, total: cartTotal } = useCart();
-  const { currentAddress } = useLocation();
+  const { currentAddress, activeSavedAddress } = useLocation();
 
   const isNegotiated = route.params?.isNegotiated;
   const negotiation = route.params?.negotiation;
@@ -39,9 +39,12 @@ export default function CheckoutReviewScreen({ navigation, route }: any) {
   const couponSavings = isNegotiated ? 0 : cartCouponSavings;
   const total = isNegotiated ? subtotal + handlingFee : cartTotal;
 
-  const formattedAddress = currentAddress
+  const recipientName = activeSavedAddress?.fullName || currentAddress?.fullName || user?.fullName || 'Valued Buyer';
+  const recipientPhone = activeSavedAddress?.phone || currentAddress?.phone || user?.phone || '+91 98765 43210';
+
+  const formattedAddress = activeSavedAddress?.formattedAddress || (currentAddress
     ? (currentAddress.formattedAddress || `${currentAddress.area || currentAddress.street || ''}, ${currentAddress.city}, ${currentAddress.state} - ${currentAddress.pincode}`)
-    : '123, Model Town, Pune, MH - 411016';
+    : '123, Model Town, Pune, MH - 411016');
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -75,9 +78,9 @@ export default function CheckoutReviewScreen({ navigation, route }: any) {
               <Text style={styles.changeBtnText}>Change Address</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.textBold}>{user?.fullName || 'Valued Buyer'}</Text>
+          <Text style={styles.textBold}>{recipientName}</Text>
           <Text style={styles.textSub}>{formattedAddress}</Text>
-          <Text style={styles.phoneText}>📞 {user?.phone || '+91 98765 43210'}</Text>
+          <Text style={styles.phoneText}>📞 {recipientPhone}</Text>
         </View>
 
         {/* Order Items Section */}
@@ -134,7 +137,18 @@ export default function CheckoutReviewScreen({ navigation, route }: any) {
         </View>
         <PrimaryButton
           title="Proceed to Pay"
-          onPress={() => navigation.navigate('Payment', { total, amount: total, isNegotiated, negotiation, items: displayItems })}
+          onPress={() =>
+            navigation.navigate('Payment', {
+              total,
+              amount: total,
+              isNegotiated,
+              negotiation,
+              items: displayItems,
+              address: activeSavedAddress || currentAddress,
+              recipientName,
+              recipientPhone,
+            })
+          }
           style={{ flex: 1, marginLeft: Spacing.md }}
         />
       </View>

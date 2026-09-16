@@ -97,7 +97,7 @@ export default function PartnerProfileScreen({ navigation }) {
             </View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryNumber}>{partnerProfile.city.split(',')[0]}</Text>
+              <Text style={styles.summaryNumber}>{(partnerProfile.city || 'Bhubaneswar, Odisha').split(',')[0]}</Text>
               <Text style={styles.summaryLabel}>Hub Base</Text>
             </View>
           </View>
@@ -111,9 +111,9 @@ export default function PartnerProfileScreen({ navigation }) {
               <MaterialCommunityIcons name="moped" size={24} color={COLORS.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.vehicleModel}>{partnerProfile.vehicle.model}</Text>
-              <Text style={styles.vehiclePlate}>{partnerProfile.vehicle.plateNumber}</Text>
-              <Text style={styles.vehicleCapacity}>Max Produce Capacity: {partnerProfile.vehicle.maxLoadKg} kg</Text>
+              <Text style={styles.vehicleModel}>{partnerProfile.vehicle?.model || 'Hero Electric Nyx ER'}</Text>
+              <Text style={styles.vehiclePlate}>{partnerProfile.vehicle?.plateNumber || 'OD-02-MK-9912'}</Text>
+              <Text style={styles.vehicleCapacity}>Max Produce Capacity: {partnerProfile.vehicle?.maxLoadKg || 120} kg</Text>
             </View>
             <View style={styles.evBadge}>
               <Text style={styles.evBadgeText}>100% EV</Text>

@@ -9,6 +9,10 @@ import { getSupabaseAdmin, auditLog, canTransition, ProductRegistryService, Orde
 
 export interface PlaceOrderInput {
   buyerId: string;
+  buyerName?: string;
+  buyerPhone?: string;
+  recipientName?: string;
+  recipientPhone?: string;
   items: {
     productId: string;
     cropName: string;
@@ -58,11 +62,18 @@ export class BuyerOrderService {
       const orderNumber = `MK-ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       if (isMock) {
+        const customerName = input.recipientName || input.buyerName || 'Valued MandiKart Buyer';
+        const customerPhone = input.recipientPhone || input.buyerPhone || '+91 98765 43210';
+
         // Fast mock response for local testing
         const mockOrder = {
           id: `ord_${Date.now()}`,
           orderNumber,
           buyerId: input.buyerId,
+          buyerName: customerName,
+          buyerPhone: customerPhone,
+          recipientName: customerName,
+          recipientPhone: customerPhone,
           farmerId: 'farmer_ramesh_01',
           status: OrderStatus.PLACED,
           totalAmount,
@@ -89,8 +100,11 @@ export class BuyerOrderService {
           farmerPhone: '+91 98230 41122',
           farmerLocation: 'Nashik, Maharashtra',
           buyerId: input.buyerId,
-          buyerName: 'MandiKart Buyer',
-          buyerLocation: input.deliveryAddress || 'Mumbai, Maharashtra',
+          buyerName: customerName,
+          buyerPhone: customerPhone,
+          recipientName: customerName,
+          recipientPhone: customerPhone,
+          buyerLocation: input.deliveryAddress || 'Pune, Maharashtra',
           cropName: firstItem.cropName || 'Fresh Produce',
           produceName: firstItem.cropName || 'Fresh Produce',
           category: 'Vegetables',
@@ -245,6 +259,10 @@ export class BuyerOrderService {
             pickupOtp: insertedOrder.pickup_otp,
             deliveryOtp: insertedOrder.delivery_otp,
             deliveryAddress: input.deliveryAddress,
+            buyerName: input.buyerName || 'MandiKart Buyer',
+            buyerPhone: input.buyerPhone || '+91 98765 43210',
+            recipientName: input.recipientName || input.buyerName || 'MandiKart Buyer',
+            recipientPhone: input.recipientPhone || input.buyerPhone || '+91 98765 43210',
             items: input.items.map((it, idx) => ({
               id: `item_${insertedOrder.id}_${idx}`,
               ...it,
@@ -272,6 +290,10 @@ export class BuyerOrderService {
           pickupOtp,
           deliveryOtp,
           deliveryAddress: input.deliveryAddress,
+          buyerName: input.buyerName || 'MandiKart Buyer',
+          buyerPhone: input.buyerPhone || '+91 98765 43210',
+          recipientName: input.recipientName || input.buyerName || 'MandiKart Buyer',
+          recipientPhone: input.recipientPhone || input.buyerPhone || '+91 98765 43210',
           items: input.items.map((it, idx) => ({
             id: `item_${Date.now()}_${idx}`,
             ...it,
@@ -281,35 +303,40 @@ export class BuyerOrderService {
         };
       }
 
-      // Always broadcast to shared OrderRegistry for cross-app sync
-      const firstItem = input.items[0] || {};
-      OrderRegistryService.registerOrder({
-        id: order.id,
-        orderNumber: order.orderNumber || orderNumber,
-        farmerId: order.farmerId || primaryFarmerId,
-        farmerName: 'Ramesh Patel',
-        farmerPhone: '+91 98230 41122',
-        farmerLocation: 'Nashik, Maharashtra',
-        buyerId: input.buyerId,
-        buyerName: 'MandiKart Buyer',
-        buyerLocation: input.deliveryAddress || 'Mumbai, Maharashtra',
-        cropName: firstItem.cropName || 'Fresh Produce',
-        produceName: firstItem.cropName || 'Fresh Produce',
-        category: 'Vegetables',
-        qualityGrade: firstItem.grade ? `GRADE_${firstItem.grade}` : 'GRADE_A',
-        quantityKg: firstItem.quantity || 100,
-        pricePerKg: firstItem.pricePerUnit || 30,
-        totalAmount,
-        totalPrice: totalAmount,
-        status: OrderStatus.PLACED,
-        escrowStatus: 'HELD_IN_ESCROW',
-        deliveryAddress: input.deliveryAddress,
-        pickupOtp: order.pickupOtp || pickupOtp,
-        deliveryOtp: order.deliveryOtp || deliveryOtp,
-        createdAt: order.createdAt || new Date().toISOString(),
-        timestamp: order.createdAt || new Date().toISOString(),
-        items: order.items || input.items,
-      });
+        const customerName = input.recipientName || input.buyerName || 'Valued MandiKart Buyer';
+        const customerPhone = input.recipientPhone || input.buyerPhone || '+91 98765 43210';
+        const firstItem = (input.items && input.items[0]) || (order.items && order.items[0]) || ({} as any);
+
+        OrderRegistryService.registerOrder({
+          id: order.id,
+          orderNumber: order.orderNumber || orderNumber,
+          farmerId: order.farmerId || primaryFarmerId,
+          farmerName: 'Ramesh Patel',
+          farmerPhone: '+91 98230 41122',
+          farmerLocation: 'Nashik, Maharashtra',
+          buyerId: input.buyerId,
+          buyerName: customerName,
+          buyerPhone: customerPhone,
+          recipientName: customerName,
+          recipientPhone: customerPhone,
+          buyerLocation: input.deliveryAddress || 'Pune, Maharashtra',
+          cropName: firstItem.cropName || 'Fresh Produce',
+          produceName: firstItem.cropName || 'Fresh Produce',
+          category: 'Vegetables',
+          qualityGrade: firstItem.grade ? `GRADE_${firstItem.grade}` : 'GRADE_A',
+          quantityKg: firstItem.quantity || 100,
+          pricePerKg: firstItem.pricePerUnit || 30,
+          totalAmount,
+          totalPrice: totalAmount,
+          status: OrderStatus.PLACED,
+          escrowStatus: 'HELD_IN_ESCROW',
+          deliveryAddress: input.deliveryAddress,
+          pickupOtp: order.pickupOtp || pickupOtp,
+          deliveryOtp: order.deliveryOtp || deliveryOtp,
+          createdAt: order.createdAt || new Date().toISOString(),
+          timestamp: order.createdAt || new Date().toISOString(),
+          items: order.items || input.items,
+        });
 
       await auditLog({
         actorId: input.buyerId,
@@ -339,6 +366,12 @@ export class BuyerOrderService {
       const isMock = !process.env.SUPABASE_URL || process.env.SUPABASE_URL.includes('placeholder');
 
       if (isMock) {
+        OrderRegistryService.updateOrder(orderId, {
+          status: OrderStatus.DELIVERED,
+          escrowStatus: 'RELEASED_TO_FARMER',
+          deliveredAt: new Date().toISOString(),
+        });
+
         await auditLog({
           actorId: buyerId,
           role: UserRole.BUYER,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Image, StatusBar, Alert, Modal, Platform, TextInput,
@@ -33,6 +33,25 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
   const [selectedDisputeCategory, setSelectedDisputeCategory] = useState('DAMAGED_PRODUCE');
   const [disputeNotes, setDisputeNotes] = useState('');
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLatest = async () => {
+      try {
+        const res = await apiClient.orders.getById(orderId);
+        const data = res?.data || res;
+        if (data?.status && isMounted) {
+          setOrderStatus(data.status);
+        }
+      } catch (e) {}
+    };
+    fetchLatest();
+    const interval = setInterval(fetchLatest, 2500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [orderId]);
 
   const handleDownloadInvoice = () => {
     setShowReceiptModal(true);
