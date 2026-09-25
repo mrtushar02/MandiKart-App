@@ -80,7 +80,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
   const [produceFilterTab, setProduceFilterTab] = useState<'PENDING' | 'ACTIVE' | 'REJECTED' | 'ALL'>('PENDING');
   const [showAllProduce, setShowAllProduce] = useState(false);
 
+  const isProduceFetching = React.useRef(false);
+  const isMetricsFetching = React.useRef(false);
+  const isOrdersFetching = React.useRef(false);
+
   const fetchLiveProduce = (showSpinner = false) => {
+    if (isProduceFetching.current && !showSpinner) return;
+    isProduceFetching.current = true;
     if (showSpinner) setIsProduceLoading(true);
     fetch(`${getAdminApiBaseUrl()}/produce`)
       .then(res => res.json())
@@ -96,13 +102,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
       })
       .catch(() => {})
       .finally(() => {
+        isProduceFetching.current = false;
         if (showSpinner) {
-          setTimeout(() => setIsProduceLoading(false), 400);
+          setTimeout(() => setIsProduceLoading(false), 200);
         }
       });
   };
 
   const fetchLiveMetrics = () => {
+    if (isMetricsFetching.current) return;
+    isMetricsFetching.current = true;
     fetch(`${getAdminApiBaseUrl()}/metrics`)
       .then(res => res.json())
       .then(resData => {
@@ -118,10 +127,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        isMetricsFetching.current = false;
+      });
   };
 
   const fetchLiveOrders = () => {
+    if (isOrdersFetching.current) return;
+    isOrdersFetching.current = true;
     fetch(`${getAdminApiBaseUrl()}/orders`)
       .then(res => res.json())
       .then(resData => {
@@ -129,7 +143,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
           setRecentOrders(resData.data.slice(0, 8));
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        isOrdersFetching.current = false;
+      });
   };
 
   const handleDashboardApproveProduce = async (id: string, cropName: string) => {

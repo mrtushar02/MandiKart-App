@@ -16,6 +16,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '@/services/apiClient';
 import { safeAsyncStorage } from '@/utils/safeStorage';
+import { resolveCropThumbnail, getCropThumbnailUrl } from '@/utils/cropThumbnail';
 
 export type CropCondition = 'Good' | 'Needs Attention' | 'Deteriorating' | 'Condition not updated';
 export type QualityGrade = 'Grade A' | 'Grade B' | 'Grade C' | 'Unsorted';
@@ -190,24 +191,20 @@ export const useProduceStore = create<ProduceStoreState>()(
                   ? 'APPROVED'
                   : 'PENDING_APPROVAL';
 
-              // Check if already in map by ID or by crop name match
+              // Check if already in map strictly by ID
               let matchedExisting: CropItem | undefined = cropMap.get(bp.id);
-              if (!matchedExisting) {
-                for (const [id, existingCrop] of cropMap.entries()) {
-                  if (
-                    existingCrop.cropName.trim().toLowerCase() === String(bp.cropName || '').trim().toLowerCase()
-                  ) {
-                    matchedExisting = existingCrop;
-                    cropMap.delete(id);
-                    break;
-                  }
-                }
-              }
+              const incomingImg = (bp.images && bp.images[0]) ? bp.images[0] : null;
+              const resolvedThumb = resolveCropThumbnail(
+                bp.cropName || matchedExisting?.cropName || '',
+                bp.category || matchedExisting?.category || '',
+                incomingImg || matchedExisting?.imageUri
+              );
 
               if (matchedExisting) {
                 cropMap.set(bp.id, {
                   ...matchedExisting,
                   id: bp.id,
+                  imageUri: resolvedThumb,
                   status: bpStatus,
                   availableKg: Number(bp.availableQuantity ?? matchedExisting.availableKg),
                   totalKg: Number(bp.totalQuantity ?? matchedExisting.totalKg),
@@ -232,7 +229,7 @@ export const useProduceStore = create<ProduceStoreState>()(
                   location: bp.pickupAddress || 'Farm Shed',
                   storageType: 'Warehouse',
                   condition: 'Good',
-                  imageUri: (bp.images && bp.images[0]) ? bp.images[0] : ONION_PHOTO_URI,
+                  imageUri: resolvedThumb,
                   expectedPricePerKg: Number(bp.basePricePerUnit || 25),
                   shelfLifeDaysEstMin: Math.max(3, Number(bp.shelfLifeDays || 14) - 4),
                   shelfLifeDaysEstMax: Number(bp.shelfLifeDays || 14),

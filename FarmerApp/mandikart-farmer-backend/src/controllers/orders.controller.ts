@@ -157,38 +157,42 @@ export class OrdersController {
       // 1. Immediately update in cross-app shared OrderRegistry
       OrderRegistryService.updateOrder(orderId, {
         status: targetStatus,
+        farmerId: farmerId,
         driverName: 'Sunil Jadhav',
         driverPhone: '+91 94222 18904',
         vehicleNumber: 'MH 15 CT 8812',
         pickupScheduledAt: new Date(Date.now() + 15 * 60000).toISOString(),
       });
 
-      // 2. If Supabase configured, update database and status history
+      // 2. If Supabase configured and orderId is valid UUID, update database and status history
       if (isSupabaseConfigured()) {
-        const supabase = getSupabaseAdmin();
-        const { data: order } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('id', orderId)
-          .single();
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (UUID_REGEX.test(orderId)) {
+          const supabase = getSupabaseAdmin();
+          const { data: order } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('id', orderId)
+            .single();
 
-        const currentStatus = (order?.status as OrderStatus) || OrderStatus.PLACED;
-        await supabase
-          .from('orders')
-          .update({
-            status: targetStatus,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', orderId);
+          const currentStatus = (order?.status as OrderStatus) || OrderStatus.PLACED;
+          await supabase
+            .from('orders')
+            .update({
+              status: targetStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', orderId);
 
-        await supabase.from('order_status_history').insert({
-          order_id: orderId,
-          from_status: currentStatus,
-          to_status: targetStatus,
-          changed_by: farmerId,
-          role: UserRole.FARMER,
-          remarks: 'Order accepted by farmer partner',
-        });
+          await supabase.from('order_status_history').insert({
+            order_id: orderId,
+            from_status: currentStatus,
+            to_status: targetStatus,
+            changed_by: farmerId,
+            role: UserRole.FARMER,
+            remarks: 'Order accepted by farmer partner',
+          });
+        }
       }
 
       DashboardService.invalidateCache(farmerId);

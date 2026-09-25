@@ -141,35 +141,8 @@ const CROP_PRESETS: CropPreset[] = [
   },
 ];
 
-// Crop image resolver for dynamic thumbnail selection matching farmer input
-export const getCropThumbnailUrl = (cropName: string = '', category: string = ''): string => {
-  const n = cropName.toLowerCase();
-  const c = category.toLowerCase();
-  if (n.includes('tomato')) return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('onion')) return 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('potato') || n.includes('alu') || n.includes('aloo')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('wheat') || n.includes('gehu')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('rice') || n.includes('paddy') || n.includes('chawal')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('soybean') || n.includes('soya')) return 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('corn') || n.includes('maize') || n.includes('makka')) return 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('chilli') || n.includes('chili') || n.includes('mirchi')) return 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('garlic') || n.includes('lahsun')) return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('ginger') || n.includes('adrak')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('apple') || n.includes('seb')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('mango') || n.includes('aam')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('banana') || n.includes('kela')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('pomegranate') || n.includes('anar')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('grape') || n.includes('angoor')) return 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('orange') || n.includes('santra')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('carrot') || n.includes('gajar')) return 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('cabbage') || n.includes('patta gobi')) return 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('cauliflower') || n.includes('phool gobi')) return 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('peas') || n.includes('matar')) return 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=500&auto=format&fit=crop&q=80';
-  if (n.includes('cucumber') || n.includes('kheera')) return 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=500&auto=format&fit=crop&q=80';
-  if (c.includes('fruit')) return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=500&auto=format&fit=crop&q=80';
-  if (c.includes('grain')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
-  return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500&auto=format&fit=crop&q=80';
-};
+import { getCropThumbnailUrl, resolveCropThumbnail } from '@/utils/cropThumbnail';
+export { getCropThumbnailUrl, resolveCropThumbnail };
 
 export default function AddProduceScreen() {
   const router = useRouter();
@@ -338,7 +311,7 @@ export default function AddProduceScreen() {
       storageDetails: storageDetails.trim() || selectedPreset.basis,
       condition: condition,
       conditionUpdatedAt: 'Today',
-      imageUri: photoUri,
+      imageUri: resolveCropThumbnail(cropName, category, photoUri),
       expectedPricePerKg: expPriceNum,
 
       shelfLifeDaysEstMin: selectedPreset.minDays,
@@ -386,16 +359,8 @@ export default function AddProduceScreen() {
     const realFarmerPhone = user?.phone || farmer?.phone || '';
     const realLocation = user?.district ? `${user.district}, ${user.state || 'Maharashtra'}` : (user?.city || 'Nashik Mandi Area');
 
-    // Ensure network image payload is safe and never blows up JSON payload limit
-    const isSafeHttpUri = (uri: string) =>
-      (uri.startsWith('http://') || uri.startsWith('https://')) && uri.length < 2048;
-    const isSafeCompactDataUri = (uri: string) =>
-      uri.startsWith('data:image/') && uri.length < 2000000; // Under 2MB
-    
-    let safeImage = getCropThumbnailUrl(cropName, category);
-    if (photoUri && (isSafeHttpUri(photoUri) || isSafeCompactDataUri(photoUri))) {
-      safeImage = photoUri;
-    }
+    // Ensure thumbnail is always resolved matching the set crop and safe for network
+    const safeImage = resolveCropThumbnail(cropName, category, photoUri);
     const remoteImages = [safeImage];
 
     apiClient.createProduct({

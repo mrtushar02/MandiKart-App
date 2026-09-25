@@ -186,6 +186,15 @@ export const FarmerDetail: React.FC<FarmerDetailProps> = ({
     setCurrentFarmer(updated);
     syncFarmerToLocalStorage(updated);
 
+    try {
+      const savedApproved = localStorage.getItem('mandikart_approved_listing_ids');
+      const approvedIds = savedApproved ? JSON.parse(savedApproved) : [];
+      if (!approvedIds.includes(listingId)) {
+        approvedIds.push(listingId);
+        localStorage.setItem('mandikart_approved_listing_ids', JSON.stringify(approvedIds));
+      }
+    } catch {}
+
     // Call Admin Backend
     try {
       await fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/approve`, {

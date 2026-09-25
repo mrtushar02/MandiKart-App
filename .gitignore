@@ -48,3 +48,7 @@ graphify/
 gsd-2/
 ponytail/
 ui-ux-pro-max-skill/
+
+# Video and Media Assets
+video/
+*.tsbuildinfo

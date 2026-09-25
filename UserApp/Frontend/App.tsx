@@ -10,7 +10,30 @@ import { CartProvider } from './src/context/CartContext';
 import { WishlistProvider } from './src/context/WishlistContext';
 import { CatalogProvider } from './src/context/CatalogContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, LogBox } from 'react-native';
+
+if (typeof console !== 'undefined') {
+  const origError = console.error;
+  console.error = (...args: any[]) => {
+    if (typeof args[0] === 'string' && args[0].includes("The action 'GO_BACK' was not handled")) {
+      return;
+    }
+    origError.apply(console, args);
+  };
+  const origWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    if (typeof args[0] === 'string' && args[0].includes("The action 'GO_BACK' was not handled")) {
+      return;
+    }
+    origWarn.apply(console, args);
+  };
+}
+
+LogBox.ignoreLogs([
+  "The action 'GO_BACK' was not handled by any navigator",
+  "The action 'GO_BACK' was not handled",
+  "Is there any screen to go back to?",
+]);
 
 export default function App() {
   return (

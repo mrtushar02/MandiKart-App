@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { getCropThumbnailUrl } from './cropThumbnail';
+
 const isStorageAvailable = () => {
   if (Platform.OS === 'web') {
     return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -29,11 +31,14 @@ export const safeAsyncStorage = {
       try {
         const parsed = JSON.parse(value);
         if (parsed?.state) {
-          // Strip heavy base64 strings
+          // Replace oversized base64 data URIs with reliable crop thumbnails
           if (Array.isArray(parsed.state.crops)) {
             parsed.state.crops = parsed.state.crops.map((c: any) => {
               if (c?.imageUri && typeof c.imageUri === 'string' && c.imageUri.startsWith('data:')) {
-                return { ...c, imageUri: '' };
+                return { ...c, imageUri: getCropThumbnailUrl(c?.cropName, c?.category) };
+              }
+              if (!c?.imageUri) {
+                return { ...c, imageUri: getCropThumbnailUrl(c?.cropName, c?.category) };
               }
               return c;
             });
@@ -41,7 +46,7 @@ export const safeAsyncStorage = {
           if (Array.isArray(parsed.state.orders)) {
             parsed.state.orders = parsed.state.orders.map((o: any) => {
               if (o?.cropImage && typeof o.cropImage === 'string' && o.cropImage.startsWith('data:')) {
-                return { ...o, cropImage: '' };
+                return { ...o, cropImage: getCropThumbnailUrl(o?.cropName) };
               }
               return o;
             });
@@ -62,7 +67,7 @@ export const safeAsyncStorage = {
             if (Array.isArray(parsed.state.crops)) {
               parsed.state.crops = parsed.state.crops.slice(0, 10).map((c: any) => ({
                 ...c,
-                imageUri: c?.imageUri?.startsWith('data:') ? '' : c?.imageUri,
+                imageUri: c?.imageUri?.startsWith('data:') || !c?.imageUri ? getCropThumbnailUrl(c?.cropName, c?.category) : c?.imageUri,
               }));
             }
             if (Array.isArray(parsed.state.orders)) {

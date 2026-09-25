@@ -3,7 +3,7 @@
  * Full details display and inline editing with Zustand persistence and photo upload.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -43,7 +43,7 @@ import { getCurrentFarmerLocation } from '@/services/locationService';
 export default function FarmerProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, setUser, setPhoneNumber, isAuthenticated } = useAuthStore();
+  const { user, setUser, farmer, updateFarmer, setPhoneNumber, isAuthenticated } = useAuthStore();
 
   if (!isAuthenticated) {
     return <Redirect href="/auth/login" />;
@@ -54,7 +54,7 @@ export default function FarmerProfileScreen() {
   const [isLocating, setIsLocating] = useState(false);
 
   // Editable fields
-  const names = (user?.fullName || user?.name || '').trim().split(' ');
+  const names = (user?.fullName || user?.name || farmer?.fullName || '').trim().split(' ');
   const defaultFirst = user?.firstName || names[0] || 'Farmer';
   const defaultLast = user?.lastName || (names.length > 1 ? names.slice(1).join(' ') : '');
   const defaultPhone = user?.phone && !user.phone.includes('9876543210') ? user.phone.replace('+91', '') : '';
@@ -65,7 +65,23 @@ export default function FarmerProfileScreen() {
   const [phone, setPhone] = useState(defaultPhone);
   const [countryCode, setCountryCode] = useState(user?.countryCode || '+91');
   const [email, setEmail] = useState(user?.email || '');
-  const [avatarUri, setAvatarUri] = useState<string | undefined>(user?.avatarUri);
+  const [avatarUri, setAvatarUri] = useState<string | undefined>(user?.avatarUri || (farmer as any)?.avatarUrl);
+
+  useEffect(() => {
+    if (!isEditing && (user || farmer)) {
+      const currentName = user?.fullName || user?.name || farmer?.fullName || '';
+      const parts = currentName.trim().split(' ');
+      if (parts[0]) setFirstName(user?.firstName || parts[0]);
+      if (parts.length > 1) setLastName(user?.lastName || parts.slice(1).join(' '));
+      if (user?.middleName) setMiddleName(user.middleName);
+      if (user?.phone) setPhone(user.phone.replace('+91', ''));
+      if (user?.email) setEmail(user.email);
+      if (user?.avatarUri || (farmer as any)?.avatarUrl) setAvatarUri(user?.avatarUri || (farmer as any)?.avatarUrl);
+      if (user?.village || farmer?.village) setVillage(user?.village || farmer?.village || '');
+      if (user?.district || farmer?.district) setDistrict(user?.district || farmer?.district || 'Nashik');
+      if (user?.state || farmer?.state) setStateName(user?.state || farmer?.state || 'Maharashtra');
+    }
+  }, [user, farmer, isEditing]);
 
   const [village, setVillage] = useState(user?.village || '');
   const [city, setCity] = useState(user?.city || '');
@@ -127,9 +143,12 @@ export default function FarmerProfileScreen() {
     setIsSaving(true);
     const cleanDigits = phone.replace(/\D/g, '').slice(-10);
     const formattedPhone = cleanDigits ? `+91${cleanDigits}` : phone;
-    const fullNameCombined = [firstName, middleName, lastName].filter(Boolean).join(' ').trim();
+    const fullNameCombined =
+      [firstName, middleName, lastName].filter(Boolean).join(' ').trim() ||
+      firstName.trim() ||
+      'Farmer';
 
-    const updated = {
+    const updated: any = {
       ...user,
       firstName,
       middleName,
@@ -147,9 +166,25 @@ export default function FarmerProfileScreen() {
       farmSizeAcres: parseFloat(farmSize) || 5,
       experienceYears: parseInt(experienceYears, 10) || 10,
       crops,
+      ...(user?.fpoDetails
+        ? {
+            fpoDetails: {
+              ...user.fpoDetails,
+              representativeName: fullNameCombined,
+            },
+          }
+        : {}),
     };
 
     setUser(updated);
+    updateFarmer({
+      fullName: fullNameCombined,
+      phone: formattedPhone,
+      village,
+      district,
+      state: stateName,
+    });
+
     if (cleanDigits) {
       setPhoneNumber(formattedPhone);
     }
@@ -173,7 +208,12 @@ export default function FarmerProfileScreen() {
     } finally {
       setIsSaving(false);
       setIsEditing(false);
-      Alert.alert('Profile Updated', 'Farmer details successfully saved!');
+      Alert.alert('Profile Updated', `Farmer details for "${fullNameCombined}" successfully saved!`, [
+        {
+          text: 'OK',
+          onPress: () => router.back(),
+        },
+      ]);
     }
   };
 

@@ -11,7 +11,7 @@ import { CONSTANTS } from '@mandikart/shared-config';
 import { DashboardService } from '../services/dashboard.service.js';
 
 export function toUuid(id?: string): string {
-  if (!id) return crypto.randomUUID();
+  if (!id) return '';
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (UUID_REGEX.test(id)) return id;
   const hash = crypto.createHash('md5').update(id).digest('hex');
@@ -22,8 +22,9 @@ const sanitizeImage = (img: any): boolean => {
   if (typeof img !== 'string') return false;
   if (img.startsWith('file://')) return false;
   // Allow safe compact base64 data URIs under 2MB
+  // Allow compact base64 data URIs up to 100KB (never massive multi-megabyte payloads)
   if (img.startsWith('data:image')) {
-    return img.length <= 2000000;
+    return img.length <= 100000;
   }
   // Allow valid HTTP/HTTPS URLs (including CDN and Supabase storage URLs) up to 2048 chars
   if (img.startsWith('http://') || img.startsWith('https://')) {
@@ -35,7 +36,7 @@ const sanitizeImage = (img: any): boolean => {
 export class ProductsController {
   static async listProducts(req: Request, res: Response): Promise<void> {
     const rawFarmerId = (req.query.farmerId as string) || req.user?.id || '';
-    const farmerId = toUuid(rawFarmerId);
+    const farmerId = rawFarmerId ? toUuid(rawFarmerId) : '';
     const status = req.query.status as string;
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = Math.min(50, Math.max(1, Number(req.query.limit || 20)));
@@ -54,7 +55,7 @@ export class ProductsController {
 
       const supabase = getSupabaseAdmin();
       const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const isFarmerUuid = UUID_REGEX.test(farmerId);
+      const isFarmerUuid = Boolean(farmerId && UUID_REGEX.test(farmerId));
       
       let query = supabase
         .from('products')
@@ -62,12 +63,8 @@ export class ProductsController {
 
       if (isFarmerUuid) {
         query = query.eq('farmer_id', farmerId);
-      } else {
-        query = query.eq('farmer_id', farmerId);
       }
 
-      // Exclude soft-deleted products so deletions are permanent
-      query = query.neq('is_active', false);
       query = query.order('created_at', { ascending: false });
 
       if (status === 'active') {
@@ -122,12 +119,10 @@ export class ProductsController {
 
       // Merge real-time produce status from ProductRegistryService strictly for this farmer
       try {
-        const registered = ProductRegistryService.getRegisteredProducts().filter(
-          (reg: any) => reg.farmerId === farmerId
-        );
-        for (const reg of registered) {
+        const allRegistered = ProductRegistryService.getRegisteredProducts();
+        for (const reg of allRegistered) {
           const existing = formatted.find(
-            (f: any) => f.id === reg.id || (f.cropName && f.cropName.toLowerCase().trim() === (reg.cropName || '').toLowerCase().trim())
+            (f: any) => f.id === reg.id
           );
           const computedStatus = resolveStatus(reg);
 
@@ -136,7 +131,7 @@ export class ProductsController {
             if (computedStatus === 'APPROVED' || computedStatus === 'ACTIVE' || computedStatus === 'REJECTED' || existing.status === 'PENDING_APPROVAL') {
               existing.status = computedStatus;
             }
-          } else {
+          } else if (reg.farmerId === farmerId) {
             formatted.unshift({
               id: reg.id,
               farmerId: reg.farmerId,
@@ -243,8 +238,8 @@ export class ProductsController {
       if (existingDup && existingDup.length > 0) {
         const existing = existingDup[0];
         const ageMs = Date.now() - new Date(existing.created_at).getTime();
-        // If created within the last 60 seconds and has same quantity, return existing to avoid duplication loop
-        if (ageMs < 60000 && Math.abs(Number(existing.available_quantity) - Number(payload.totalQuantity)) < 1) {
+        // If created within the last 4 seconds (double-click debounce) and has same quantity, return existing
+        if (ageMs < 4000 && Math.abs(Number(existing.available_quantity) - Number(payload.totalQuantity)) < 1) {
           console.log(`[ProductsController] Deduplicated repeated creation of ${payload.cropName} (${existing.id})`);
           res.status(200).json({
             data: {

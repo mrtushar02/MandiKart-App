@@ -6,11 +6,34 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { Platform } from 'react-native';
+import { Platform, LogBox } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '../global.css';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+if (typeof console !== 'undefined') {
+  const origError = console.error;
+  console.error = (...args: any[]) => {
+    if (typeof args[0] === 'string' && args[0].includes("The action 'GO_BACK' was not handled")) {
+      return;
+    }
+    origError.apply(console, args);
+  };
+  const origWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    if (typeof args[0] === 'string' && args[0].includes("The action 'GO_BACK' was not handled")) {
+      return;
+    }
+    origWarn.apply(console, args);
+  };
+}
+
+LogBox.ignoreLogs([
+  "The action 'GO_BACK' was not handled by any navigator",
+  "The action 'GO_BACK' was not handled",
+  "Is there any screen to go back to?",
+]);
 
 
 export default function RootLayout() {

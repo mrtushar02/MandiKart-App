@@ -16,6 +16,16 @@ import {
   NotificationService,
 } from '@mandikart/shared-core';
 
+let produceCache: { data: any[]; timestamp: number } | null = null;
+const PRODUCE_CACHE_TTL_MS = 2500;
+let farmersCache: { data: any[]; timestamp: number } | null = null;
+const FARMERS_CACHE_TTL_MS = 3500;
+
+export const invalidateProduceCache = () => {
+  produceCache = null;
+  farmersCache = null;
+};
+
 export class AdminController {
   static async getPlatformMetrics(_req: Request, res: Response): Promise<void> {
     try {
@@ -176,20 +186,32 @@ export class AdminController {
 
   static async getAllProduce(_req: Request, res: Response): Promise<void> {
     try {
+      if (produceCache && Date.now() - produceCache.timestamp < PRODUCE_CACHE_TTL_MS) {
+        res.status(200).json({
+          data: produceCache.data,
+          meta: { total: produceCache.data.length },
+          error: null,
+        });
+        return;
+      }
+
       const supabase = getSupabaseAdmin();
       // NOTE: We intentionally omit the farmers(*) JOIN here to avoid Supabase
       // statement timeout (error 57014). Farmer info is resolved from ProductRegistryService.
       const { data: dbProducts } = await supabase
         .from('products')
-        .select('*')
+        .select('id, farmer_id, crop_name, crop_variety, grade, category, total_quantity, available_quantity, reserved_quantity, quantity_unit, base_price_per_unit, min_order_quantity, target_buyer, images, pickup_address, is_active, harvest_date, shelf_life_days, created_at, updated_at')
         .order('created_at', { ascending: false });
 
       const sanitizeImg = (imgUrl: string | undefined, cropName: string, category: string) => {
         if (!imgUrl || typeof imgUrl !== 'string' || imgUrl.trim() === '') {
           return getCropImageUrl(cropName, category);
         }
-        // Allow compact base64 data URIs up to 2MB
-        if (imgUrl.startsWith('data:image/') && imgUrl.length < 2000000) return imgUrl;
+        // Disallow large base64 data URIs (>50KB) to ensure lightning-fast responses (<20KB instead of 3.5MB)
+        if (imgUrl.startsWith('data:image/')) {
+          if (imgUrl.length < 50000) return imgUrl;
+          return getCropImageUrl(cropName, category);
+        }
         // Strip local device file:// paths — only valid on the device that took the photo
         if (imgUrl.startsWith('file://')) return getCropImageUrl(cropName, category);
         if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) return imgUrl;
@@ -197,11 +219,8 @@ export class AdminController {
       };
 
       const regProducts = ProductRegistryService.getRegisteredProducts();
-      const findRegItem = (pId: string, cropName?: string, farmerId?: string) => {
-        return regProducts.find((r) =>
-          r.id === pId ||
-          (r.cropName && cropName && r.cropName.toLowerCase().trim() === cropName.toLowerCase().trim() && (r.farmerId === farmerId || !farmerId))
-        );
+      const findRegItem = (pId: string) => {
+        return regProducts.find((r) => r.id === pId);
       };
 
       const resolveProduceStatus = (
@@ -236,7 +255,7 @@ export class AdminController {
       };
 
       let list = (dbProducts || []).map((p: any) => {
-        const regItem = findRegItem(p.id, p.crop_name, p.farmer_id);
+        const regItem = findRegItem(p.id);
         const rawFirstImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : (regItem?.images?.[0]);
         const validImg = sanitizeImg(rawFirstImg, p.crop_name, p.category);
         const images = [validImg];
@@ -284,7 +303,7 @@ export class AdminController {
           const validImg = sanitizeImg(rawFirstImg, reg.cropName, reg.category);
           const images = [validImg];
           const existingIdx = list.findIndex(
-            (item: any) => item.id === reg.id || (item.cropName === reg.cropName && item.farmerId === reg.farmerId)
+            (item: any) => item.id === reg.id
           );
           const computedStatus = resolveProduceStatus(
             reg.isActive,
@@ -326,16 +345,14 @@ export class AdminController {
         }
       } catch {}
 
-      // Deduplicate list by id AND by content key (cropName + farmerId + pricePerKg + quantityKg)
+      // Deduplicate list strictly by unique product id
       const uniqueMap = new Map<string, any>();
       for (const item of list) {
-        const contentKey = `${(item.cropName || '').toLowerCase().trim()}_${item.farmerId || ''}_${item.pricePerKg}_${item.quantityKg}`;
-        if (!uniqueMap.has(item.id) && !uniqueMap.has(contentKey)) {
+        if (!uniqueMap.has(item.id)) {
           uniqueMap.set(item.id, item);
-          uniqueMap.set(contentKey, item);
         }
       }
-      list = Array.from(new Set(uniqueMap.values()));
+      list = Array.from(uniqueMap.values());
 
       // Sort with newest submissions first
       list.sort((a: any, b: any) => {
@@ -343,6 +360,8 @@ export class AdminController {
         const timeB = new Date(b.createdAt || 0).getTime();
         return timeB - timeA;
       });
+
+      produceCache = { data: list, timestamp: Date.now() };
 
       res.status(200).json({
         data: list,
@@ -390,34 +409,44 @@ export class AdminController {
         console.warn('Supabase approve update notice:', sbErr);
       }
 
-      // Update shared registry with full item details
+      // Update shared registry with full item details while strictly preserving farmer & crop identity
       try {
-        const pCropName = dbItem?.crop_name || productId;
-        const pFarmerId = dbItem?.farmer_id || 'unknown';
+        const existingReg = ProductRegistryService.getProductById(productId);
+        const pCropName = (existingReg?.cropName && existingReg.cropName !== productId) ? existingReg.cropName : (dbItem?.crop_name || 'Produce');
+        const pFarmerId = (existingReg?.farmerId && existingReg.farmerId !== 'unknown') ? existingReg.farmerId : (dbItem?.farmer_id || 'unknown');
+        const pFarmerName = (existingReg?.farmerName && existingReg.farmerName !== 'Farmer') ? existingReg.farmerName : (dbItem?.farmers?.full_name || 'Registered Farmer');
+        const pFarmerPhone = existingReg?.farmerPhone || dbItem?.farmers?.phone || '';
+        const pLocation = existingReg?.location || dbItem?.pickup_address || 'Nashik APMC';
+        const pImages = (existingReg?.images && existingReg.images.length > 0) ? existingReg.images : (dbItem?.images || []);
 
         ProductRegistryService.registerProduct({
           id: productId,
           farmerId: pFarmerId,
-          farmerName: 'Farmer',
-          location: dbItem?.pickup_address || 'Nashik APMC',
+          farmerName: pFarmerName,
+          farmerPhone: pFarmerPhone,
+          location: pLocation,
           cropName: pCropName,
-          cropVariety: dbItem?.crop_variety || 'Hybrid',
-          grade: dbItem?.grade || 'A',
-          category: dbItem?.category || 'Vegetables',
-          totalQuantity: Number(dbItem?.total_quantity || 100),
-          availableQuantity: Number(dbItem?.available_quantity || 100),
-          quantityUnit: dbItem?.quantity_unit || 'kg',
-          basePricePerUnit: Number(dbItem?.base_price_per_unit || 20),
+          cropVariety: existingReg?.cropVariety || dbItem?.crop_variety || 'Hybrid',
+          grade: existingReg?.grade || dbItem?.grade || 'A',
+          category: existingReg?.category || dbItem?.category || 'Vegetables',
+          totalQuantity: Number(existingReg?.totalQuantity || dbItem?.total_quantity || 100),
+          availableQuantity: Number(existingReg?.availableQuantity || dbItem?.available_quantity || 100),
+          quantityUnit: existingReg?.quantityUnit || dbItem?.quantity_unit || 'kg',
+          basePricePerUnit: Number(existingReg?.basePricePerUnit || dbItem?.base_price_per_unit || 20),
           minOrderQuantity: 1,
           targetBuyer: 'ADMIN_APPROVED',
-          images: dbItem?.images || [],
+          images: pImages,
           isActive: false,
           status: 'APPROVED',
-          createdAt: dbItem?.created_at || new Date().toISOString(),
+          createdAt: existingReg?.createdAt || dbItem?.created_at || new Date().toISOString(),
         });
 
         ProductRegistryService.updateProductStatus(productId, 'APPROVED');
-      } catch {}
+      } catch (regErr) {
+        console.warn('Produce registry approval notice:', regErr);
+      }
+
+      invalidateProduceCache();
 
       await auditLog({
         actorId: req.user?.id || 'admin_super_01',
@@ -464,6 +493,8 @@ export class AdminController {
       try {
         ProductRegistryService.updateProductStatus(productId, 'REJECTED');
       } catch {}
+
+      invalidateProduceCache();
 
       await auditLog({
         actorId: req.user?.id || 'admin_super_01',
@@ -710,6 +741,11 @@ export class AdminController {
 
   static async getAllFarmers(_req: Request, res: Response): Promise<void> {
     try {
+      if (farmersCache && Date.now() - farmersCache.timestamp < FARMERS_CACHE_TTL_MS) {
+        res.status(200).json({ data: farmersCache.data, meta: { total: farmersCache.data.length }, error: null });
+        return;
+      }
+
       const supabase = getSupabaseAdmin();
       const [farmersRes, productsRes, ordersRes] = await Promise.all([
         supabase.from('farmers').select('*').order('created_at', { ascending: false }),
@@ -772,6 +808,7 @@ export class AdminController {
             })),
           };
         });
+        farmersCache = { data: mapped, timestamp: Date.now() };
         res.status(200).json({ data: mapped, meta: { total: mapped.length }, error: null });
         return;
       }

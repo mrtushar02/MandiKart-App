@@ -96,22 +96,36 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     } catch {}
   };
 
+  const isFarmersFetchingRef = React.useRef(false);
+
   const fetchFarmersAndProduce = async (showSpinner = false) => {
+    if (isFarmersFetchingRef.current && !showSpinner) return;
+    isFarmersFetchingRef.current = true;
     if (showSpinner) setIsLoadingProduce(true);
     try {
-      const [farmersRes, produceRes] = await Promise.all([
-        fetch('http://localhost:4003/api/v1/admin/farmers').then(r => r.json()).catch(() => ({ data: [] })),
-        fetch('http://localhost:4003/api/v1/admin/produce').then(r => r.json()).catch(() => ({ data: [] })),
-      ]);
+      // 1. Fetch live produce immediately so new listings appear instantly
+      const producePromise = fetch('http://localhost:4003/api/v1/admin/produce')
+        .then(r => r.json())
+        .then(produceRes => {
+          if (Array.isArray(produceRes?.data)) {
+            const liveProduceList = produceRes.data;
+            liveProduceList.sort((a: any, b: any) => {
+              const timeA = new Date(a.createdAt || a.submittedAt || 0).getTime();
+              const timeB = new Date(b.createdAt || b.submittedAt || 0).getTime();
+              return timeB - timeA;
+            });
+            setRawLiveProduce(liveProduceList);
+            return liveProduceList;
+          }
+          return [];
+        })
+        .catch(() => []);
 
-      const liveProduceList = Array.isArray(produceRes?.data) ? produceRes.data : [];
-      // Sort produce time-wise descending
-      liveProduceList.sort((a: any, b: any) => {
-        const timeA = new Date(a.createdAt || a.submittedAt || 0).getTime();
-        const timeB = new Date(b.createdAt || b.submittedAt || 0).getTime();
-        return timeB - timeA;
-      });
-      setRawLiveProduce(liveProduceList);
+      const farmersPromise = fetch('http://localhost:4003/api/v1/admin/farmers')
+        .then(r => r.json())
+        .catch(() => ({ data: [] }));
+
+      const [liveProduceList, farmersRes] = await Promise.all([producePromise, farmersPromise]);
 
       if (Array.isArray(farmersRes?.data) && farmersRes.data.length > 0) {
         const produceByFarmer = new Map<string, any[]>();
@@ -173,8 +187,9 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     } catch (err) {
       console.warn('Failed to fetch live farmers/produce:', err);
     } finally {
+      isFarmersFetchingRef.current = false;
       if (showSpinner) {
-        setTimeout(() => setIsLoadingProduce(false), 400);
+        setTimeout(() => setIsLoadingProduce(false), 200);
       }
     }
   };
@@ -220,6 +235,11 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
         const isOldHardcodedOnionUrl = rawImg && rawImg.includes('AB6AXuC5ju') && !crop.toLowerCase().includes('onion');
         const validImg = (rawImg && !rawImg.startsWith('file://') && !isOldHardcodedOnionUrl) ? rawImg : fallbackImg;
 
+        const savedApproved = localStorage.getItem('mandikart_approved_listing_ids');
+        const approvedIds: string[] = savedApproved ? JSON.parse(savedApproved) : [];
+        const isLocallyApproved = approvedIds.includes(p.id);
+        const resolvedStatus = isLocallyApproved ? 'APPROVED' : (p.status || 'PENDING_APPROVAL');
+
         return {
           id: p.id,
           farmerId: p.farmerId,
@@ -234,7 +254,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
           harvestDate: p.harvestDate || p.harvest_date || 'Recent',
           submittedAt: p.submittedAt || (p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'Today'),
           createdAt: p.createdAt || new Date().toISOString(),
-          status: p.status || 'PENDING_APPROVAL',
+          status: resolvedStatus,
           mandiName: p.mandiName || 'Nashik APMC',
           imageUrl: validImg,
           images: [validImg],
@@ -276,11 +296,12 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
 
   // Approve Produce Listing Handler (Admin verifies produce -> unlocked for farmer to list globally)
   const handleApproveProduce = (farmerId: string, listingId: string, cropName: string) => {
-    // Call Admin backend API to update Supabase & shared registry
-    fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/approve`, {
-      method: 'POST',
-    }).catch(err => console.warn('Approve produce API notice:', err));
+    // 1. Immediately update rawLiveProduce optimistically so it moves out of Pending Approval right away
+    setRawLiveProduce(prev =>
+      prev.map(p => (p.id === listingId ? { ...p, status: 'APPROVED' } : p))
+    );
 
+    // 2. Persist to localStorage
     try {
       const savedApproved = localStorage.getItem('mandikart_approved_listing_ids');
       const approvedIds = savedApproved ? JSON.parse(savedApproved) : [];
@@ -290,6 +311,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
       }
     } catch {}
 
+    // 3. Update farmers state
     setFarmers(prev => {
       const updated = prev.map(f => {
         if (f.id === farmerId || f.activeListings.some(l => l.id === listingId)) {
@@ -309,12 +331,22 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
       return updated;
     });
 
+    // 4. Call Admin backend API to update Supabase & shared registry
+    fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/approve`, {
+      method: 'POST',
+    }).catch(err => console.warn('Approve produce API notice:', err));
+
     setApprovalNotification(`QUALITY VERIFIED: "${cropName}" quality approved by Admin! Produce is unlocked — awaiting farmer confirmation to list globally.`);
     setTimeout(() => setApprovalNotification(null), 7000);
   };
 
   // Reject / Unpublish Produce Listing Handler
   const handleRejectProduce = (farmerId: string, listingId: string, cropName: string) => {
+    // 1. Immediately update rawLiveProduce optimistically
+    setRawLiveProduce(prev =>
+      prev.map(p => (p.id === listingId ? { ...p, status: 'REJECTED' } : p))
+    );
+
     fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/reject`, {
       method: 'POST',
     }).catch(err => console.warn('Reject produce API notice:', err));

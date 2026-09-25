@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #07090e;
+    background-image: 
+      radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+      radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(59, 130, 246, 0.04) 0%, transparent 50%),
+      radial-gradient(circle at 0% 100%, rgba(245, 158, 11, 0.04) 0%, transparent 50%);
+    background-size: 24px 24px, auto, auto, auto;
+    background-attachment: fixed;
+  }
+
+  /* Custom subtle scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0b0f19;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #222c48;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #344265;
+  }
+}
+
+/* Device Shell Chassis styling */
+.chassis-obsidian {
+  background: linear-gradient(145deg, #1a1e29 0%, #0d1017 50%, #151922 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 1px rgba(255, 255, 255, 0.2),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.chassis-titanium {
+  background: linear-gradient(145deg, #2c3242 0%, #181c26 50%, #252b39 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 2px rgba(255, 255, 255, 0.3),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.chassis-slate {
+  background: linear-gradient(145deg, #151926 0%, #090c14 50%, #111622 100%);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(59, 130, 246, 0.1),
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+}
+
+/* Glassmorphic panels */
+.glass-panel {
+  background: rgba(16, 21, 36, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-dropdown {
+  background: rgba(11, 15, 25, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Scroll lock isolated viewport styles */
+.scroll-locked-canvas {
+  overflow-y: hidden !important;
+  overscroll-behavior-y: none !important;
+  touch-action: pan-x !important;
+}
+
+.scroll-unlocked-canvas {
+  overflow-y: auto !important;
+}

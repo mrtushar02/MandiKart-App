@@ -22,9 +22,12 @@
     "dev:admin": "npm --workspace=@mandikart/admin-backend run dev",
     "dev:admin-frontend": "npm --workspace=@mandikart/admin-frontend run dev",
     "dev:logistic-frontend": "npm --workspace=@mandikart/logistic-frontend run dev",
-    "dev:farmer-app": "npm --prefix FarmerApp/mandikart-farmer-frontend start",
-    "dev:user-app": "npm --prefix UserApp/Frontend start",
-    "dev:partner-app": "npm --prefix Logistic/partner-app start"
+    "dev:farmer-app": "npx expo start FarmerApp/mandikart-farmer-frontend --port 8082 --localhost",
+    "dev:user-app": "npx expo start UserApp/Frontend --port 8083 --localhost",
+    "dev:partner-app": "npx expo start Logistic/partner-app --port 8081 --localhost",
+    "dev:simulator": "npm --prefix simulater run dev",
+    "video:studio": "npm --prefix video run dev",
+    "video:render-scene7": "npm --prefix video exec remotion render Scene7 out/scene7.mp4"
   },
   "keywords": [
     "agriculture",

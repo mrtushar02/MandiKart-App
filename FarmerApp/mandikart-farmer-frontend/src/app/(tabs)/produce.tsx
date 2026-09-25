@@ -61,6 +61,7 @@ import { MKColors } from '@/constants/colors';
 import { useProduceStore, CropItem, CropCondition } from '@/store/produceStore';
 import { useAuthStore } from '@/store/authStore';
 import FPOInventoryScreen from '@/components/fpo/FPOInventoryScreen';
+import { resolveCropThumbnail } from '@/utils/cropThumbnail';
 
 export default function ProduceScreen() {
   const user = useAuthStore((state) => state.user);
@@ -609,7 +610,7 @@ export default function ProduceScreen() {
               <View key={`${crop.id || 'crop'}_${idx}`} style={styles.cropCard}>
                 {/* Crop Top Info */}
                 <View style={styles.cropCardTopRow}>
-                  <Image source={{ uri: crop.imageUri || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }} style={styles.cropThumbnail} />
+                  <Image source={{ uri: resolveCropThumbnail(crop.cropName, crop.category, crop.imageUri) }} style={styles.cropThumbnail} />
                   <View style={styles.cropMetaInfo}>
                     <View style={styles.cropTitleBadgeRow}>
                       <Text style={styles.cropCardTitle} numberOfLines={1} ellipsizeMode="tail">

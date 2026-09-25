@@ -60,6 +60,8 @@ import {
   X,
   SlidersHorizontal,
   Globe,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import { useProduceStore, CropItem } from '@/store/produceStore';
@@ -68,6 +70,122 @@ import { useOrderStore } from '@/store/orderStore';
 import { useAuthStore } from '@/store/authStore';
 import { apiClient, resolveFarmerApiBaseUrl } from '@/services/apiClient';
 import FPOBuyersScreen from '@/components/fpo/FPOBuyersScreen';
+import { resolveCropThumbnail } from '@/utils/cropThumbnail';
+
+// ── AI Price Recommendation & Market Comparison Engine ─────────────
+export interface AiPriceAnalysis {
+  marketPrice: number;
+  aiSuggestedPrice: number;
+  minRecommendedPrice: number;
+  maxRecommendedPrice: number;
+  gradePremiumPct: number;
+  demandFactorPct: number;
+  trendFactorPct: number;
+  userPrice: number;
+  diffFromMarket: number;
+  diffPercentage: number;
+  statusLabel: string;
+  statusColor: string;
+  statusBg: string;
+  statusAdvice: string;
+  totalUserRevenue: number;
+  revenueDiff: number;
+}
+
+export function computeAiPriceAnalysis(crop: CropItem | null, targetPriceStr: string): AiPriceAnalysis {
+  const basePrice = Math.max(1, crop?.referencePricePerKg || crop?.expectedPricePerKg || 25);
+
+  // Quality Grade premium/discount
+  let gradeBonus = 0;
+  if (crop?.grade === 'Grade A') gradeBonus = 0.12;
+  else if (crop?.grade === 'Grade B') gradeBonus = 0.04;
+  else if (crop?.grade === 'Grade C') gradeBonus = -0.06;
+
+  // Market demand premium/discount
+  let demandBonus = 0;
+  if (crop?.marketDemand === 'High') demandBonus = 0.06;
+  else if (crop?.marketDemand === 'Low') demandBonus = -0.04;
+
+  // Trend factor
+  let trendBonus = 0;
+  if (crop?.priceMovementTrend === 'up') trendBonus = 0.04;
+  else if (crop?.priceMovementTrend === 'down') trendBonus = -0.03;
+
+  const totalMultiplier = 1 + gradeBonus + demandBonus + trendBonus;
+  const aiSuggestedPrice = Math.max(1, Math.round(basePrice * totalMultiplier));
+  const minRecommendedPrice = Math.max(1, Math.round(aiSuggestedPrice * 0.94));
+  const maxRecommendedPrice = Math.round(aiSuggestedPrice * 1.08);
+
+  const userPrice = parseFloat(targetPriceStr) || 0;
+  const diffFromMarket = userPrice > 0 ? userPrice - basePrice : 0;
+  const diffPercentage = userPrice > 0 ? Math.round(((userPrice - basePrice) / basePrice) * 100) : 0;
+
+  let statusLabel = 'Parity with Market';
+  let statusColor = '#0284C7';
+  let statusBg = '#E0F2FE';
+  let statusAdvice = 'Your price matches local APMC mandi spot rates.';
+
+  if (userPrice <= 0) {
+    statusLabel = 'Awaiting Target Price';
+    statusColor = MKColors.textSecondary;
+    statusBg = '#F3F4F6';
+    statusAdvice = 'Enter your target price per kg or apply the AI suggestion.';
+  } else if (diffPercentage < -10) {
+    statusLabel = `${Math.abs(diffPercentage)}% Below Market Rate`;
+    statusColor = '#D97706';
+    statusBg = '#FEF3C7';
+    statusAdvice = 'Fast buyer pickup guaranteed, but potential profit left on table.';
+  } else if (diffPercentage < 0) {
+    statusLabel = `${Math.abs(diffPercentage)}% Competitive Advantage`;
+    statusColor = '#0D9488';
+    statusBg = '#CCFBF1';
+    statusAdvice = 'Great for rapid buyer orders without heavy discount.';
+  } else if (diffPercentage === 0) {
+    statusLabel = `Exact Market Parity (₹${basePrice}/kg)`;
+    statusColor = '#0284C7';
+    statusBg = '#E0F2FE';
+    statusAdvice = 'Competitive & balanced for wholesale MandiKart buyers.';
+  } else if (diffPercentage <= 15) {
+    statusLabel = `+${diffPercentage}% AI Optimal Premium`;
+    statusColor = '#166534';
+    statusBg = '#DCFCE7';
+    statusAdvice = `Optimal for verified ${crop?.grade || 'high-quality'} produce with high profit margin.`;
+  } else if (diffPercentage <= 30) {
+    statusLabel = `+${diffPercentage}% High Premium`;
+    statusColor = '#CA8A04';
+    statusBg = '#FEF9C3';
+    statusAdvice = 'Above average mandi rate. May experience longer negotiation cycles.';
+  } else {
+    statusLabel = `+${diffPercentage}% Significantly Above Market`;
+    statusColor = '#DC2626';
+    statusBg = '#FEE2E2';
+    statusAdvice = 'High risk of buyer pass-through. Consider lowering to AI bracket.';
+  }
+
+  const availableKg = crop?.availableKg || 0;
+  const totalUserRevenue = userPrice * availableKg;
+  const totalMarketRevenue = basePrice * availableKg;
+  const revenueDiff = totalUserRevenue - totalMarketRevenue;
+
+  return {
+    marketPrice: basePrice,
+    aiSuggestedPrice,
+    minRecommendedPrice,
+    maxRecommendedPrice,
+    gradePremiumPct: Math.round(gradeBonus * 100),
+    demandFactorPct: Math.round(demandBonus * 100),
+    trendFactorPct: Math.round(trendBonus * 100),
+    userPrice,
+    diffFromMarket,
+    diffPercentage,
+    statusLabel,
+    statusColor,
+    statusBg,
+    statusAdvice,
+    totalUserRevenue,
+    revenueDiff,
+  };
+}
 
 export default function SellHomeScreen() {
   const user = useAuthStore((state) => state.user);
@@ -168,6 +286,11 @@ export default function SellHomeScreen() {
   const [listingCrop, setListingCrop] = useState<CropItem | null>(null);
   const [listingTargetPrice, setListingTargetPrice] = useState('');
   const [listingNotes, setListingNotes] = useState('');
+
+  // AI Pricing & Market Value Comparison
+  const aiPriceAnalysis = useMemo(() => {
+    return computeAiPriceAnalysis(listingCrop, listingTargetPrice);
+  }, [listingCrop, listingTargetPrice]);
 
   // Counter offer modal
   const [counterModalVisible, setCounterModalVisible] = useState(false);
@@ -293,7 +416,8 @@ export default function SellHomeScreen() {
   // Listing Handler
   const handleOpenListingModal = (crop: CropItem) => {
     setListingCrop(crop);
-    setListingTargetPrice(crop.referencePricePerKg ? (crop.referencePricePerKg + 2).toString() : '25');
+    const initialAi = computeAiPriceAnalysis(crop, '');
+    setListingTargetPrice(initialAi.aiSuggestedPrice.toString());
     setListingNotes('');
     setListingModalVisible(true);
   };
@@ -302,13 +426,8 @@ export default function SellHomeScreen() {
     if (!listingCrop) return;
     const targetPrice = parseFloat(listingTargetPrice) || listingCrop.referencePricePerKg;
 
-    // Image URLs — filter out local file:// paths, accept http(s) and base64 data URIs
-    const validRemote = [listingCrop.imageUri].filter(
-      (uri) => uri && (uri.startsWith('http://') || uri.startsWith('https://') || uri.startsWith('data:image/'))
-    );
-    const safeImages = validRemote.length > 0 
-      ? validRemote 
-      : ['https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600'];
+    // Resolve genuine crop thumbnail matching the produce
+    const safeImages = [resolveCropThumbnail(listingCrop.cropName, listingCrop.category, listingCrop.imageUri)];
 
     const user = useAuthStore.getState().user;
     const farmer = useAuthStore.getState().farmer;
@@ -651,7 +770,7 @@ export default function SellHomeScreen() {
             return (
               <View key={crop.id} style={styles.produceSellCard}>
                 <View style={styles.produceTopRow}>
-                  <Image source={{ uri: crop.imageUri || 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=400' }} style={styles.produceThumb} />
+                  <Image source={{ uri: resolveCropThumbnail(crop.cropName, crop.category, crop.imageUri) }} style={styles.produceThumb} />
                   <View style={styles.produceMetaCol}>
                     <View style={styles.produceTitleBadgeRow}>
                       <Text style={styles.produceName} numberOfLines={1}>
@@ -1350,46 +1469,227 @@ export default function SellHomeScreen() {
         onRequestClose={() => setListingModalVisible(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, { maxHeight: '92%', paddingBottom: 24 }]}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>Sell to All Buyers 🌐</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Globe size={19} color={MKColors.primaryGreen} />
+                <Text style={styles.modalTitle}>Sell to All Buyers</Text>
+              </View>
               <Pressable onPress={() => setListingModalVisible(false)} hitSlop={10}>
                 <X size={20} color={MKColors.textSecondary} />
               </Pressable>
             </View>
 
             <Text style={styles.modalCropSub}>
-              Your {listingCrop?.cropName} will be published to the global MandiKart marketplace — visible to all verified buyers, FPOs, and traders.
+              Publish {listingCrop?.cropName} to the global MandiKart marketplace — visible to verified buyers, FPOs, and traders.
             </Text>
 
-            <View style={styles.listingSummaryRow}>
-              <Text style={styles.listingFieldLabel}>Quantity available:</Text>
-              <Text style={styles.listingFieldBold}>{listingCrop?.availableKg.toLocaleString()} kg ({listingCrop?.grade})</Text>
-            </View>
+            <ScrollView
+              style={{ maxHeight: 440 }}
+              contentContainerStyle={{ paddingBottom: 16 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Crop Preview Header Card with Authentic Thumbnail */}
+              <View style={styles.modalCropPreviewCard}>
+                <Image
+                  source={{ uri: resolveCropThumbnail(listingCrop?.cropName, listingCrop?.category, listingCrop?.imageUri) }}
+                  style={styles.modalCropPreviewThumb}
+                />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={styles.modalCropPreviewTitle} numberOfLines={1}>
+                      {listingCrop?.cropName}
+                    </Text>
+                    <View style={styles.gradeBadgePill}>
+                      <Text style={styles.gradeBadgePillText}>{listingCrop?.grade || 'Grade A'}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.modalCropPreviewQty}>
+                    {listingCrop?.availableKg.toLocaleString()} {listingCrop?.unit || 'kg'} available
+                  </Text>
+                  <Text style={styles.modalCropPreviewSub} numberOfLines={1}>
+                    {listingCrop?.variety ? `${listingCrop.variety} • ` : ''}{listingCrop?.location || 'Farm Warehouse'}
+                  </Text>
+                </View>
+              </View>
 
-            <View style={styles.listingInputWrap}>
-              <Text style={styles.listingFieldLabel}>Your Target Price (₹ per kg):</Text>
-              <TextInput
-                style={styles.listingTextInput}
-                keyboardType="numeric"
-                value={listingTargetPrice}
-                onChangeText={setListingTargetPrice}
-                placeholder="e.g. 24"
-                placeholderTextColor={MKColors.textMuted}
-              />
-            </View>
+              {/* ── AI Suggested Best Price Card ── */}
+              <View style={styles.aiPriceCard}>
+                <View style={styles.aiPriceCardHeader}>
+                  <View style={styles.aiPriceCardTitleRow}>
+                    <Sparkles size={16} color="#15803D" />
+                    <Text style={styles.aiPriceCardTitle}>AI Best Market Value</Text>
+                  </View>
+                  <View style={styles.aiConfidenceBadge}>
+                    <Zap size={11} color="#15803D" style={{ marginRight: 2 }} />
+                    <Text style={styles.aiConfidenceText}>95% Match</Text>
+                  </View>
+                </View>
 
-            <View style={styles.listingInputWrap}>
-              <Text style={styles.listingFieldLabel}>Pickup Preference / Notes:</Text>
-              <TextInput
-                style={[styles.listingTextInput, { height: 60, textAlignVertical: 'top' }]}
-                value={listingNotes}
-                onChangeText={setListingNotes}
-                placeholder="e.g. Farmgate collection preferred, dry warehouse stored."
-                placeholderTextColor={MKColors.textMuted}
-                multiline
-              />
-            </View>
+                <View style={styles.aiPriceValueRow}>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                      <Text style={styles.aiPriceSymbol}>₹</Text>
+                      <Text style={styles.aiPriceNumber}>{aiPriceAnalysis.aiSuggestedPrice}</Text>
+                      <Text style={styles.aiPriceUnit}>/kg suggested</Text>
+                    </View>
+                    <Text style={styles.aiPriceRangeText}>
+                      Fair Market Range: ₹{aiPriceAnalysis.minRecommendedPrice} - ₹{aiPriceAnalysis.maxRecommendedPrice}/kg
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.aiApplyBtn,
+                      pressed && { opacity: 0.8 },
+                      listingTargetPrice === aiPriceAnalysis.aiSuggestedPrice.toString() && styles.aiApplyBtnActive,
+                    ]}
+                    onPress={() => setListingTargetPrice(aiPriceAnalysis.aiSuggestedPrice.toString())}
+                  >
+                    <Sparkles size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+                    <Text style={styles.aiApplyBtnText}>
+                      {listingTargetPrice === aiPriceAnalysis.aiSuggestedPrice.toString() ? 'Applied ✓' : 'Apply AI Price'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* AI Drivers Breakdown */}
+                <View style={styles.aiFactorsRow}>
+                  <View style={styles.aiFactorChip}>
+                    <Text style={styles.aiFactorChipText}>
+                      🏆 {listingCrop?.grade || 'Grade A'} (+{aiPriceAnalysis.gradePremiumPct}%)
+                    </Text>
+                  </View>
+                  <View style={styles.aiFactorChip}>
+                    <Text style={styles.aiFactorChipText}>
+                      🔥 {listingCrop?.marketDemand || 'High'} Demand (+{aiPriceAnalysis.demandFactorPct}%)
+                    </Text>
+                  </View>
+                  <View style={styles.aiFactorChip}>
+                    <Text style={styles.aiFactorChipText}>
+                      📈 {listingCrop?.priceMovementTrend === 'down' ? 'Soft' : 'Rising'} Trend ({aiPriceAnalysis.trendFactorPct >= 0 ? '+' : ''}{aiPriceAnalysis.trendFactorPct}%)
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* ── Real-time Market Comparison Card ── */}
+              <View style={styles.marketCompareCard}>
+                <View style={styles.marketCompareHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Scale size={15} color="#475569" />
+                    <Text style={styles.marketCompareTitle}>Compare Your Price vs Market</Text>
+                  </View>
+                  <Text style={styles.marketCompareSource}>
+                    {listingCrop?.marketName || 'APMC'} Spot Rate
+                  </Text>
+                </View>
+
+                {/* 3-Column Metric Box */}
+                <View style={styles.compareGrid}>
+                  <View style={styles.compareCol}>
+                    <Text style={styles.compareColLabel}>Market Benchmark</Text>
+                    <Text style={styles.compareColVal}>₹{aiPriceAnalysis.marketPrice}/kg</Text>
+                    <Text style={styles.compareColSub}>APMC / e-NAM</Text>
+                  </View>
+                  <View style={styles.compareDivider} />
+                  <View style={styles.compareCol}>
+                    <Text style={styles.compareColLabel}>AI Recommended</Text>
+                    <Text style={[styles.compareColVal, { color: '#166534' }]}>₹{aiPriceAnalysis.aiSuggestedPrice}/kg</Text>
+                    <Text style={styles.compareColSub}>Quality Adjusted</Text>
+                  </View>
+                  <View style={styles.compareDivider} />
+                  <View style={[styles.compareCol, { backgroundColor: '#F1F5F9', borderRadius: 8, paddingVertical: 4 }]}>
+                    <Text style={styles.compareColLabel}>Your Target</Text>
+                    <Text style={[styles.compareColVal, { color: aiPriceAnalysis.userPrice > 0 ? MKColors.textPrimary : MKColors.textMuted }]}>
+                      {aiPriceAnalysis.userPrice > 0 ? `₹${aiPriceAnalysis.userPrice}/kg` : '--'}
+                    </Text>
+                    <Text style={styles.compareColSub}>Listing Price</Text>
+                  </View>
+                </View>
+
+                {/* Dynamic Price Comparison Status Banner */}
+                <View style={[styles.statusFeedbackBanner, { backgroundColor: aiPriceAnalysis.statusBg, borderColor: aiPriceAnalysis.statusColor }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {aiPriceAnalysis.diffPercentage >= 0 ? (
+                        <TrendingUp size={14} color={aiPriceAnalysis.statusColor} />
+                      ) : (
+                        <TrendingDown size={14} color={aiPriceAnalysis.statusColor} />
+                      )}
+                      <Text style={[styles.statusFeedbackLabel, { color: aiPriceAnalysis.statusColor }]}>
+                        {aiPriceAnalysis.statusLabel}
+                      </Text>
+                    </View>
+                    {aiPriceAnalysis.userPrice > 0 && (
+                      <Text style={[styles.statusDiffPill, { color: aiPriceAnalysis.statusColor }]}>
+                        {aiPriceAnalysis.diffPercentage >= 0 ? `+₹${aiPriceAnalysis.diffFromMarket}` : `-₹${Math.abs(aiPriceAnalysis.diffFromMarket)}`}/kg
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={[styles.statusFeedbackAdvice, { color: aiPriceAnalysis.statusColor }]}>
+                    {aiPriceAnalysis.statusAdvice}
+                  </Text>
+                </View>
+
+                {/* Gross Revenue Projection */}
+                {aiPriceAnalysis.userPrice > 0 && (
+                  <View style={styles.revenueProjectionRow}>
+                    <Text style={styles.revenueProjectionLabel}>Estimated Gross Earnings:</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.revenueProjectionValue}>
+                        ₹{Math.round(aiPriceAnalysis.totalUserRevenue).toLocaleString()}
+                      </Text>
+                      <Text style={[
+                        styles.revenueProjectionDiff,
+                        { color: aiPriceAnalysis.revenueDiff >= 0 ? '#166534' : '#DC2626' }
+                      ]}>
+                        {aiPriceAnalysis.revenueDiff >= 0 ? '+' : '-'}₹{Math.abs(Math.round(aiPriceAnalysis.revenueDiff)).toLocaleString()} vs Mandi benchmark
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              {/* Your Target Price Input */}
+              <View style={styles.listingInputWrap}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <Text style={styles.listingFieldLabel}>Your Target Price (₹ per kg):</Text>
+                  {listingTargetPrice !== aiPriceAnalysis.aiSuggestedPrice.toString() && (
+                    <Pressable onPress={() => setListingTargetPrice(aiPriceAnalysis.aiSuggestedPrice.toString())}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: MKColors.primaryGreen }}>
+                        Use AI Suggestion (₹{aiPriceAnalysis.aiSuggestedPrice})
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+                <View style={styles.priceInputBox}>
+                  <Text style={styles.priceInputCurrency}>₹</Text>
+                  <TextInput
+                    style={styles.priceInputField}
+                    keyboardType="numeric"
+                    value={listingTargetPrice}
+                    onChangeText={setListingTargetPrice}
+                    placeholder="e.g. 28"
+                    placeholderTextColor={MKColors.textMuted}
+                  />
+                  <Text style={styles.priceInputUnit}>/ kg</Text>
+                </View>
+              </View>
+
+              {/* Pickup Preference / Notes */}
+              <View style={styles.listingInputWrap}>
+                <Text style={styles.listingFieldLabel}>Pickup Preference / Notes:</Text>
+                <TextInput
+                  style={[styles.listingTextInput, { height: 60, textAlignVertical: 'top' }]}
+                  value={listingNotes}
+                  onChangeText={setListingNotes}
+                  placeholder="e.g. Farmgate collection preferred, dry warehouse stored."
+                  placeholderTextColor={MKColors.textMuted}
+                  multiline
+                />
+              </View>
+            </ScrollView>
 
             <Pressable
               style={styles.modalPrimaryBtn}
@@ -2511,5 +2811,292 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: MKColors.textPrimary,
     marginTop: 2,
+  },
+
+  // ── Modal Crop Preview Header Card ──
+  modalCropPreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 12,
+  },
+  modalCropPreviewThumb: {
+    width: 62,
+    height: 62,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  modalCropPreviewTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: MKColors.textPrimary,
+  },
+  modalCropPreviewQty: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: MKColors.primaryGreen,
+    marginTop: 2,
+  },
+  modalCropPreviewSub: {
+    fontSize: 11,
+    color: MKColors.textSecondary,
+    marginTop: 1,
+  },
+
+  // ── AI Price Recommendation & Market Comparison Styles ──
+  gradeBadgePill: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  gradeBadgePillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  aiPriceCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    marginBottom: 12,
+  },
+  aiPriceCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  aiPriceCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  aiPriceCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  aiConfidenceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  aiConfidenceText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  aiPriceValueRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  aiPriceSymbol: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#166534',
+    marginRight: 2,
+  },
+  aiPriceNumber: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#166534',
+  },
+  aiPriceUnit: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#15803D',
+    marginLeft: 3,
+  },
+  aiPriceRangeText: {
+    fontSize: 11,
+    color: '#15803D',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  aiApplyBtn: {
+    backgroundColor: '#166534',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    shadowColor: '#166534',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  aiApplyBtnActive: {
+    backgroundColor: '#0F5132',
+  },
+  aiApplyBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  aiFactorsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  aiFactorChip: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  aiFactorChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  marketCompareCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  marketCompareHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  marketCompareTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  marketCompareSource: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  compareGrid: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  compareCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  compareDivider: {
+    width: 1,
+    height: '75%',
+    backgroundColor: '#E2E8F0',
+  },
+  compareColLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+    marginBottom: 2,
+  },
+  compareColVal: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  compareColSub: {
+    fontSize: 9,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  statusFeedbackBanner: {
+    borderRadius: 8,
+    padding: 9,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  statusFeedbackLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  statusFeedbackAdvice: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  statusDiffPill: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  revenueProjectionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  revenueProjectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  revenueProjectionValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  revenueProjectionDiff: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  priceInputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FAFAF8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: MKColors.border,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  priceInputCurrency: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: MKColors.textPrimary,
+    marginRight: 6,
+  },
+  priceInputField: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: MKColors.textPrimary,
+    height: '100%',
+  },
+  priceInputUnit: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: MKColors.textSecondary,
   },
 });

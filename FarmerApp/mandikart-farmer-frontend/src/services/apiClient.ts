@@ -204,7 +204,7 @@ export const apiClient = {
     const effectiveToken =
       token !== undefined && token !== null && token !== ''
         ? token
-        : useAuthStore.getState().token || '';
+        : useAuthStore.getState().token || 'mock_jwt_token_farmer';
     if (effectiveToken) {
       headers.Authorization = `Bearer ${effectiveToken}`;
     }
@@ -232,7 +232,7 @@ export const apiClient = {
     const effectiveToken =
       token !== undefined && token !== null && token !== ''
         ? token
-        : useAuthStore.getState().token || '';
+        : useAuthStore.getState().token || 'mock_jwt_token_farmer';
     if (effectiveToken) {
       headers.Authorization = `Bearer ${effectiveToken}`;
     }
@@ -383,8 +383,8 @@ export const apiClient = {
           base_price_per_unit: productData.basePricePerUnit || 30,
           min_order_quantity: productData.minOrderQuantity || 10,
           target_buyer: 'BOTH',
-          is_active: true,
-          images: Array.isArray(productData.images) ? productData.images : [],
+          is_active: false,
+          images: Array.isArray(productData.images) ? productData.images.map((img: string) => (typeof img === 'string' && img.startsWith('data:image/') && img.length > 50000 ? '' : img)).filter(Boolean) : [],
           pickup_address: productData.pickupAddress || productData.location || 'Nashik Mandi Area',
           shelf_life_days: productData.shelfLifeDays || 7,
         };

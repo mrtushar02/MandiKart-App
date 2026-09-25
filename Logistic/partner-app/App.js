@@ -1,6 +1,29 @@
 import 'react-native-gesture-handler';
 import React, { useState } from 'react';
-import { StatusBar, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { StatusBar, View, Text, TouchableOpacity, StyleSheet, LogBox } from 'react-native';
+
+if (typeof console !== 'undefined') {
+  const origError = console.error;
+  console.error = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes("The action 'GO_BACK' was not handled")) {
+      return;
+    }
+    origError.apply(console, args);
+  };
+  const origWarn = console.warn;
+  console.warn = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes("The action 'GO_BACK' was not handled")) {
+      return;
+    }
+    origWarn.apply(console, args);
+  };
+}
+
+LogBox.ignoreLogs([
+  "The action 'GO_BACK' was not handled by any navigator",
+  "The action 'GO_BACK' was not handled",
+  "Is there any screen to go back to?",
+]);
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';

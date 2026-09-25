@@ -148,7 +148,21 @@ export class ProductRegistryService {
     const list = readFromDisk();
     const existingIndex = list.findIndex((p) => p.id === product.id);
     if (existingIndex >= 0) {
-      list[existingIndex] = { ...list[existingIndex], ...product };
+      const existing = list[existingIndex];
+      list[existingIndex] = {
+        ...existing,
+        ...product,
+        farmerId: product.farmerId && product.farmerId !== 'unknown' ? product.farmerId : existing.farmerId,
+        farmerName: product.farmerName && product.farmerName !== 'Farmer' ? product.farmerName : existing.farmerName,
+        farmerPhone: product.farmerPhone || existing.farmerPhone,
+        cropName: product.cropName && product.cropName !== product.id ? product.cropName : existing.cropName,
+        cropVariety: product.cropVariety || existing.cropVariety,
+        category: product.category || existing.category,
+        grade: product.grade || existing.grade,
+        images: (product.images && product.images.length > 0) ? product.images : existing.images,
+        pickupAddress: product.pickupAddress || existing.pickupAddress,
+        location: product.location || existing.location,
+      };
     } else {
       list.unshift(product);
     }
@@ -157,10 +171,7 @@ export class ProductRegistryService {
 
   static updateProductStatus(id: string, status: 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'REJECTED'): void {
     const list = readFromDisk();
-    const existingIndex = list.findIndex((p) => 
-      p.id === id || 
-      (p.cropName && (p.cropName.toLowerCase() === id.toLowerCase() || id.toLowerCase().includes(p.cropName.toLowerCase())))
-    );
+    const existingIndex = list.findIndex((p) => p.id === id);
     if (existingIndex >= 0) {
       list[existingIndex].status = status;
       if (status === 'APPROVED') {

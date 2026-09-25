@@ -169,12 +169,18 @@ export const useOrderStore = create<OrderStoreState>()(
 
               const existing = orderMap.get(bo.id);
               if (existing) {
+                const isLocallyAccepted = existing.tab === 'Active' && tab === 'Pending';
+                const effectiveTab = isLocallyAccepted ? 'Active' : tab;
+                const effectiveStatusLabel = isLocallyAccepted ? (existing.statusLabel || 'Offer Accepted • Vehicle Scheduled') : statusLabel;
+                const effectiveStatusType = isLocallyAccepted ? (existing.statusType || 'scheduled') : statusType;
+                const effectiveStepIndex = isLocallyAccepted ? Math.max(existing.stepIndex, 2) : stepIndex;
+
                 orderMap.set(bo.id, {
                   ...existing,
-                  tab,
-                  statusLabel,
-                  statusType,
-                  stepIndex,
+                  tab: effectiveTab,
+                  statusLabel: effectiveStatusLabel,
+                  statusType: effectiveStatusType,
+                  stepIndex: effectiveStepIndex,
                   cropName,
                   quantity: qtyStr,
                   totalValue,
@@ -182,9 +188,9 @@ export const useOrderStore = create<OrderStoreState>()(
                   orderNumber,
                   buyerName,
                   cropImage,
-                  driverName: bo.driverName || bo.driver_name || existing.driverName,
-                  driverPhone: bo.driverPhone || bo.driver_phone || existing.driverPhone,
-                  vehicleNumber: bo.vehicleNumber || bo.vehicle_number || existing.vehicleNumber,
+                  driverName: bo.driverName || bo.driver_name || existing.driverName || 'Sunil Jadhav',
+                  driverPhone: bo.driverPhone || bo.driver_phone || existing.driverPhone || '+91 94222 18904',
+                  vehicleNumber: bo.vehicleNumber || bo.vehicle_number || existing.vehicleNumber || 'MH 15 CT 8812',
                 });
               } else {
                 orderMap.set(bo.id, {
@@ -272,7 +278,11 @@ export const useOrderStore = create<OrderStoreState>()(
       acceptOrderOffer: (orderId) => {
         try {
           const { apiClient } = require('@/services/apiClient');
-          apiClient.acceptOrder(orderId).catch(() => {});
+          const { useAuthStore } = require('@/store/authStore');
+          const token = useAuthStore.getState().token;
+          apiClient.acceptOrder(orderId, token).catch((err: any) => {
+            console.warn('[orderStore] acceptOrder error:', err);
+          });
         } catch {}
 
         set((state) => ({

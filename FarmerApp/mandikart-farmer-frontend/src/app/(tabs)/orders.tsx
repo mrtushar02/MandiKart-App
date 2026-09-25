@@ -150,23 +150,7 @@ export default function OrdersScreen() {
       });
     };
 
-    if (matchedCrop && (matchedCrop.availableKg > 0 || matchedCrop.totalKg > 0)) {
-      // Farmer has this crop in inventory
-      executeAccept(matchedCrop);
-    } else {
-      // Farmer does not have this crop listed or 0 stock
-      Alert.alert(
-        'Crop Stock Verification 🌾',
-        `"${targetOrder.cropName}" is not currently in your active farm inventory.\n\nDo you have ready harvested stock available to confirm and dispatch this order?`,
-        [
-          { text: 'Decline / Back', style: 'cancel' },
-          {
-            text: 'I Have Stock — Accept Order',
-            onPress: () => executeAccept(),
-          },
-        ]
-      );
-    }
+    executeAccept(matchedCrop);
   }
 
   function handleCounterOffer(order: OrderItem) {
@@ -726,6 +710,21 @@ export default function OrdersScreen() {
                   >
                     <Truck size={18} color="#FFFFFF" strokeWidth={2.4} />
                     <Text style={styles.modalTrackActionBtnText}>Track Live Vehicle on Map</Text>
+                    <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
+                  </Pressable>
+                )}
+
+                {selectedOrderDetails.tab === 'Pending' && (
+                  <Pressable
+                    style={[styles.modalTrackActionBtn, { backgroundColor: '#15803D', marginBottom: 10 }]}
+                    onPress={() => {
+                      const ordId = selectedOrderDetails.id;
+                      setSelectedOrderDetails(null);
+                      handleAcceptOffer(ordId);
+                    }}
+                  >
+                    <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
+                    <Text style={styles.modalTrackActionBtnText}>Accept Buyer Offer</Text>
                     <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
                   </Pressable>
                 )}

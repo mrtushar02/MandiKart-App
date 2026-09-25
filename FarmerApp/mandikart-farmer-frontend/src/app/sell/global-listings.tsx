@@ -54,6 +54,7 @@ import {
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import { useProduceStore, CropItem } from '@/store/produceStore';
+import { resolveCropThumbnail } from '@/utils/cropThumbnail';
 import { apiClient } from '@/services/apiClient';
 
 export default function GlobalListingsScreen() {
@@ -289,7 +290,7 @@ export default function GlobalListingsScreen() {
             <View style={styles.cropCardHeader}>
               <Image
                 source={{
-                  uri: crop.imageUri || 'https://images.unsplash.com/photo-1607305387299-a3d9611cd469?w=400',
+                  uri: resolveCropThumbnail(crop.cropName, crop.category, crop.imageUri),
                 }}
                 style={styles.cropImage}
               />
@@ -401,7 +402,7 @@ export default function GlobalListingsScreen() {
               <View style={styles.buyerPreviewCard}>
                 <Image
                   source={{
-                    uri: previewCrop.imageUri || 'https://images.unsplash.com/photo-1607305387299-a3d9611cd469?w=400',
+                    uri: resolveCropThumbnail(previewCrop.cropName, previewCrop.category, previewCrop.imageUri),
                   }}
                   style={styles.buyerPreviewImage}
                 />

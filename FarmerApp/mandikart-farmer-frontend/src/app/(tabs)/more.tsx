@@ -16,7 +16,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import {
   Bell,
   CheckCircle2,
@@ -72,8 +72,17 @@ export default function MoreScreen() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [fpoQROpen, setFpoQROpen] = useState(false);
 
-  const profile = isAuthenticated ? farmer ?? user : null;
-  const name = farmer?.fullName ?? user?.fullName ?? user?.name;
+  const [, setRefreshKey] = useState(0);
+
+  // Force re-render on tab focus so edits made in /more/profile immediately reflect
+  useFocusEffect(
+    useCallback(() => {
+      setRefreshKey((k) => k + 1);
+    }, [])
+  );
+
+  const rawName = user?.fullName || user?.name || farmer?.fullName || '';
+  const name = rawName.trim() || 'Farmer';
   const location = [user?.village, user?.district, user?.state].filter(Boolean).join(', ') || [user?.district, user?.state].filter(Boolean).join(', ');
   const isVerified = farmer?.isVerified === true;
   const hasFarmDetails = Boolean(user?.farmSize || user?.farmSizeAcres || user?.crops?.length);
@@ -154,7 +163,7 @@ export default function MoreScreen() {
             </Pressable>
             <View style={styles.profileInfoCol}>
               <Text numberOfLines={1} style={styles.profileNameText}>
-                {isFPO ? (fpo?.fpoName || 'Your FPO') : (name || 'Ravi Kumar')}
+                {isFPO ? (fpo?.fpoName || name) : name}
               </Text>
               {isFPO ? (
                 <>
