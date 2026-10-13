@@ -196,6 +196,7 @@ export default function FPOInventoryScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.fpoOrgLabel}>{user?.fpoDetails?.fpoName || 'Farmer Producer Org'}</Text>
             <Text style={styles.screenTitle}>Lot Inventory & Aggregation</Text>
+            <Text style={styles.syncText}>{loading ? 'Syncing lot registry…' : error ? 'Lot sync needs attention' : 'Connected lot registry'}</Text>
           </View>
           <Pressable
             style={styles.createBtn}
@@ -621,6 +622,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     marginTop: 2,
+  },
+  syncText: {
+    fontSize: 10,
+    color: '#BFDBFE',
+    marginTop: 3,
+    fontWeight: '600',
   },
   createBtn: {
     flexDirection: 'row',

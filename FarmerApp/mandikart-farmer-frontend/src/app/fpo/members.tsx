@@ -214,6 +214,7 @@ export default function FPOMembersScreen() {
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={styles.fpoOrgLabel}>{user?.fpoDetails?.fpoName || 'FPO Portal'}</Text>
             <Text style={styles.screenTitle}>Member Farmers Registry</Text>
+            <Text style={styles.syncText}>{loading ? 'Syncing registry…' : error ? 'Registry sync needs attention' : 'Connected member registry'}</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Pressable style={styles.qrBtn} onPress={() => setIsQRModalOpen(true)}>
@@ -571,6 +572,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 2,
     letterSpacing: -0.3,
+  },
+  syncText: {
+    fontSize: 10,
+    color: '#BFDBFE',
+    marginTop: 3,
+    fontWeight: '600',
   },
   qrBtn: {
     flexDirection: 'row',
