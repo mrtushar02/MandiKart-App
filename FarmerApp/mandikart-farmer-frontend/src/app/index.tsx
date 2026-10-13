@@ -15,6 +15,7 @@ import { TypingText } from '@/components/ui/TypingText';
 import { useTranslation } from '@/hooks/useTranslation';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '@/store/authStore';
+import { FrontendConsentService } from '@/services/consentService';
 
 const GIF_SOURCE = require('../../assets/images/tabIcons/InShot_Crystal_Clear_Enhanced.gif');
 
@@ -31,21 +32,18 @@ export default function WelcomeScreen() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      const isComplete = Boolean(
-        isOnboarded ||
-        user?.isOnboarded ||
-        user?.isProfileCompleted ||
-        (user?.role === 'FPO' && (user?.fpoDetails?.fpoName || user?.village)) ||
-        ((farmer?.village || user?.village) && (farmer?.farmSizeAcres || user?.farmSizeAcres || (farmer as any)?.farm_size_acres))
-      );
-      if (isComplete) {
+    let isMounted = true;
+    async function checkExistingState() {
+      const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+      if ((isAuthenticated || alreadyConsented) && isMounted) {
         router.replace('/(tabs)/home');
-      } else {
-        router.replace('/onboarding/permissions');
       }
     }
-  }, [isAuthenticated, isOnboarded, user, farmer, router]);
+    checkExistingState();
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -55,16 +53,17 @@ export default function WelcomeScreen() {
     }).start();
   }, [fadeAnim]);
 
-  const handleGetStarted = () => {
-    router.push('/language-select');
+  const handleGetStarted = async () => {
+    const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+    if (alreadyConsented || isAuthenticated) {
+      router.replace('/(tabs)/home');
+    } else {
+      router.push('/language-select');
+    }
   };
 
   const handleSkipToDashboard = () => {
-    if (isAuthenticated) {
-      router.replace('/(tabs)/home');
-    } else {
-      router.push('/auth/login');
-    }
+    router.replace('/(tabs)/home');
   };
 
   const phrases = [

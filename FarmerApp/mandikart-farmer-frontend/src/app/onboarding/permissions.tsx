@@ -57,6 +57,21 @@ export default function PermissionsScreen() {
   const [showTermsReader, setShowTermsReader] = useState(false);
   const [showPrivacyReader, setShowPrivacyReader] = useState(false);
 
+  // One-time permission check: if already accepted in cookies/localStorage, bypass screen immediately
+  useEffect(() => {
+    let isMounted = true;
+    async function checkConsentStatus() {
+      const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+      if (alreadyConsented && isMounted) {
+        router.replace('/(tabs)/home');
+      }
+    }
+    checkConsentStatus();
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
   const canProceed = terms && privacy;
 
   const handleGrantAndContinue = async () => {
@@ -72,11 +87,13 @@ export default function PermissionsScreen() {
           notifications,
         },
       });
+      setOnboarded(true);
+      setIsAuthenticated(true);
     } catch (e) {
       console.warn('Consent recorded with fallback:', e);
     } finally {
       setLoading(false);
-      router.replace('/onboarding/farmer-profile');
+      router.replace('/(tabs)/home');
     }
   };
 

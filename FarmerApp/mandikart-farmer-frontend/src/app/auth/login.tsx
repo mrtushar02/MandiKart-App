@@ -55,11 +55,7 @@ export default function LoginScreen() {
           return;
         }
 
-        if (result.farmer.village || result.farmer.farmSizeAcres) {
-          router.replace('/(tabs)/home');
-        } else {
-          router.replace('/onboarding/permissions');
-        }
+        router.replace('/(tabs)/home');
       } catch (err: any) {
         setErrors({ mobile: err?.message || 'Could not connect to Google authentication service.' });
       } finally {
@@ -261,11 +257,7 @@ export default function LoginScreen() {
             farmer?.village &&
             (farmer?.farmSizeAcres || (farmer as any)?.farm_size_acres)
           );
-          if (isComplete) {
-            router.replace('/(tabs)/home');
-          } else {
-            router.replace('/onboarding/permissions');
-          }
+          router.replace('/(tabs)/home');
         }}
         onError={(err) => {
           Alert.alert('Google Sign-In', err);

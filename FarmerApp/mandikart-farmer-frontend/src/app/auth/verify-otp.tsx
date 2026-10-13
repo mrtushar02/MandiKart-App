@@ -33,6 +33,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { apiClient } from '@/services/apiClient';
 import { firebaseAuthService } from '@/services/firebaseAuthService';
+import { FrontendConsentService } from '@/services/consentService';
 
 type VerificationMode = 'mobile' | 'email';
 
@@ -215,13 +216,8 @@ export default function VerifyOtpScreen() {
             role: 'FARMER',
           });
 
-          const isNew = Boolean(
-            result.isNewUser ||
-            !result.farmer.village ||
-            !result.farmer.farmSizeAcres
-          );
-
-          if (isNew) {
+          const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+          if (!alreadyConsented && result.isNewUser) {
             router.replace('/onboarding/permissions');
           } else {
             router.replace('/(tabs)/home');
@@ -270,8 +266,9 @@ export default function VerifyOtpScreen() {
           Alert.alert('Email Verified', 'Your email address has been verified successfully.', [
             {
               text: 'Continue',
-              onPress: () => {
-                if (isNew) {
+              onPress: async () => {
+                const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+                if (!alreadyConsented && res.data.isNewUser) {
                   router.replace('/onboarding/permissions');
                 } else {
                   router.replace('/(tabs)/home');

@@ -149,11 +149,7 @@ export default function AuthCallbackScreen() {
         setStatus('success');
         setStatusMessage(`Welcome, ${farmer.fullName || 'Farmer'}!`);
         setTimeout(() => {
-          if (isNew) {
-            router.replace('/onboarding/permissions');
-          } else {
-            router.replace('/(tabs)/home');
-          }
+          router.replace('/(tabs)/home');
         }, 400);
         return;
       }
@@ -238,11 +234,7 @@ export default function AuthCallbackScreen() {
             setStatusMessage(`Welcome, ${farmer.fullName || 'Farmer'}!`);
 
             setTimeout(() => {
-              if (isNewParam || (!farmer.village && !farmer.farmSizeAcres)) {
-                router.replace('/onboarding/permissions');
-              } else {
-                router.replace('/(tabs)/home');
-              }
+              router.replace('/(tabs)/home');
             }, 300);
             return;
           } catch (tokenErr: any) {
@@ -258,11 +250,7 @@ export default function AuthCallbackScreen() {
           } catch {}
 
           if (Platform.OS !== 'web') {
-            if (user.village || user.farmSizeAcres) {
-              router.replace('/(tabs)/home');
-            } else {
-              router.replace('/onboarding/permissions');
-            }
+            router.replace('/(tabs)/home');
             return;
           }
 
@@ -390,12 +378,7 @@ export default function AuthCallbackScreen() {
   };
 
   const handleContinueInWeb = () => {
-    const { user } = useAuthStore.getState();
-    if (user?.village || user?.farmSizeAcres) {
-      router.replace('/(tabs)/home');
-    } else {
-      router.replace('/onboarding/permissions');
-    }
+    router.replace('/(tabs)/home');
   };
 
   return (

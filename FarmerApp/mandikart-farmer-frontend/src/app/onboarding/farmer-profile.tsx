@@ -252,7 +252,7 @@ export default function FarmerProfileScreen() {
                   if (router.canGoBack()) {
                     router.back();
                   } else {
-                    router.replace('/onboarding/permissions');
+                    router.replace('/(tabs)/home');
                   }
                 }}
                 step={{ current: 2, total: 3, label: 'Profile' }}

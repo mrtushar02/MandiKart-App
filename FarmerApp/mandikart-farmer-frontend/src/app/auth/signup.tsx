@@ -53,6 +53,7 @@ import { useAuthStore } from '@/store/authStore';
 import { apiClient } from '@/services/apiClient';
 import { GoogleAuthModal } from '@/components/GoogleAuthModal';
 import { firebaseAuthService } from '@/services/firebaseAuthService';
+import { FrontendConsentService } from '@/services/consentService';
 
 type OtpMethod = 'sms' | 'whatsapp';
 type FieldTone = 'green' | 'orange' | 'neutral';
@@ -126,10 +127,11 @@ export default function SignUpScreen() {
           (result.farmer.farmSizeAcres || (result.farmer as any).farm_size_acres)
         );
 
-        if (isProfileComplete) {
-          router.replace('/(tabs)/home');
-        } else {
+        const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+        if (!alreadyConsented && !isProfileComplete) {
           router.replace('/onboarding/permissions');
+        } else {
+          router.replace('/(tabs)/home');
         }
       } catch (err: any) {
         Alert.alert('Google Sign-Up Error', err?.message || 'Could not connect to authentication service.');
@@ -550,16 +552,12 @@ export default function SignUpScreen() {
         visible={googleModalVisible}
         onClose={() => setGoogleModalVisible(false)}
         pendingPhone={mobile ? `${countryCode}${mobile.replace(/\D/g, '').slice(-10)}` : undefined}
-        onSuccess={(farmer, isNewUser) => {
-          const isComplete = Boolean(
-            !isNewUser &&
-            farmer?.village &&
-            (farmer?.farmSizeAcres || (farmer as any)?.farm_size_acres)
-          );
-          if (isComplete) {
-            router.replace('/(tabs)/home');
-          } else {
+        onSuccess={async (farmer, isNewUser) => {
+          const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+          if (!alreadyConsented && isNewUser) {
             router.replace('/onboarding/permissions');
+          } else {
+            router.replace('/(tabs)/home');
           }
         }}
         onError={(err) => {

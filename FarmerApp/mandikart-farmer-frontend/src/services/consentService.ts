@@ -13,12 +13,29 @@ import { resolveFarmerApiBaseUrl } from './apiClient';
 const CONSENT_KEY = 'mandikart_consent_accepted';
 const SESSION_TOKEN_KEY = 'mandikart_session_token';
 
-// Safe cross-platform storage helper
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+function setCookie(name: string, value: string, days: number = 365) {
+  if (typeof document === 'undefined') return;
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+// Safe cross-platform storage helper with cookie and localStorage persistence
 export const appStorage = {
   async getItem(key: string): Promise<string | null> {
     if (Platform.OS === 'web') {
       try {
-        return typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+        if (typeof window !== 'undefined') {
+          const cookieVal = getCookie(key);
+          if (cookieVal) return cookieVal;
+          return localStorage.getItem(key);
+        }
+        return null;
       } catch {
         return null;
       }
@@ -29,7 +46,10 @@ export const appStorage = {
   async setItem(key: string, value: string): Promise<void> {
     if (Platform.OS === 'web') {
       try {
-        if (typeof window !== 'undefined') localStorage.setItem(key, value);
+        if (typeof window !== 'undefined') {
+          setCookie(key, value, 365);
+          localStorage.setItem(key, value);
+        }
       } catch {}
       return;
     }
@@ -42,6 +62,21 @@ export function getApiBaseUrl(): string {
 }
 
 export class FrontendConsentService {
+  /**
+   * Fast check if the user has already consented locally (via cookie, localStorage or secureStore).
+   */
+  static async hasAcceptedConsent(): Promise<boolean> {
+    try {
+      const localConsented = await appStorage.getItem(CONSENT_KEY);
+      if (localConsented === 'true') {
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Checks if the user has already consented locally or from backend.
    */
