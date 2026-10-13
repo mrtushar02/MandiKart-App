@@ -100,46 +100,7 @@ export default function SignUpScreen() {
   const [googleModalVisible, setGoogleModalVisible] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleGoogleSignUp = async () => {
-    if (Platform.OS === 'web') {
-      setGoogleLoading(true);
-      try {
-        const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
-        const result = await firebaseAuthService.signInWithGoogleFirebase(
-          cleanPhone ? `${countryCode}${cleanPhone}` : undefined
-        );
-
-        if (result.error === 'REDIRECTING') {
-          return;
-        }
-
-        if (!result.success || !result.farmer) {
-          if (result.error && !result.error.includes('cancelled')) {
-            Alert.alert('Google Sign-Up', result.error);
-          }
-          return;
-        }
-
-        const isProfileComplete = Boolean(
-          !result.isNewUser &&
-          result.farmer.village &&
-          (result.farmer.farmSizeAcres || (result.farmer as any).farm_size_acres)
-        );
-
-        if (isProfileComplete) {
-          router.replace('/(tabs)/home');
-        } else {
-          router.replace('/onboarding/permissions');
-        }
-      } catch (err: any) {
-        Alert.alert('Google Sign-Up Error', err?.message || 'Could not connect to authentication service.');
-      } finally {
-        setGoogleLoading(false);
-      }
-      return;
-    }
-
-    // On Native (Android / iOS): Open in-app Google Auth Modal
+  const handleGoogleSignUp = () => {
     setGoogleModalVisible(true);
   };
 
@@ -550,7 +511,14 @@ export default function SignUpScreen() {
         visible={googleModalVisible}
         onClose={() => setGoogleModalVisible(false)}
         pendingPhone={mobile ? `${countryCode}${mobile.replace(/\D/g, '').slice(-10)}` : undefined}
-        onSuccess={(farmer, isNewUser) => {
+        onSuccess={(farmer, isNewUser, token) => {
+          if (token && farmer) {
+            setAuthenticated(token, farmer);
+          }
+          if (farmer) {
+            setUser(farmer);
+          }
+          setIsAuthenticated(true);
           const isComplete = Boolean(
             !isNewUser &&
             farmer?.village &&

@@ -37,38 +37,7 @@ export default function LoginScreen() {
   const [googleModalVisible, setGoogleModalVisible] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
-  const handleGoogleLogin = async () => {
-    if (Platform.OS === 'web') {
-      setGoogleLoading(true);
-      try {
-        const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
-        const result = await firebaseAuthService.signInWithGoogleFirebase(
-          cleanPhone ? `+91${cleanPhone}` : undefined
-        );
-
-        if (result.error === 'REDIRECTING') return;
-
-        if (!result.success || !result.farmer) {
-          if (result.error && !result.error.includes('cancelled')) {
-            Alert.alert('Google Sign-In', result.error);
-          }
-          return;
-        }
-
-        if (result.farmer.village || result.farmer.farmSizeAcres) {
-          router.replace('/(tabs)/home');
-        } else {
-          router.replace('/onboarding/permissions');
-        }
-      } catch (err: any) {
-        setErrors({ mobile: err?.message || 'Could not connect to Google authentication service.' });
-      } finally {
-        setGoogleLoading(false);
-      }
-      return;
-    }
-
-    // On Native (Android / iOS): Open in-app Google Auth Modal
+  const handleGoogleLogin = () => {
     setGoogleModalVisible(true);
   };
 
@@ -255,7 +224,14 @@ export default function LoginScreen() {
         visible={googleModalVisible}
         onClose={() => setGoogleModalVisible(false)}
         pendingPhone={mobile ? `+91${mobile.replace(/\D/g, '').slice(-10)}` : undefined}
-        onSuccess={(farmer, isNewUser) => {
+        onSuccess={(farmer, isNewUser, token) => {
+          if (token && farmer) {
+            setAuthenticated(token, farmer);
+          }
+          if (farmer) {
+            setUser(farmer);
+          }
+          setIsAuthenticated(true);
           const isComplete = Boolean(
             !isNewUser &&
             farmer?.village &&

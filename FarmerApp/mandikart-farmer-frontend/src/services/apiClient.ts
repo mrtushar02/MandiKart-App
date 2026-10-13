@@ -334,6 +334,20 @@ export const apiClient = {
     });
   },
 
+  // ── Authentication ──────────────────────────────────────────────
+  loginWithGoogle: async (params: {
+    idToken?: string;
+    email: string;
+    fullName: string;
+    avatarUrl?: string;
+    phone?: string;
+  }) => {
+    return apiClient.post<{ data: { token: string; farmer: any; isNewUser: boolean } }, any>(
+      '/auth/google',
+      params
+    );
+  },
+
   // ── Market Intelligence ──────────────────────────────────────────
   getMarketRates: async (params?: { commodity?: string; state?: string; district?: string }) => {
     try {
