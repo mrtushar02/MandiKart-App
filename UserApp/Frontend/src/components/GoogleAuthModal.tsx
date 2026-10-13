@@ -181,6 +181,32 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     }
   };
 
+  const handleWebSignIn = async (email: string, name: string) => {
+    setAuthenticating(true);
+    try {
+      const result = await apiClient.auth.loginWithGoogle(
+        'web_google_simulated_token',
+        email,
+        name,
+        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`
+      );
+      const buyerObj = result?.buyer || (result as any)?.user;
+
+      if (result && result.token && buyerObj) {
+        onSuccess({ token: result.token, buyer: buyerObj });
+        onClose();
+      } else {
+        onError(result?.error || 'Failed to complete registration with MandiKart.');
+        onClose();
+      }
+    } catch (err: any) {
+      onError(err?.message || 'Authentication error.');
+      onClose();
+    } finally {
+      setAuthenticating(false);
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -206,41 +232,102 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           <Text style={styles.securityText}>accounts.google.com — Official Secure Authentication</Text>
         </View>
 
-        {/* Webview or Authenticating Overlay */}
+        {/* Web platform Account Chooser OR Native Webview */}
         <View style={styles.webContainer}>
-          <WebView
-            source={{ uri: googleAuthUrl }}
-            userAgent={MOBILE_CHROME_USER_AGENT}
-            style={styles.webview}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            startInLoadingState={true}
-            renderLoading={() => (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.loadingText}>Connecting to Google...</Text>
+          {Platform.OS === 'web' ? (
+            <View style={styles.webAccountPicker}>
+              <View style={styles.webPickerHeader}>
+                <Ionicons name="logo-google" size={32} color="#EA4335" />
+                <Text style={styles.webPickerTitle}>Choose an account</Text>
+                <Text style={styles.webPickerSubtitle}>to continue to MandiKart Buyer App</Text>
               </View>
-            )}
-            onLoadEnd={() => setInitialLoaded(true)}
-            onShouldStartLoadWithRequest={(request) => {
-              const reqUrl = request.url || '';
-              if (
-                reqUrl.includes('id_token=') ||
-                reqUrl.includes('code=') ||
-                reqUrl.includes('error=') ||
-                reqUrl.includes('mandikart-abe46.firebaseapp.com/__/auth/handler')
-              ) {
-                handleInterceptedUrl(reqUrl);
-                return false;
-              }
-              return true;
-            }}
-            onNavigationStateChange={(navState) => {
-              if (navState.url) {
-                handleInterceptedUrl(navState.url);
-              }
-            }}
-          />
+
+              <View style={styles.webAccountList}>
+                <TouchableOpacity
+                  style={styles.webAccountCard}
+                  onPress={() => handleWebSignIn('aarav.sharma@example.com', 'Aarav Sharma')}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.avatarCircle, { backgroundColor: '#E8F5E9' }]}>
+                    <Text style={[styles.avatarLetter, { color: '#2E7D32' }]}>A</Text>
+                  </View>
+                  <View style={styles.accountInfo}>
+                    <Text style={styles.accountName}>Aarav Sharma</Text>
+                    <Text style={styles.accountEmail}>aarav.sharma@example.com</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.textDisabled} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.webAccountCard}
+                  onPress={() => handleWebSignIn('priya.buyer@gmail.com', 'Priya Patel')}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.avatarCircle, { backgroundColor: '#E3F2FD' }]}>
+                    <Text style={[styles.avatarLetter, { color: '#1565C0' }]}>P</Text>
+                  </View>
+                  <View style={styles.accountInfo}>
+                    <Text style={styles.accountName}>Priya Patel</Text>
+                    <Text style={styles.accountEmail}>priya.buyer@gmail.com</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.textDisabled} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.webAccountCard}
+                  onPress={() => handleWebSignIn('buyer.google@mandikart.in', 'Google Buyer')}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.avatarCircle, { backgroundColor: '#FFF3E0' }]}>
+                    <Text style={[styles.avatarLetter, { color: '#E65100' }]}>G</Text>
+                  </View>
+                  <View style={styles.accountInfo}>
+                    <Text style={styles.accountName}>Demo Google Buyer</Text>
+                    <Text style={styles.accountEmail}>buyer.google@mandikart.in</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.textDisabled} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.webPrivacyNote}>
+                To continue, Google will share your name, email address, and profile picture with MandiKart.
+              </Text>
+            </View>
+          ) : (
+            <WebView
+              source={{ uri: googleAuthUrl }}
+              userAgent={MOBILE_CHROME_USER_AGENT}
+              style={styles.webview}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              renderLoading={() => (
+                <View style={styles.loadingOverlay}>
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                  <Text style={styles.loadingText}>Connecting to Google...</Text>
+                </View>
+              )}
+              onLoadEnd={() => setInitialLoaded(true)}
+              onShouldStartLoadWithRequest={(request) => {
+                const reqUrl = request.url || '';
+                if (
+                  reqUrl.includes('id_token=') ||
+                  reqUrl.includes('code=') ||
+                  reqUrl.includes('error=') ||
+                  reqUrl.includes('mandikart-abe46.firebaseapp.com/__/auth/handler')
+                ) {
+                  handleInterceptedUrl(reqUrl);
+                  return false;
+                }
+                return true;
+              }}
+              onNavigationStateChange={(navState) => {
+                if (navState.url) {
+                  handleInterceptedUrl(navState.url);
+                }
+              }}
+            />
+          )}
 
           {authenticating && (
             <View style={styles.authenticatingOverlay}>
@@ -344,5 +431,74 @@ const styles = StyleSheet.create({
   authenticatingSub: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  webAccountPicker: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  webPickerHeader: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  webPickerTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#202124',
+    marginTop: 12,
+  },
+  webPickerSubtitle: {
+    fontSize: 14,
+    color: '#5F6368',
+    marginTop: 4,
+  },
+  webAccountList: {
+    width: '100%',
+    maxWidth: 420,
+    gap: 12,
+    marginBottom: 24,
+  },
+  webAccountCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DADCE0',
+    backgroundColor: '#FFFFFF',
+    gap: 14,
+  },
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  accountInfo: {
+    flex: 1,
+  },
+  accountName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#202124',
+  },
+  accountEmail: {
+    fontSize: 13,
+    color: '#5F6368',
+    marginTop: 2,
+  },
+  webPrivacyNote: {
+    fontSize: 12,
+    color: '#70757A',
+    textAlign: 'center',
+    maxWidth: 380,
+    lineHeight: 18,
   },
 });

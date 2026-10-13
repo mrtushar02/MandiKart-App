@@ -13,6 +13,7 @@ interface CachedResponse {
 }
 
 const idempotencyStore = new Map<string, CachedResponse>();
+const inFlightIdempotencyKeys = new Set<string>();
 
 // Auto-cleanup stale keys periodically
 setInterval(() => {
@@ -44,9 +45,26 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  // Intercept json() response to cache on successful completion
+  // Prevent concurrent multi-click duplicate execution
+  if (inFlightIdempotencyKeys.has(idempotencyKey)) {
+    res.setHeader('Retry-After', '1');
+    res.status(409).json({
+      data: null,
+      meta: null,
+      error: {
+        code: 'REQUEST_IN_PROGRESS',
+        message: 'A request with this idempotency key is already currently being processed.',
+      },
+    });
+    return;
+  }
+
+  inFlightIdempotencyKeys.add(idempotencyKey);
+
+  // Intercept json() response to cache on successful completion and release lock
   const originalJson = res.json.bind(res);
   res.json = (body: any) => {
+    inFlightIdempotencyKeys.delete(idempotencyKey);
     if (res.statusCode >= 200 && res.statusCode < 300) {
       idempotencyStore.set(idempotencyKey, {
         statusCode: res.statusCode,
@@ -56,6 +74,11 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
     }
     return originalJson(body);
   };
+
+  // Safety release on socket close/error
+  res.on('close', () => {
+    inFlightIdempotencyKeys.delete(idempotencyKey);
+  });
 
   next();
 }

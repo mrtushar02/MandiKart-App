@@ -4,7 +4,7 @@
  * Designed for FPOs to connect with corporate buyers, food processors,
  * wholesale retail chains, and commodity exporters:
  * - Direct contract farming tenders & bulk purchase requests
- * - Escrow-backed payment guarantees & short settlement cycles
+ * - Honest buyer-service availability state until buyer APIs are connected
  * - Active contracts tracker & delivery schedule
  * - Submit lot quotes directly to buyers
  */
@@ -58,12 +58,15 @@ const ACCENT_GREEN = '#15803D';
 export default function FPOBuyersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isHydrated } = useAuthStore();
+  const fpoId = user?.fpoDetails?.fpoId;
 
   const [buyers, setBuyers] = useState<FPOBuyer[]>([]);
   const [lots, setLots] = useState<FPOLot[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [buyerUnavailable, setBuyerUnavailable] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBuyerType, setSelectedBuyerType] = useState<string>('ALL');
 
@@ -75,34 +78,50 @@ export default function FPOBuyersScreen() {
   const [quoteNotes, setQuoteNotes] = useState<string>('');
   const [isSubmittingQuote, setIsSubmittingQuote] = useState(false);
 
-  const fetchData = async () => {
-    try {
-      const [buyerRes, lotRes]: any = await Promise.all([
-        apiClient.getFPOBuyers(),
-        apiClient.getFPOLots(user?.fpoDetails?.fpoId),
-      ]);
-
-      if (buyerRes?.data && Array.isArray(buyerRes.data)) {
-        setBuyers(buyerRes.data as FPOBuyer[]);
-      }
-      if (lotRes?.data && Array.isArray(lotRes.data)) {
-        setLots(lotRes.data as FPOLot[]);
-      }
-    } catch (err) {
-      console.warn('Failed to load buyers/lots:', err);
-    } finally {
+  const fetchData = async (activeFpoId = fpoId) => {
+    if (!activeFpoId) {
       setLoading(false);
+      setError(isHydrated ? 'This FPO profile has no FPO ID yet.' : 'Waiting for the FPO profile to finish loading…');
       setRefreshing(false);
+      return;
     }
+
+    setLoading(true);
+    setError(null);
+    setBuyerUnavailable(false);
+    const [buyerResult, lotResult] = await Promise.allSettled([
+      apiClient.getFPOBuyers(),
+      apiClient.getFPOLots(activeFpoId),
+    ]);
+
+    if (buyerResult.status === 'fulfilled') {
+      const buyerRes: any = buyerResult.value;
+      setBuyers(buyerRes?.data && Array.isArray(buyerRes.data) ? (buyerRes.data as FPOBuyer[]) : []);
+    } else {
+      console.warn('Buyer feed is unavailable:', buyerResult.reason);
+      setBuyerUnavailable(true);
+      setBuyers([]);
+    }
+
+    if (lotResult.status === 'fulfilled') {
+      const lotRes: any = lotResult.value;
+      setLots(lotRes?.data && Array.isArray(lotRes.data) ? (lotRes.data as FPOLot[]) : []);
+    } else {
+      console.warn('Failed to load FPO lots:', lotResult.reason);
+      setError('Lot data could not be synced. Buyer discovery remains unavailable.');
+    }
+
+    setLoading(false);
+    setRefreshing(false);
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchData(fpoId);
+  }, [fpoId, isHydrated]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchData();
+    fetchData(fpoId);
   };
 
   const handleOpenQuote = (buyer: FPOBuyer) => {
@@ -120,15 +139,10 @@ export default function FPOBuyersScreen() {
       return;
     }
 
-    setIsSubmittingQuote(true);
-    setTimeout(() => {
-      setIsSubmittingQuote(false);
-      setQuoteBuyer(null);
-      Alert.alert(
-        'Quote Dispatched',
-        `Your commercial quote of ₹${offeredRate}/kg for ${offeredQtyMT} MT has been submitted to ${quoteBuyer?.companyName}. The procurement officer will respond within 24 hours.`
-      );
-    }, 800);
+    Alert.alert(
+      'Quotation unavailable',
+      'The buyer quotation service is not connected yet. No quote was submitted or saved.'
+    );
   };
 
   const filteredBuyers = useMemo(() => {
@@ -157,8 +171,8 @@ export default function FPOBuyersScreen() {
       >
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.fpoOrgLabel}>Institutional B2B Network</Text>
-            <Text style={styles.screenTitle}>Corporate Buyers & Tenders</Text>
+            <Text style={styles.fpoOrgLabel}>Buyer service status</Text>
+            <Text style={styles.screenTitle}>Buyer Network</Text>
           </View>
           <View style={styles.badgeCount}>
             <Handshake size={16} color="#93C5FD" />
@@ -166,21 +180,21 @@ export default function FPOBuyersScreen() {
           </View>
         </View>
 
-        {/* ── Benefit Highlights Banner ──────────────────────── */}
+        {/* ── Capability Status Banner ───────────────────────── */}
         <View style={styles.benefitBanner}>
           <View style={styles.benefitItem}>
-            <ShieldCheck size={16} color="#86EFAC" />
-            <Text style={styles.benefitText} numberOfLines={1}>100% Escrow</Text>
+            <ShieldCheck size={16} color="#FDE68A" />
+            <Text style={styles.benefitText} numberOfLines={1}>Buyer feed unavailable</Text>
           </View>
           <View style={styles.benefitDivider} />
           <View style={styles.benefitItem}>
-            <CreditCard size={16} color="#93C5FD" />
-            <Text style={styles.benefitText} numberOfLines={1}>T+2 Payouts</Text>
+            <CreditCard size={16} color="#CBD5E1" />
+            <Text style={styles.benefitText} numberOfLines={1}>No payment claims</Text>
           </View>
           <View style={styles.benefitDivider} />
           <View style={styles.benefitItem}>
-            <Truck size={16} color="#FDE68A" />
-            <Text style={styles.benefitText} numberOfLines={1}>Buyer Transit</Text>
+            <Truck size={16} color="#CBD5E1" />
+            <Text style={styles.benefitText} numberOfLines={1}>Lots remain viewable</Text>
           </View>
         </View>
       </LinearGradient>
@@ -236,12 +250,40 @@ export default function FPOBuyersScreen() {
           <ActivityIndicator size="large" color={FPO_BLUE} />
           <Text style={styles.loadingText}>Connecting to B2B Procurement Desk...</Text>
         </View>
+      ) : error ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.errorState}>
+            <Building2 size={42} color="#B45309" />
+            <Text style={styles.emptyTitle}>Buyer desk sync unavailable</Text>
+            <Text style={styles.emptySubtitle}>{error}</Text>
+            <Pressable style={styles.emptyBtn} onPress={() => fetchData(fpoId)}>
+              <Text style={styles.emptyBtnText}>Retry sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.listContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
         >
-          {filteredBuyers.length === 0 ? (
+          {buyerUnavailable ? (
+            <View style={styles.unavailableState}>
+              <Building2 size={48} color="#64748B" strokeWidth={1.5} />
+              <Text style={styles.emptyTitle}>Buyer discovery is not connected</Text>
+              <Text style={styles.emptySubtitle}>
+                This screen does not have a buyer, tender, quotation, or contract backend yet. No buyer records or commercial claims are being shown.
+              </Text>
+              <View style={styles.sourceNote}>
+                <Layers size={16} color={FPO_BLUE} />
+                <Text style={styles.sourceNoteText}>
+                  {lots.length} FPO lot{lots.length === 1 ? '' : 's'} loaded from the connected lot service.
+                </Text>
+              </View>
+            </View>
+          ) : filteredBuyers.length === 0 ? (
             <View style={styles.emptyState}>
               <Building2 size={48} color="#9CA3AF" strokeWidth={1.5} />
               <Text style={styles.emptyTitle}>No Matching Buyers</Text>
@@ -318,7 +360,7 @@ export default function FPOBuyersScreen() {
                     onPress={() => handleOpenQuote(buyer)}
                   >
                     <Send size={15} color="#FFFFFF" />
-                    <Text style={styles.quoteBtnText}>Send Lot Quotation</Text>
+                    <Text style={styles.quoteBtnText}>Quotation service unavailable</Text>
                   </Pressable>
                 </View>
               </View>
@@ -414,32 +456,26 @@ export default function FPOBuyersScreen() {
 
                   {offeredRate && offeredQtyMT ? (
                     <View style={styles.summaryBox}>
-                      <Text style={styles.summaryLabel}>Total Estimated Contract Value:</Text>
+                        <Text style={styles.summaryLabel}>Reference value only — no contract will be created:</Text>
                       <Text style={styles.summaryValue}>
                         ₹{(parseFloat(offeredRate) * parseFloat(offeredQtyMT) * 1000).toLocaleString('en-IN')}
                       </Text>
                       <Text style={styles.summarySub}>
-                        Payment settled via Escrow in {quoteBuyer.paymentTermDays} days upon warehouse gate weighment.
+                          This arithmetic summary is not submitted or persisted because the quotation service is unavailable.
                       </Text>
                     </View>
                   ) : null}
                 </ScrollView>
 
                 <View style={styles.modalFooter}>
-                  <Pressable
-                    style={[styles.submitQuoteBtn, isSubmittingQuote && { opacity: 0.7 }]}
-                    onPress={handleSubmitQuote}
-                    disabled={isSubmittingQuote}
-                  >
-                    {isSubmittingQuote ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Send size={16} color="#FFFFFF" />
-                        <Text style={styles.submitQuoteBtnText}>Submit Quotation to Buyer</Text>
-                      </>
-                    )}
-                  </Pressable>
+          <Pressable
+            style={[styles.submitQuoteBtn, styles.disabledBtn]}
+            onPress={handleSubmitQuote}
+            disabled={isSubmittingQuote}
+          >
+            <Send size={16} color="#64748B" />
+            <Text style={[styles.submitQuoteBtnText, { color: '#64748B' }]}>Quotation service unavailable</Text>
+          </Pressable>
                 </View>
               </>
             )}
@@ -577,6 +613,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  stateContent: {
+    flexGrow: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
@@ -596,6 +637,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
+  errorState: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  unavailableState: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  sourceNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: FPO_BLUE_BG,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginTop: 16,
+  },
+  sourceNoteText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: FPO_BLUE,
+    fontWeight: '700',
+  },
   emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -607,6 +681,20 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     marginTop: 6,
+  },
+  emptyBtn: {
+    backgroundColor: FPO_BLUE,
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  emptyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   buyerCard: {
     backgroundColor: '#FFFFFF',
@@ -753,6 +841,7 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: FPO_BLUE,
     paddingVertical: 10,
+    minHeight: 44,
     borderRadius: 8,
   },
   quoteBtnText: {
@@ -883,11 +972,16 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: FPO_BLUE,
     paddingVertical: 13,
+    minHeight: 48,
     borderRadius: 8,
   },
   submitQuoteBtnText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  disabledBtn: {
+    backgroundColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
   },
 });

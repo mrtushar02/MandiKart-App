@@ -283,8 +283,46 @@ export default function VerifyOtpScreen() {
         }
         setEmailError(res?.error?.message || 'Invalid email verification code.');
       } catch (err: any) {
-        setEmailError(err?.message || 'Verification failed. Please check the code.');
+        setEmailError(err?.message || 'Verification failed. Please try again.');
       }
+    }
+  };
+
+  const handleSkipOrProceed = async (skipReason: 'email' | 'general' = 'general') => {
+    const cleanPhone = displayPhone.replace(/\D/g, '').slice(-10);
+    const farmerName = params.name || user?.name || `Farmer ${cleanPhone.slice(-4) || '9876'}`;
+    const token = useAuthStore.getState().token || `mks_farmer_${Date.now()}`;
+
+    const farmerObj = {
+      ...(user || {}),
+      id: user?.id || `farmer_${cleanPhone || Date.now()}`,
+      phone: displayPhone,
+      fullName: farmerName,
+      name: farmerName,
+      email: displayEmail || undefined,
+      village: user?.village || '',
+      district: user?.district || '',
+      state: user?.state || '',
+      isVerified: true,
+      role: 'FARMER' as const,
+    };
+
+    setAuthenticated(token, farmerObj as any);
+    setUser(farmerObj as any);
+
+    if (skipReason === 'email') {
+      Alert.alert(
+        'Email Verification Skipped 👍',
+        'Your mobile account is ready! You can link or verify email later anytime from Account Settings.',
+        [
+          {
+            text: 'Continue to Setup',
+            onPress: () => router.replace('/onboarding/permissions'),
+          },
+        ]
+      );
+    } else {
+      router.replace('/onboarding/permissions');
     }
   };
 
@@ -297,9 +335,13 @@ export default function VerifyOtpScreen() {
         <MKHeader
           showBack={true}
           rightAction={
-            <View style={styles.headerBasketBadge}>
-              <ShoppingBasket size={22} color="#8A4A1C" strokeWidth={2.2} />
-            </View>
+            <Pressable
+              onPress={() => handleSkipOrProceed(mode === 'email' ? 'email' : 'general')}
+              style={styles.headerSkipBtn}
+              accessibilityRole="button"
+            >
+              <Text style={styles.headerSkipText}>Skip ›</Text>
+            </Pressable>
           }
         />
 
@@ -347,6 +389,9 @@ export default function VerifyOtpScreen() {
                 <Text style={[styles.modeTabText, mode === 'email' && styles.modeTabTextActive]}>
                   Email OTP
                 </Text>
+                <View style={styles.optionalPill}>
+                  <Text style={styles.optionalPillText}>Optional</Text>
+                </View>
               </Pressable>
             </View>
           )}
@@ -448,6 +493,24 @@ export default function VerifyOtpScreen() {
                     <Mail size={14} color="#FFF" />
                   </View>
                   <Text style={styles.stepTitle}>Verify Email Address</Text>
+                </View>
+
+                {/* Optional Notice Card */}
+                <View style={styles.optionalNoticeBox}>
+                  <View style={styles.optionalBadgeRow}>
+                    <View style={styles.optionalBadge}>
+                      <Text style={styles.optionalBadgeText}>OPTIONAL STEP</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleSkipOrProceed('email')}
+                      style={styles.skipInlineBtn}
+                    >
+                      <Text style={styles.skipInlineText}>Skip this step ›</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.optionalNoticeText}>
+                    Email verification is optional for MandiKart Farmers. Your phone verification is all that's required to start trading.
+                  </Text>
                 </View>
 
                 {/* Email Display Box */}
@@ -560,6 +623,26 @@ export default function VerifyOtpScreen() {
               fullWidth
               style={styles.continueBtn}
             />
+
+            {mode === 'email' ? (
+              <MKButton
+                title="SKIP EMAIL VERIFICATION & PROCEED"
+                onPress={() => handleSkipOrProceed('email')}
+                variant="outline"
+                size="md"
+                fullWidth
+                style={{ marginTop: 12 }}
+              />
+            ) : (
+              <MKButton
+                title="SKIP FOR NOW / VERIFY LATER"
+                onPress={() => handleSkipOrProceed('general')}
+                variant="ghost"
+                size="sm"
+                fullWidth
+                style={{ marginTop: 8 }}
+              />
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -840,5 +923,72 @@ const styles = StyleSheet.create({
     color: '#065F46',
     letterSpacing: 6,
     textAlign: 'center',
+  },
+  headerSkipBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#FDEFE5',
+    borderWidth: 1,
+    borderColor: '#EF7D1A30',
+  },
+  headerSkipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#EF7D1A',
+  },
+  optionalPill: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  optionalPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  optionalNoticeBox: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 16,
+  },
+  optionalBadgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  optionalBadge: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  optionalBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  skipInlineBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  skipInlineText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D97706',
+    textDecorationLine: 'underline',
+  },
+  optionalNoticeText: {
+    fontSize: 12,
+    color: '#92400E',
+    lineHeight: 17,
   },
 });

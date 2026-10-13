@@ -20,7 +20,9 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Platform,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import {
   MapPin,
@@ -105,6 +107,91 @@ export default function FarmDetailsScreen() {
 
   // Celebration Modal state
   const [celebrationVisible, setCelebrationVisible] = useState(false);
+
+  // Map & GPS Pinpoint State
+  const [farmCoordinates, setFarmCoordinates] = useState({
+    latitude: (user as any)?.latitude || 19.9975,
+    longitude: (user as any)?.longitude || 73.7898,
+  });
+  const [isLocatingGps, setIsLocatingGps] = useState(false);
+
+  const handleDetectCurrentLocation = async () => {
+    setIsLocatingGps(true);
+    try {
+      let lat = farmCoordinates.latitude;
+      let lon = farmCoordinates.longitude;
+      let obtained = false;
+
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+        try {
+          const pos: any = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 10000,
+            });
+          });
+          lat = pos.coords.latitude;
+          lon = pos.coords.longitude;
+          obtained = true;
+        } catch (webGeoErr) {
+          console.warn('Web geolocation fallback:', webGeoErr);
+        }
+      }
+
+      if (!obtained) {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            lat = loc.coords.latitude;
+            lon = loc.coords.longitude;
+            obtained = true;
+          } else {
+            Alert.alert(
+              'Location Permission',
+              'Location permission is required for auto-detecting your farm. You can also drag the pin on the map.'
+            );
+          }
+        } catch (nativeGeoErr) {
+          console.warn('Native geolocation error:', nativeGeoErr);
+        }
+      }
+
+      if (obtained) {
+        setFarmCoordinates({ latitude: lat, longitude: lon });
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            const parts = [
+              addr.village || addr.suburb || addr.town || addr.city || addr.hamlet,
+              addr.county || addr.district,
+              addr.state,
+            ].filter(Boolean);
+            if (parts.length > 0) {
+              setFarmLocation(parts.join(', '));
+            }
+          }
+        } catch (geoErr) {
+          // keep existing location text
+        }
+      }
+    } catch (err: any) {
+      Alert.alert(
+        'GPS Notice',
+        'Could not fetch current coordinates. You can drag the pin on the map to pinpoint your farm.'
+      );
+    } finally {
+      setIsLocatingGps(false);
+    }
+  };
 
   const handlePickPlotPhoto = async () => {
     try {
@@ -226,6 +313,8 @@ export default function FarmDetailsScreen() {
       ...user,
       farmSizeAcres: numSize,
       farmLocation,
+      latitude: farmCoordinates.latitude,
+      longitude: farmCoordinates.longitude,
       isVerified: true,
       crops: mappedCrops,
     });
@@ -235,6 +324,8 @@ export default function FarmDetailsScreen() {
       await apiClient.put('/farmers/farm-details', {
         farmSizeAcres: numSize,
         ownershipType: ownershipType,
+        latitude: farmCoordinates.latitude,
+        longitude: farmCoordinates.longitude,
         primaryCrops: mappedCrops.length > 0 ? mappedCrops : ['Onion', 'Tomato'],
       });
     } catch (err: any) {
@@ -247,6 +338,8 @@ export default function FarmDetailsScreen() {
       {
         farmSizeAcres: numSize,
         farmLocation,
+        latitude: farmCoordinates.latitude,
+        longitude: farmCoordinates.longitude,
         isVerified: true,
         crops: mappedCrops,
         isOnboarded: true,
@@ -255,6 +348,8 @@ export default function FarmDetailsScreen() {
       {
         farmSizeAcres: numSize,
         village: farmLocation.split(',')[0]?.trim() || user?.village || 'Bareilly',
+        latitude: farmCoordinates.latitude,
+        longitude: farmCoordinates.longitude,
         primaryCrops: mappedCrops,
         isProfileCompleted: true,
       } as any
@@ -315,27 +410,65 @@ export default function FarmDetailsScreen() {
               <View style={styles.cardIconBadge}>
                 <MapPin size={18} color="#1E5A2A" strokeWidth={2.2} />
               </View>
-              <View>
-                <Text style={styles.cardTitle}>1. Farm Location</Text>
-                <Text style={styles.cardSubtitle}>Where is your farm located?</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>1. Farm Location & Pinpoint</Text>
+                <Text style={styles.cardSubtitle}>
+                  Real OpenStreetMap • Pinpoint & track exact farmgate
+                </Text>
               </View>
             </View>
 
+            {/* Farm Location Text Input */}
+            <View style={styles.locationInputWrapper}>
+              <MapPin size={16} color="#1E5A2A" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.locationTextInput}
+                value={farmLocation}
+                onChangeText={setFarmLocation}
+                placeholder="Village, Taluka / District, State"
+                placeholderTextColor="#9CA3AF"
+              />
+            </View>
+
+            {/* Coordinates Badge */}
+            <View style={styles.coordsBadge}>
+              <Text style={styles.coordsBadgeText}>
+                📍 {farmCoordinates.latitude.toFixed(5)}° N, {farmCoordinates.longitude.toFixed(5)}° E • OSM Live Map
+              </Text>
+            </View>
+
+            {/* Real Interactive OSM Map */}
             <View style={styles.mapViewContainer}>
               <FarmMapView
                 locationName={farmLocation}
                 acres={parseFloat(farmSize) || 5.5}
-                onDetectGps={() => setFarmLocation('Dindori, Nashik (GPS Verified)')}
+                latitude={farmCoordinates.latitude}
+                longitude={farmCoordinates.longitude}
+                isLocating={isLocatingGps}
+                onDetectGps={handleDetectCurrentLocation}
+                onLocationChange={(loc) => {
+                  setFarmCoordinates({ latitude: loc.latitude, longitude: loc.longitude });
+                  if (loc.address) {
+                    setFarmLocation(loc.address);
+                  }
+                }}
               />
             </View>
 
             <View style={styles.locationActionsRow}>
               <Pressable
-                onPress={() => setFarmLocation('Dindori, Nashik (Current)')}
-                style={styles.locationBtn}
+                onPress={handleDetectCurrentLocation}
+                disabled={isLocatingGps}
+                style={[styles.locationBtn, isLocatingGps && { opacity: 0.7 }]}
               >
-                <LocateFixed size={16} color="#1E5A2A" />
-                <Text style={styles.locationBtnText}>Use Current Location</Text>
+                {isLocatingGps ? (
+                  <ActivityIndicator size="small" color="#1E5A2A" />
+                ) : (
+                  <LocateFixed size={16} color="#1E5A2A" />
+                )}
+                <Text style={styles.locationBtnText}>
+                  {isLocatingGps ? 'Locating via GPS...' : 'Track Current GPS Location'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -873,6 +1006,44 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  locationInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FAF9F6',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E8E4DA',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  locationTextInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1A1C1E',
+    padding: 0,
+  },
+  coordsBadge: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  coordsBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  mapViewContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
   locationActionsRow: {
     flexDirection: 'row',
     gap: 8,
@@ -1000,13 +1171,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#1E5A2A',
-  },
-  mapViewContainer: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E8E4DA',
   },
   cropCustomThumb: {
     width: 22,

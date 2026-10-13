@@ -254,31 +254,33 @@ export class SupabaseAuthService {
     const cleanEmail = email.toLowerCase().trim();
 
     // 1. Verify credentials via Supabase Auth
-    let authUser: any = null;
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password,
+    });
 
-      if (!authError && authData?.user) {
-        authUser = authData.user;
-      }
-    } catch {}
+    if (authError) {
+      throw new Error(authError.message || 'Invalid email or password.');
+    }
+
+    const authUser = authData?.user;
+    if (!authUser) {
+      throw new Error('Invalid email or password.');
+    }
 
     // 2. Fetch profile from Supabase Database
     const table = role === UserRole.BUYER ? 'buyers' : 'farmers';
-    const { data: dbUser } = await supabase
+    const { data: dbUser, error: dbError } = await supabase
       .from(table)
       .select('*')
       .eq('email', cleanEmail)
       .maybeSingle();
 
-    if (!dbUser && !authUser) {
-      throw new Error('Invalid email or password. Please verify your credentials.');
+    if (dbError) {
+      throw new Error(dbError.message || 'Unable to load the authenticated user profile.');
     }
 
-    const userId = dbUser?.id || authUser?.id || `user_e_${Date.now()}`;
+    const userId = dbUser?.id || authUser.id;
     const userFullName = dbUser?.full_name || authUser?.user_metadata?.fullName || 'MandiKart User';
     const userPhone = dbUser?.phone || authUser?.phone || '';
 

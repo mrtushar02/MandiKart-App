@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { getValidatedEnv } from '@mandikart/shared-config';
-import { requireIdempotency, WeatherService } from '@mandikart/shared-core';
+import { requireIdempotency, WeatherService, apiRateLimit, strictAuthRateLimit } from '@mandikart/shared-core';
 import { authRouter } from './routes/auth.routes.js';
 import { catalogRouter } from './routes/catalog.routes.js';
 import { ordersRouter } from './routes/orders.routes.js';
@@ -51,7 +51,8 @@ app.get('/api/v1/health', (_req: Request, res: Response) => {
 });
 
 // Buyer Routes
-app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/auth', strictAuthRateLimit, authRouter);
+app.use('/api/v1', apiRateLimit);
 app.use('/api/v1/catalog', catalogRouter);
 app.use('/api/v1/products', catalogRouter);
 app.use('/api/v1/orders', ordersRouter);

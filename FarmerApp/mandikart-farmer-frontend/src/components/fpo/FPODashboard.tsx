@@ -20,6 +20,8 @@ import {
   Animated,
   Dimensions,
   StatusBar,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,6 +49,8 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/authStore';
+import { apiClient } from '@/services/apiClient';
+import type { FPOLot, FPOMember } from '@/types';
 
 const { width } = Dimensions.get('window');
 
@@ -58,8 +62,53 @@ const NAVY_FPO  = '#1A4D8E';
 export default function FPODashboard() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isHydrated } = useAuthStore();
   const fpo = user?.fpoDetails;
+  const fpoId = fpo?.fpoId;
+
+  const [members, setMembers] = React.useState<FPOMember[]>([]);
+  const [lots, setLots] = React.useState<FPOLot[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [syncError, setSyncError] = React.useState<string | null>(null);
+
+  const fetchDashboardData = async (activeFpoId = fpoId) => {
+    if (!activeFpoId) {
+      setLoading(false);
+      setSyncError(isHydrated ? 'This FPO profile has no FPO ID yet.' : 'Waiting for the FPO profile to finish loading…');
+      setRefreshing(false);
+      return;
+    }
+
+    setLoading(true);
+    setSyncError(null);
+    try {
+      const [memberRes, lotRes]: any = await Promise.all([
+        apiClient.getFPOMembers(activeFpoId),
+        apiClient.getFPOLots(activeFpoId),
+      ]);
+      setMembers(memberRes?.data && Array.isArray(memberRes.data) ? memberRes.data : []);
+      setLots(lotRes?.data && Array.isArray(lotRes.data) ? lotRes.data : []);
+    } catch (err) {
+      console.warn('Failed to sync FPO dashboard:', err);
+      setSyncError('Connected FPO data could not be synced.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchDashboardData(fpoId);
+  }, [fpoId, isHydrated]);
+
+  const activeMemberCount = members.filter((member) => member.status === 'ACTIVE').length;
+  const pendingMemberCount = members.filter((member) => member.status === 'PENDING').length;
+  const totalInventoryMT = lots.reduce((sum, lot) => sum + (lot.estimatedQtyMT || 0), 0);
+  const contractedMT = lots
+    .filter((lot) => lot.status === 'CONTRACTED' || lot.status === 'SOLD')
+    .reduce((sum, lot) => sum + (lot.estimatedQtyMT || 0), 0);
+  const liveLotCount = lots.filter((lot) => lot.status === 'LIVE').length;
 
   // Pulse animation for live radar pill
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -105,8 +154,8 @@ export default function FPODashboard() {
     {
       id: 'members',
       label: 'Shareholder Farmers',
-      value: String(fpo?.memberCount || 185),
-      change: '+14 this month',
+      value: String(members.length),
+      change: `${activeMemberCount} active · ${pendingMemberCount} pending`,
       trendUp: true,
       icon: Users,
       gradient: ['#3B82F6', '#1D4ED8'] as const,
@@ -115,8 +164,8 @@ export default function FPODashboard() {
     {
       id: 'inventory',
       label: 'Aggregated Produce',
-      value: `${fpo?.totalInventoryMT || 168} MT`,
-      change: '88% Grade A/B',
+      value: `${totalInventoryMT} MT`,
+      change: `${lots.length} recorded lot${lots.length === 1 ? '' : 's'}`,
       trendUp: true,
       icon: PackageCheck,
       gradient: ['#10B981', '#047857'] as const,
@@ -124,9 +173,9 @@ export default function FPODashboard() {
     },
     {
       id: 'turnover',
-      label: 'Gross Seasonal Sales',
-      value: fpo?.annualTurnoverBracket || '₹74.5L',
-      change: '92.7% Payout Rate',
+      label: 'Live lots',
+      value: String(liveLotCount),
+      change: 'Buyer service not connected',
       trendUp: true,
       icon: TrendingUp,
       gradient: ['#F59E0B', '#B45309'] as const,
@@ -134,9 +183,9 @@ export default function FPODashboard() {
     },
     {
       id: 'schemes',
-      label: 'Govt Grants Secured',
-      value: '₹15.0L',
-      change: 'AIF & 10K FPO',
+      label: 'Contracted produce',
+      value: `${contractedMT} MT`,
+      change: 'From connected lot records',
       trendUp: true,
       icon: Award,
       gradient: ['#8B5CF6', '#6D28D9'] as const,
@@ -148,7 +197,7 @@ export default function FPODashboard() {
   const actions = [
     {
       title: 'Create Bulk Lot',
-      subtitle: 'Grading & e-NAM supply',
+      subtitle: 'Connected lot registry',
       icon: PackagePlus,
       gradient: ['#2563EB', '#1E40AF'] as const,
       route: '/(tabs)/produce',
@@ -156,11 +205,11 @@ export default function FPODashboard() {
     },
     {
       title: 'B2B Buyers',
-      subtitle: 'ITC, Adani, BigBasket',
+      subtitle: 'Buyer service unavailable',
       icon: Handshake,
       gradient: ['#059669', '#065F46'] as const,
       route: '/(tabs)/sell',
-      tag: 'ACTIVE',
+      tag: 'UNAVAILABLE',
     },
     {
       title: 'Farmer Registry',
@@ -171,15 +220,14 @@ export default function FPODashboard() {
     },
     {
       title: 'Collective Inputs',
-      subtitle: 'Wholesale fertilizer & seeds',
+      subtitle: 'Procurement service unavailable',
       icon: ShoppingBag,
       gradient: ['#D97706', '#92400E'] as const,
       route: '/fpo/procurement',
-      tag: '14% OFF',
     },
     {
       title: 'Govt Schemes',
-      subtitle: 'Grants up to ₹33 Lakhs',
+      subtitle: 'Scheme service unavailable',
       icon: Award,
       gradient: ['#7C3AED', '#5B21B6'] as const,
       route: '/fpo/schemes',
@@ -210,8 +258,8 @@ export default function FPODashboard() {
 
         <View style={styles.headerTopBar}>
           <View style={styles.networkBadge}>
-            <Animated.View style={[styles.pulseDot, { transform: [{ scale: pulseAnim }] }]} />
-            <Text style={styles.networkBadgeText}>e-NAM & APMC DESK ACTIVE</Text>
+            <Animated.View style={[styles.pulseDot, { transform: [{ scale: pulseAnim }], backgroundColor: syncError ? '#FBBF24' : '#34D399' }]} />
+            <Text style={styles.networkBadgeText}>{syncError ? 'FPO DATA SYNC NEEDS ATTENTION' : 'FPO DATA SYNC'}</Text>
           </View>
 
           <Pressable style={styles.notificationBtn} onPress={() => router.push('/(tabs)/more')}>
@@ -249,8 +297,21 @@ export default function FPODashboard() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchDashboardData(fpoId); }} tintColor="#1D4ED8" />}
       >
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+
+          <View style={[styles.syncBanner, syncError ? styles.syncBannerError : styles.syncBannerReady]}>
+            {loading ? <ActivityIndicator size="small" color="#1D4ED8" /> : <View style={[styles.syncStateDot, syncError && styles.syncStateDotError]} />}
+            <Text style={styles.syncBannerText}>
+              {loading ? 'Syncing members and lots…' : syncError || 'Live metrics sourced from the connected FPO service'}
+            </Text>
+            {!!syncError && (
+              <Pressable style={styles.syncRetry} onPress={() => { setRefreshing(true); fetchDashboardData(fpoId); }}>
+                <Text style={styles.syncRetryText}>Retry</Text>
+              </Pressable>
+            )}
+          </View>
 
           {/* ── 3. Floating 3D Metric Deck (KPIs) ── */}
           <View style={styles.kpiContainer}>
@@ -284,7 +345,7 @@ export default function FPODashboard() {
             })}
           </View>
 
-          {/* ── 4. Live Institutional Tender Radar ── */}
+          {/* ── 4. Buyer service status ── */}
           <View style={styles.radarCard}>
             <LinearGradient
               colors={['#1E3A8A', '#0F2C56']}
@@ -295,25 +356,21 @@ export default function FPODashboard() {
               <View style={styles.radarHeader}>
                 <View style={styles.radarTag}>
                   <Zap size={12} color="#FDE047" fill="#FDE047" />
-                  <Text style={styles.radarTagText}>LIVE TENDER RADAR</Text>
+                  <Text style={styles.radarTagText}>BUYER SERVICE</Text>
                 </View>
-                <Text style={styles.radarTime}>Updated 2m ago</Text>
+                <Text style={styles.radarTime}>Not connected</Text>
               </View>
 
               <Text style={styles.radarHeadline}>
-                ITC Agri Hub placed ₹35.2/kg bid on Sharbati Wheat Lot #W01
+                Buyer discovery and tender actions are unavailable
               </Text>
               <Text style={styles.radarSub}>
-                Volume: 45 MT • Escrow payout guaranteed within 3 bank days upon gate weighment.
+                The dashboard will show buyer records only after a verified buyer service is connected. No bids, escrow, payout, or contract claims are shown here.
               </Text>
 
-              <Pressable
-                style={styles.radarBtn}
-                onPress={() => router.push('/(tabs)/sell')}
-              >
-                <Text style={styles.radarBtnText}>Review & Accept Corporate Offer</Text>
-                <ChevronRight size={15} color="#0F2C56" strokeWidth={2.5} />
-              </Pressable>
+              <View style={styles.radarUnavailable}>
+                <Text style={styles.radarUnavailableText}>No buyer action available</Text>
+              </View>
             </LinearGradient>
           </View>
 
@@ -359,15 +416,15 @@ export default function FPODashboard() {
           {/* ── 6. Visual Aggregation Pipeline Tracker ── */}
           <View style={styles.pipelineCard}>
             <Text style={styles.pipelineTitle}>Harvest Aggregation Pipeline</Text>
-            <Text style={styles.pipelineSub}>Current season flow across member farms</Text>
+              <Text style={styles.pipelineSub}>Current connected member and lot records</Text>
 
             <View style={styles.pipelineSteps}>
               <View style={styles.stepItem}>
                 <View style={[styles.stepCircle, styles.stepDone]}>
                   <CheckCircle2 size={15} color="#FFFFFF" />
                 </View>
-                <Text style={styles.stepName} numberOfLines={1}>Farmgate</Text>
-                <Text style={styles.stepQty} numberOfLines={1}>218 MT</Text>
+                <Text style={styles.stepName} numberOfLines={1}>Members</Text>
+                <Text style={styles.stepQty} numberOfLines={1}>{members.length} listed</Text>
               </View>
 
               <View style={styles.stepConnector} />
@@ -376,8 +433,8 @@ export default function FPODashboard() {
                 <View style={[styles.stepCircle, styles.stepDone]}>
                   <Scale size={15} color="#FFFFFF" />
                 </View>
-                <Text style={styles.stepName} numberOfLines={1}>Grading</Text>
-                <Text style={styles.stepQty} numberOfLines={1}>92% Gr. A</Text>
+                  <Text style={styles.stepName} numberOfLines={1}>Lots</Text>
+                  <Text style={styles.stepQty} numberOfLines={1}>{lots.length} recorded</Text>
               </View>
 
               <View style={styles.stepConnector} />
@@ -386,8 +443,8 @@ export default function FPODashboard() {
                 <View style={[styles.stepCircle, styles.stepActive]}>
                   <Warehouse size={15} color="#FFFFFF" />
                 </View>
-                <Text style={[styles.stepName, { color: '#1E40AF', fontWeight: '800' }]} numberOfLines={1}>Lot Stock</Text>
-                <Text style={styles.stepQty} numberOfLines={1}>168 MT</Text>
+                  <Text style={[styles.stepName, { color: '#1E40AF', fontWeight: '800' }]} numberOfLines={1}>Lot stock</Text>
+                  <Text style={styles.stepQty} numberOfLines={1}>{totalInventoryMT} MT</Text>
               </View>
 
               <View style={styles.stepConnector} />
@@ -396,8 +453,8 @@ export default function FPODashboard() {
                 <View style={[styles.stepCircle, styles.stepPending]}>
                   <Handshake size={15} color="#64748B" />
                 </View>
-                <Text style={styles.stepName} numberOfLines={1}>Contracts</Text>
-                <Text style={styles.stepQty} numberOfLines={1}>60 MT Sold</Text>
+                  <Text style={styles.stepName} numberOfLines={1}>Contracted</Text>
+                  <Text style={styles.stepQty} numberOfLines={1}>{contractedMT} MT</Text>
               </View>
             </View>
           </View>
@@ -411,36 +468,37 @@ export default function FPODashboard() {
           </View>
 
           <View style={styles.feedCard}>
-            <View style={styles.feedItem}>
-              <View style={[styles.feedDot, { backgroundColor: '#10B981' }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.feedTitle}>Pusa Basmati 1509 Lot Contracted</Text>
-                <Text style={styles.feedDesc}>60 MT secured with Adani Wilmar at ₹43.50/kg</Text>
+            {lots.length === 0 && members.length === 0 ? (
+              <View style={styles.feedEmpty}>
+                <Text style={styles.feedTitle}>No connected activity yet</Text>
+                <Text style={styles.feedDesc}>Member and lot activity will appear after the FPO service returns records.</Text>
               </View>
-              <Text style={styles.feedTime}>Today</Text>
-            </View>
-
-            <View style={styles.feedDivider} />
-
-            <View style={styles.feedItem}>
-              <View style={[styles.feedDot, { backgroundColor: '#3B82F6' }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.feedTitle}>New Member Enrolled</Text>
-                <Text style={styles.feedDesc}>Rajesh Kumar Verma (Bilaspur) added 4.5 acres</Text>
-              </View>
-              <Text style={styles.feedTime}>Yesterday</Text>
-            </View>
-
-            <View style={styles.feedDivider} />
-
-            <View style={styles.feedItem}>
-              <View style={[styles.feedDot, { backgroundColor: '#F59E0B' }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.feedTitle}>DAP Fertilizer Demand Pool Active</Text>
-                <Text style={styles.feedDesc}>450 of 500 bags registered across 68 farmers</Text>
-              </View>
-              <Text style={styles.feedTime}>2d ago</Text>
-            </View>
+            ) : (
+              [
+                ...lots.slice(0, 2).map((lot) => ({
+                  color: lot.status === 'CONTRACTED' || lot.status === 'SOLD' ? '#10B981' : '#3B82F6',
+                  title: `${lot.cropName} lot recorded`,
+                  desc: `${lot.estimatedQtyMT} MT • ${lot.status}`,
+                })),
+                ...members.slice(0, 2).map((member) => ({
+                  color: member.status === 'ACTIVE' ? '#3B82F6' : '#F59E0B',
+                  title: `${member.fullName} in member registry`,
+                  desc: `${member.village} • ${member.status}`,
+                })),
+              ].map((item, index, items) => (
+                <React.Fragment key={`${item.title}-${index}`}>
+                  <View style={styles.feedItem}>
+                    <View style={[styles.feedDot, { backgroundColor: item.color }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.feedTitle}>{item.title}</Text>
+                      <Text style={styles.feedDesc}>{item.desc}</Text>
+                    </View>
+                    <Text style={styles.feedTime}>Synced</Text>
+                  </View>
+                  {index < items.length - 1 && <View style={styles.feedDivider} />}
+                </React.Fragment>
+              ))
+            )}
           </View>
 
         </Animated.View>
@@ -510,7 +568,7 @@ const styles = StyleSheet.create({
   },
   notificationBtn: {
     width: 38,
-    height: 38,
+    minHeight: 44,
     borderRadius: 19,
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
@@ -575,6 +633,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 110,
+  },
+  syncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  syncBannerReady: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+  syncBannerError: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  syncStateDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#16A34A',
+  },
+  syncStateDotError: {
+    backgroundColor: '#B45309',
+  },
+  syncBannerText: {
+    flex: 1,
+    color: '#1E40AF',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  syncRetry: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  syncRetryText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   // ── 3D KPI Cards ──
@@ -718,6 +820,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#0F2C56',
+  },
+  radarUnavailable: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  radarUnavailableText: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    fontWeight: '700',
   },
 
   // ── Section Title ──
@@ -914,5 +1031,8 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#F1F5F9',
     marginVertical: 8,
+  },
+  feedEmpty: {
+    paddingVertical: 6,
   },
 });

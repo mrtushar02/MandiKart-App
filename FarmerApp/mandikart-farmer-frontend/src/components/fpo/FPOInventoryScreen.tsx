@@ -5,7 +5,7 @@
  * - Aggregated harvest lots across member farmers
  * - AGMARKNET grade classification (Grade A, B, C)
  * - Live buyer bids and contract progress
- * - Create new aggregated bulk lot with instant simulation fallback
+ * - Create new aggregated bulk lot through the connected FPO lot service
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -60,11 +60,13 @@ const ACCENT_GOLD = '#B45309';
 export default function FPOInventoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isHydrated } = useAuthStore();
+  const fpoId = user?.fpoDetails?.fpoId;
 
   const [lots, setLots] = useState<FPOLot[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'LIVE' | 'CONTRACTED' | 'DRAFT'>('ALL');
 
@@ -81,14 +83,24 @@ export default function FPOInventoryScreen() {
   // Selected Lot Details Modal
   const [selectedLot, setSelectedLot] = useState<FPOLot | null>(null);
 
-  const fetchLots = async () => {
+  const fetchLots = async (activeFpoId = fpoId) => {
+    if (!activeFpoId) {
+      setLoading(false);
+      setError(isHydrated ? 'This FPO profile has no FPO ID yet.' : 'Waiting for the FPO profile to finish loading…');
+      setRefreshing(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
     try {
-      const res: any = await apiClient.getFPOLots(user?.fpoDetails?.fpoId);
+      const res: any = await apiClient.getFPOLots(activeFpoId);
       if (res?.data && Array.isArray(res.data)) {
         setLots(res.data as FPOLot[]);
       }
     } catch (err) {
       console.warn('Failed to load FPO lots:', err);
+      setError('Lot data could not be synced. Check the connection and try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -96,12 +108,12 @@ export default function FPOInventoryScreen() {
   };
 
   useEffect(() => {
-    fetchLots();
-  }, []);
+    fetchLots(fpoId);
+  }, [fpoId, isHydrated]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchLots();
+    fetchLots(fpoId);
   };
 
   const handleCreateLot = async () => {
@@ -109,10 +121,15 @@ export default function FPOInventoryScreen() {
       Alert.alert('Required Fields', 'Please enter crop name, quantity (MT), and asking price.');
       return;
     }
+    if (!fpoId) {
+      Alert.alert('FPO profile unavailable', 'Wait for the FPO profile to finish loading before creating a lot.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const payload = {
+        fpoId,
         cropName: newCropName.trim(),
         grade: newGrade,
         estimatedQtyMT: parseFloat(newQtyMT) || 10,
@@ -133,7 +150,10 @@ export default function FPOInventoryScreen() {
         setNewQtyMT('');
         setNewAskPrice('');
         setNewLocation('');
-        Alert.alert('Lot Created', `Bulk Lot "${payload.cropName}" is now active and published for institutional buyers.`);
+        Alert.alert(
+          'Lot saved',
+          `Bulk lot "${payload.cropName}" was saved to the connected FPO lot registry. Buyer discovery and contracting are not connected yet.`
+        );
       }
     } catch {
       Alert.alert('Error', 'Unable to create lot at this moment.');
@@ -254,6 +274,20 @@ export default function FPOInventoryScreen() {
           <ActivityIndicator size="large" color={FPO_BLUE} />
           <Text style={styles.loadingText}>Fetching FPO Aggregate Lots...</Text>
         </View>
+      ) : error ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.errorState}>
+            <AlertCircle size={42} color="#B45309" />
+            <Text style={styles.emptyTitle}>Lot sync unavailable</Text>
+            <Text style={styles.emptySubtitle}>{error}</Text>
+            <Pressable style={styles.emptyBtn} onPress={() => fetchLots(fpoId)}>
+              <Text style={styles.emptyBtnText}>Retry sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.listContent}
@@ -448,7 +482,7 @@ export default function FPOInventoryScreen() {
               <View style={styles.infoBanner}>
                 <ShieldCheck size={16} color={FPO_BLUE} />
                 <Text style={styles.infoBannerText}>
-                  Aggregated lots are broadcasted directly to verified B2B processors, retail chains, and e-NAM buyers.
+                  This saves the lot to the connected FPO registry. Buyer discovery and contracting require separate backend services.
                 </Text>
               </View>
             </ScrollView>
@@ -464,7 +498,7 @@ export default function FPOInventoryScreen() {
                 ) : (
                   <>
                     <Check size={18} color="#FFFFFF" strokeWidth={2.4} />
-                    <Text style={styles.submitBtnText}>Publish Lot to Buyers</Text>
+                    <Text style={styles.submitBtnText}>Save Lot Record</Text>
                   </>
                 )}
               </Pressable>
@@ -520,33 +554,17 @@ export default function FPOInventoryScreen() {
                         <Text style={styles.leadBidTitle}>Leading Institutional Bid</Text>
                         <View style={styles.verifiedTag}>
                           <ShieldCheck size={12} color="#046C4E" />
-                          <Text style={styles.verifiedText}>Verified Buyer</Text>
+                          <Text style={styles.verifiedText}>Recorded bid</Text>
                         </View>
                       </View>
                       <Text style={styles.leadBidAmount}>₹{selectedLot.highestBidPerKg} / kg</Text>
                       <Text style={styles.leadBidBuyer}>Offered by: {selectedLot.highestBidBuyer}</Text>
-                      <Pressable
-                        style={styles.acceptBidBtn}
-                        onPress={() => {
-                          Alert.alert(
-                            'Accept Offer & Generate Contract',
-                            `Lock in ₹${selectedLot.highestBidPerKg}/kg for ${selectedLot.estimatedQtyMT} MT with ${selectedLot.highestBidBuyer}? Total contract value: ₹${(((selectedLot.highestBidPerKg || 0) * selectedLot.estimatedQtyMT * 1000)).toLocaleString('en-IN')}`,
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Confirm Contract',
-                                onPress: () => {
-                                  setSelectedLot(null);
-                                  Alert.alert('Contract Drafted', 'Contract dispatched to buyer legal team. Escrow payment link initiated.');
-                                },
-                              },
-                            ]
-                          );
-                        }}
-                      >
-                        <CheckCircle2 size={16} color="#FFFFFF" />
-                        <Text style={styles.acceptBidBtnText}>Accept Bid & Sign Contract</Text>
-                      </Pressable>
+                      <View style={styles.unavailableAction}>
+                        <AlertCircle size={16} color="#B45309" />
+                        <Text style={styles.unavailableActionText}>
+                          Contracting is unavailable until buyer and contract services are connected.
+                        </Text>
+                      </View>
                     </View>
                   )}
 
@@ -611,6 +629,7 @@ const styles = StyleSheet.create({
     backgroundColor: FPO_BLUE,
     paddingHorizontal: 14,
     paddingVertical: 9,
+    minHeight: 44,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#3B82F6',
@@ -699,6 +718,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  stateContent: {
+    flexGrow: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
@@ -717,6 +741,14 @@ const styles = StyleSheet.create({
     marginTop: 30,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+  },
+  errorState: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
   },
   emptyTitle: {
     fontSize: 16,
@@ -739,6 +771,7 @@ const styles = StyleSheet.create({
     backgroundColor: FPO_BLUE,
     paddingHorizontal: 16,
     paddingVertical: 10,
+    minHeight: 44,
     borderRadius: 8,
     marginTop: 16,
   },
@@ -1029,6 +1062,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: FPO_BLUE,
     paddingVertical: 13,
+    minHeight: 48,
     borderRadius: 8,
   },
   submitBtnText: {
@@ -1106,6 +1140,7 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: '#16A34A',
     paddingVertical: 10,
+    minHeight: 44,
     borderRadius: 8,
     marginTop: 8,
   },
@@ -1113,6 +1148,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  unavailableAction: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 8,
+    padding: 10,
+  },
+  unavailableActionText: {
+    flex: 1,
+    color: '#92400E',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
   },
   notesBox: {
     backgroundColor: '#FFFBEB',

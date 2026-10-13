@@ -21,7 +21,6 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
-  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -60,8 +59,13 @@ export default function FPOSchemesScreen() {
   const [schemes, setSchemes] = useState<FPOScheme[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   const fetchSchemes = async () => {
+    setLoading(true);
+    setError(null);
+    setUnavailable(false);
     try {
       const res: any = await apiClient.getFPOSchemes();
       if (res?.data && Array.isArray(res.data)) {
@@ -69,6 +73,7 @@ export default function FPOSchemesScreen() {
       }
     } catch (err) {
       console.warn('Failed to load schemes:', err);
+      setUnavailable(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -86,28 +91,8 @@ export default function FPOSchemesScreen() {
 
   const handleApply = async (scheme: FPOScheme) => {
     Alert.alert(
-      'Apply for Scheme',
-      `Submit FPO registration credentials and audited member list for "${scheme.schemeName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Proceed to Portal',
-          onPress: async () => {
-            try {
-              await apiClient.applyFPOScheme(scheme.id);
-              setSchemes((prev) =>
-                prev.map((s) => (s.id === scheme.id ? { ...s, status: 'IN_REVIEW' as const } : s))
-              );
-              if (scheme.applyUrl) {
-                Linking.openURL(scheme.applyUrl).catch(() => {});
-              }
-              Alert.alert('Application Submitted', 'Your FPO application has been recorded in the central e-NAM / DAC&FW portal.');
-            } catch {
-              Alert.alert('Error', 'Could not apply at this moment.');
-            }
-          },
-        },
-      ]
+      'Application unavailable',
+      `The scheme service is not connected, so no application was submitted for "${scheme.schemeName}".`
     );
   };
 
@@ -132,15 +117,15 @@ export default function FPOSchemesScreen() {
           </View>
         </View>
 
-        {/* ── Subsidy Banner ──────────────────────────────────── */}
+        {/* ── Capability Status Banner ────────────────────────── */}
         <View style={styles.grantBanner}>
           <View style={styles.grantIconBox}>
             <Sparkles size={18} color="#D97706" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.grantTitle}>Up to ₹33 Lakhs in Central Grants</Text>
+            <Text style={styles.grantTitle}>Scheme data is not connected</Text>
             <Text style={styles.grantSub}>
-              Matching equity grant up to ₹15 Lakhs + ₹18 Lakhs management subsidy available under Ministry of Agriculture guidelines.
+              Eligibility, deadlines, benefits, and applications will appear here once a verified scheme service is available.
             </Text>
           </View>
         </View>
@@ -152,6 +137,34 @@ export default function FPOSchemesScreen() {
           <ActivityIndicator size="large" color={FPO_BLUE} />
           <Text style={styles.loadingText}>Fetching Government Portals...</Text>
         </View>
+      ) : error ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.errorState}>
+            <FileCheck size={42} color="#B45309" />
+            <Text style={styles.emptyTitle}>Scheme sync unavailable</Text>
+            <Text style={styles.emptySubtitle}>{error}</Text>
+            <Pressable style={styles.retryBtn} onPress={fetchSchemes}>
+              <Text style={styles.retryBtnText}>Retry sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      ) : unavailable ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.unavailableState}>
+            <FileCheck size={48} color="#64748B" strokeWidth={1.5} />
+            <Text style={styles.emptyTitle}>Government scheme desk is unavailable</Text>
+            <Text style={styles.emptySubtitle}>
+              No eligibility, grant, approval, or deadline records are shown because the backend has no scheme route yet.
+            </Text>
+            <Text style={styles.sourceText}>Pull to refresh after the scheme service is connected.</Text>
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.content}
@@ -314,6 +327,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  stateContent: {
+    flexGrow: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
@@ -323,6 +341,57 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 13,
     color: '#64748B',
+  },
+  errorState: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  unavailableState: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  sourceText: {
+    fontSize: 11,
+    color: FPO_BLUE,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  retryBtn: {
+    backgroundColor: FPO_BLUE,
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   schemeCard: {
     backgroundColor: '#FFFFFF',
@@ -464,6 +533,7 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: FPO_BLUE,
     paddingVertical: 10,
+    minHeight: 44,
     borderRadius: 8,
   },
   applyBtnText: {

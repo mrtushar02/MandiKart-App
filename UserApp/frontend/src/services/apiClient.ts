@@ -112,6 +112,25 @@ export function resolveApiBaseUrl(): string {
 
 const REQUEST_TIMEOUT_MS = 12000;
 
+type SafeFetchPolicy = {
+  fallbackOnHttpError?: boolean;
+  fallbackOnNetworkError?: boolean;
+};
+
+const strictAuthFetchPolicy: SafeFetchPolicy = {
+  fallbackOnHttpError: false,
+  fallbackOnNetworkError: false,
+};
+
+const authHttpFetchPolicy: SafeFetchPolicy = {
+  fallbackOnHttpError: false,
+};
+
+function normalizeEmail(email?: string): string | undefined {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || undefined;
+}
+
 // Internal token memory
 let activeAuthToken: string | null = null;
 
@@ -123,13 +142,45 @@ export function getApiAuthToken(): string | null {
   return activeAuthToken;
 }
 
+const inFlightUserMutations = new Map<string, Promise<{ data: any; isFallback: boolean; error?: string }>>();
+
 /**
  * Universal safe fetch with timeout, automatic multi-candidate failover and mock fallback
  */
 async function safeFetch<T>(
   endpoint: string,
   options: RequestInit = {},
-  fallbackData: T
+  fallbackData: T,
+  policy: SafeFetchPolicy = {}
+): Promise<{ data: T; isFallback: boolean; error?: string }> {
+  const method = (options.method || 'GET').toUpperCase();
+  const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  const dedupeKey = isMutating ? `${method}:${endpoint}:${typeof options.body === 'string' ? options.body : ''}` : '';
+
+  if (isMutating && inFlightUserMutations.has(dedupeKey)) {
+    return inFlightUserMutations.get(dedupeKey) as Promise<{ data: T; isFallback: boolean; error?: string }>;
+  }
+
+  const promise = (async () => {
+    return safeFetchInternal<T>(endpoint, options, fallbackData, policy);
+  })().finally(() => {
+    if (isMutating) {
+      setTimeout(() => inFlightUserMutations.delete(dedupeKey), 400);
+    }
+  });
+
+  if (isMutating) {
+    inFlightUserMutations.set(dedupeKey, promise);
+  }
+
+  return promise;
+}
+
+async function safeFetchInternal<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  fallbackData: T,
+  policy: SafeFetchPolicy = {}
 ): Promise<{ data: T; isFallback: boolean; error?: string }> {
   const candidates = getUserApiCandidates();
   const orderedList = cachedUserApiBaseUrl
@@ -182,6 +233,9 @@ async function safeFetch<T>(
         } catch {}
         console.log(`[API] HTTP ${response.status} from ${endpoint}:`, parsedErrorMessage);
         cachedUserApiBaseUrl = baseUrl;
+        if (policy.fallbackOnHttpError === false) {
+          return { data: fallbackData, isFallback: false, error: parsedErrorMessage };
+        }
         return { data: fallbackData, isFallback: true, error: parsedErrorMessage };
       }
 
@@ -202,6 +256,9 @@ async function safeFetch<T>(
         msg.includes('econnrefused');
 
       if (!isNetworkFail) {
+        if (policy.fallbackOnNetworkError === false) {
+          return { data: fallbackData, isFallback: false, error: err.message };
+        }
         return { data: fallbackData, isFallback: true, error: err.message };
       }
       // If network unreachable, try next candidate
@@ -209,6 +266,9 @@ async function safeFetch<T>(
   }
 
   console.log(`[API] Network error for ${endpoint} across all candidates (${lastErrorMessage || 'offline'})`);
+  if (policy.fallbackOnNetworkError === false) {
+    return { data: fallbackData, isFallback: false, error: lastErrorMessage || 'network timeout' };
+  }
   return { data: fallbackData, isFallback: true, error: lastErrorMessage };
 }
 
@@ -246,17 +306,21 @@ export const apiClient = {
       isFallback: boolean;
       error?: string;
     }> {
+      const normalizedParams = {
+        ...params,
+        email: normalizeEmail(params.email),
+      };
       const fallback = {
         token: `mock_jwt_token_${Date.now()}`,
         sessionId: `sess_${Date.now()}`,
         buyer: {
           id: `buyer_${Date.now()}`,
-          fullName: params.fullName || 'MandiKart Buyer',
-          phone: params.phone,
-          email: params.email,
-          buyerType: params.buyerType || ('RETAIL' as const),
-          city: params.city || 'Bhubaneswar',
-          state: params.state || 'Odisha',
+          fullName: normalizedParams.fullName || 'MandiKart Buyer',
+          phone: normalizedParams.phone,
+          email: normalizedParams.email,
+          buyerType: normalizedParams.buyerType || ('RETAIL' as const),
+          city: normalizedParams.city || 'Bhubaneswar',
+          state: normalizedParams.state || 'Odisha',
           role: 'BUYER',
         },
       };
@@ -265,11 +329,15 @@ export const apiClient = {
         '/auth/register',
         {
           method: 'POST',
-          body: JSON.stringify(params),
+          body: JSON.stringify(normalizedParams),
         },
-        fallback
+        fallback,
+        strictAuthFetchPolicy
       );
 
+      if (result.error) {
+        return { ...fallback, token: '', sessionId: '', buyer: null, isFallback: false, error: result.error };
+      }
       if (result.data?.token) {
         setApiAuthToken(result.data.token);
       }
@@ -283,7 +351,8 @@ export const apiClient = {
           method: 'POST',
           body: JSON.stringify({ phone }),
         },
-        { success: true, message: 'Verification code dispatched to mobile', simulatedCode: '123456' }
+        { success: true, message: 'Verification code dispatched to mobile', simulatedCode: '123456' },
+        authHttpFetchPolicy
       );
       if (res.error && !res.isFallback) {
         return { success: false, message: res.error, error: res.error };
@@ -298,7 +367,8 @@ export const apiClient = {
           method: 'POST',
           body: JSON.stringify({ phone, code }),
         },
-        { success: true, message: 'OTP verified successfully' }
+        { success: true, message: 'OTP verified successfully' },
+        authHttpFetchPolicy
       );
       if (res.error && !res.isFallback) {
         return { success: false, message: res.error, error: res.error };
@@ -322,15 +392,16 @@ export const apiClient = {
       isFallback: boolean;
       error?: string;
     }> {
-      const isEmail = phoneOrEmail.includes('@');
+      const normalizedInput = phoneOrEmail.trim();
+      const isEmail = normalizedInput.includes('@');
       const fallback = {
         token: `mock_jwt_token_${Date.now()}`,
         sessionId: `sess_${Date.now()}`,
         buyer: {
           id: 'buyer_9876543210',
           fullName: 'Aarav Sharma',
-          phone: isEmail ? '+91 98765 43210' : phoneOrEmail,
-          email: isEmail ? phoneOrEmail : 'aarav.sharma@example.com',
+          phone: isEmail ? '+91 98765 43210' : normalizedInput,
+          email: isEmail ? normalizeEmail(normalizedInput) : 'aarav.sharma@example.com',
           buyerType: 'RETAIL' as const,
           city: 'Pune',
           state: 'Maharashtra',
@@ -339,8 +410,8 @@ export const apiClient = {
       };
 
       const payload: any = isEmail
-        ? { email: phoneOrEmail.trim().toLowerCase() }
-        : { phone: phoneOrEmail.trim() };
+        ? { email: normalizeEmail(normalizedInput) }
+        : { phone: normalizedInput };
 
       if (password) {
         payload.password = password;
@@ -352,9 +423,13 @@ export const apiClient = {
           method: 'POST',
           body: JSON.stringify(payload),
         },
-        fallback
+        fallback,
+        strictAuthFetchPolicy
       );
 
+      if (result.error) {
+        return { ...fallback, token: '', sessionId: '', buyer: null, isFallback: false, error: result.error };
+      }
       if (result.data.token) {
         setApiAuthToken(result.data.token);
       }
@@ -413,9 +488,13 @@ export const apiClient = {
             avatarUrl,
           }),
         },
-        fallback
+        fallback,
+        authHttpFetchPolicy
       );
 
+      if (result.error && !result.isFallback) {
+        return { ...fallback, token: '', sessionId: '', buyer: null, isFallback: false, error: result.error };
+      }
       const rawUser = (result.data as any)?.buyer || (result.data as any)?.user;
       const buyer = rawUser
         ? {
@@ -476,9 +555,13 @@ export const apiClient = {
           method: 'POST',
           body: JSON.stringify({ phone, code: otp, otp, fullName }),
         },
-        fallback
+        fallback,
+        authHttpFetchPolicy
       );
 
+      if (result.error && !result.isFallback) {
+        return { ...fallback, token: '', sessionId: '', buyer: null, isFallback: false, error: result.error };
+      }
       const rawUser = (result.data as any)?.buyer || (result.data as any)?.user;
       const buyer = rawUser
         ? {

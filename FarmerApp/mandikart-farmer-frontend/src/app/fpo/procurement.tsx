@@ -56,11 +56,14 @@ const ACCENT_GREEN = '#15803D';
 export default function FPOProcurementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isHydrated } = useAuthStore();
+  const fpoId = user?.fpoDetails?.fpoId;
 
   const [procurements, setProcurements] = useState<FPOProcurement[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   // New Order Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -72,14 +75,25 @@ export default function FPOProcurementScreen() {
   const [targetRate, setTargetRate] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchProcurements = async () => {
+  const fetchProcurements = async (activeFpoId = fpoId) => {
+    if (!activeFpoId) {
+      setLoading(false);
+      setError(isHydrated ? 'This FPO profile has no FPO ID yet.' : 'Waiting for the FPO profile to finish loading…');
+      setRefreshing(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setUnavailable(false);
     try {
-      const res: any = await apiClient.getFPOProcurements(user?.fpoDetails?.fpoId);
+      const res: any = await apiClient.getFPOProcurements(activeFpoId);
       if (res?.data && Array.isArray(res.data)) {
         setProcurements(res.data as FPOProcurement[]);
       }
     } catch (err) {
       console.warn('Failed to load procurements:', err);
+      setUnavailable(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -87,53 +101,19 @@ export default function FPOProcurementScreen() {
   };
 
   useEffect(() => {
-    fetchProcurements();
-  }, []);
+    fetchProcurements(fpoId);
+  }, [fpoId, isHydrated]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchProcurements();
+    fetchProcurements(fpoId);
   };
 
   const handleCreateOrder = async () => {
-    if (!itemName.trim() || !quantity) {
-      Alert.alert('Required Fields', 'Please enter item name and quantity.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const closingDate = new Date(Date.now() + (parseInt(closingDays, 10) || 14) * 86400000)
-        .toISOString()
-        .split('T')[0];
-
-      const newOrder = {
-        itemName: itemName.trim(),
-        itemType,
-        totalQuantity: parseFloat(quantity) || 100,
-        unit: unit.trim() || 'Units',
-        demandClosingDate: closingDate,
-        bestQuotePrice: parseFloat(targetRate) || 1200,
-        bestQuoteSupplier: 'IFFCO State Cooperative Depot',
-        savingVsMarket: 12,
-        memberCount: 28,
-        status: 'COLLECTING_DEMAND' as FPOProcurementStatus,
-      };
-
-      const res: any = await apiClient.createFPOProcurement(newOrder);
-      if (res?.data) {
-        setProcurements((prev) => [res.data as FPOProcurement, ...prev]);
-        setIsModalOpen(false);
-        setItemName('');
-        setQuantity('');
-        setTargetRate('');
-        Alert.alert('Campaign Launched', `Collective demand pool opened for ${newOrder.itemName}. Member farmers can now register requirements.`);
-      }
-    } catch {
-      Alert.alert('Error', 'Could not create campaign.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    Alert.alert(
+      'Procurement unavailable',
+      'The procurement service is not connected. No demand campaign was created or saved.'
+    );
   };
 
   const topInset = Math.max(insets.top, 16);
@@ -155,21 +135,21 @@ export default function FPOProcurementScreen() {
             <Text style={styles.fpoOrgLabel}>{user?.fpoDetails?.fpoName || 'FPO Input Hub'}</Text>
             <Text style={styles.screenTitle}>Collective Input Procurement</Text>
           </View>
-          <Pressable style={styles.addBtn} onPress={() => setIsModalOpen(true)}>
+          <Pressable style={[styles.addBtn, unavailable && styles.disabledBtn]} onPress={() => setIsModalOpen(true)} disabled={unavailable}>
             <Plus size={16} color="#FFFFFF" />
-            <Text style={styles.addBtnText}>New Order</Text>
+            <Text style={styles.addBtnText}>{unavailable ? 'Unavailable' : 'New Order'}</Text>
           </Pressable>
         </View>
 
-        {/* ── Wholesale Savings Banner ────────────────────────── */}
+        {/* ── Capability Status Banner ────────────────────────── */}
         <View style={styles.savingsBanner}>
           <View style={styles.savingsIconBox}>
             <Percent size={18} color="#15803D" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.savingsTitle}>Direct Manufacturer Discount</Text>
+            <Text style={styles.savingsTitle}>Input procurement is not connected</Text>
             <Text style={styles.savingsSub}>
-              By consolidating 150+ farmer orders, our FPO eliminates retail distributor markups of 12% to 22%.
+              No demand campaigns, supplier quotes, savings, or order status are being simulated on this screen.
             </Text>
           </View>
         </View>
@@ -181,6 +161,34 @@ export default function FPOProcurementScreen() {
           <ActivityIndicator size="large" color={FPO_BLUE} />
           <Text style={styles.loadingText}>Fetching Bulk Orders...</Text>
         </View>
+      ) : error ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.errorState}>
+            <ShoppingCart size={42} color="#B45309" />
+            <Text style={styles.emptyTitle}>Procurement sync unavailable</Text>
+            <Text style={styles.emptySubtitle}>{error}</Text>
+            <Pressable style={styles.retryBtn} onPress={() => fetchProcurements(fpoId)}>
+              <Text style={styles.retryBtnText}>Retry sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      ) : unavailable ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.unavailableState}>
+            <ShoppingCart size={48} color="#64748B" strokeWidth={1.5} />
+            <Text style={styles.emptyTitle}>Demand campaigns are unavailable</Text>
+            <Text style={styles.emptySubtitle}>
+              The backend currently supports FPO members and produce lots only. Procurement campaigns cannot be opened or saved yet.
+            </Text>
+            <Text style={styles.sourceText}>Pull to refresh after the procurement service is connected.</Text>
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.content}
@@ -426,6 +434,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 14,
     paddingVertical: 8,
+    minHeight: 44,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.35)',
@@ -434,6 +443,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  disabledBtn: {
+    backgroundColor: '#64748B',
+    borderColor: '#94A3B8',
   },
   savingsBanner: {
     flexDirection: 'row',
@@ -468,6 +481,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  stateContent: {
+    flexGrow: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
@@ -477,6 +495,57 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 13,
     color: '#64748B',
+  },
+  errorState: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  unavailableState: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  sourceText: {
+    fontSize: 11,
+    color: FPO_BLUE,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  retryBtn: {
+    backgroundColor: FPO_BLUE,
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   orderCard: {
     backgroundColor: '#FFFFFF',
@@ -699,6 +768,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: FPO_BLUE,
     paddingVertical: 13,
+    minHeight: 48,
     borderRadius: 8,
   },
   submitBtnText: {

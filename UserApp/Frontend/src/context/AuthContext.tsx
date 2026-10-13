@@ -125,8 +125,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (phoneOrEmail: string, password?: string): Promise<{ success: boolean; error?: string }> => {
     if (!phoneOrEmail) return { success: false, error: 'Mobile number or email is required' };
     try {
-      const res = await apiClient.auth.login(phoneOrEmail, password);
-      if (res?.token && res?.buyer) {
+      const normalizedIdentifier = phoneOrEmail.trim();
+      const loginIdentifier = normalizedIdentifier.includes('@')
+        ? normalizedIdentifier.toLowerCase()
+        : normalizedIdentifier;
+      const res = await apiClient.auth.login(loginIdentifier, password);
+      if (!res?.isFallback && res?.token && res?.buyer) {
         setToken(res.token);
         setApiAuthToken(res.token);
         setUser(res.buyer as BuyerProfile);
@@ -150,8 +154,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     state?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await apiClient.auth.register(params);
-      if (res?.token && res?.buyer) {
+      const res = await apiClient.auth.register({
+        ...params,
+        email: params.email?.trim().toLowerCase() || undefined,
+      });
+      if (!res?.isFallback && res?.token && res?.buyer) {
         setToken(res.token);
         setApiAuthToken(res.token);
         setUser(res.buyer as BuyerProfile);

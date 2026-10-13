@@ -31,10 +31,21 @@ export default function PrimaryButton({
   textStyle,
 }: Props) {
   const isDisabled = disabled || loading;
+  const lastPressRef = React.useRef<number>(0);
+
+  const handlePress = () => {
+    if (isDisabled) return;
+    const now = Date.now();
+    if (now - lastPressRef.current < 600) {
+      return; // Ignore rapid multi-clicks
+    }
+    lastPressRef.current = now;
+    onPress();
+  };
 
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={handlePress}
       disabled={isDisabled}
       style={[
         styles.base,

@@ -452,6 +452,25 @@ export default function RegisterScreen({ navigation }: Props) {
             >
               <Text style={styles.editPhoneText}>Edit Mobile Number</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.skipVerifyBtn}
+              onPress={async () => {
+                setShowOtpModal(false);
+                const res = await signUp({
+                  phone,
+                  fullName: name.trim(),
+                  email: email.trim() || undefined,
+                  password: password.trim() || undefined,
+                  buyerType: role === 'bulk' ? 'BULK' : 'RETAIL',
+                });
+                if (res.success) {
+                  Alert.alert('Welcome to MandiKart! 🌾', 'Account activated successfully.');
+                }
+              }}
+            >
+              <Text style={styles.skipVerifyText}>Skip for Now (Verify Later) ›</Text>
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -656,4 +675,6 @@ const styles = StyleSheet.create({
   verifyButtonText: { color: Colors.white, fontSize: 15, fontWeight: '700' },
   editPhoneBtn: { alignItems: 'center', paddingVertical: Spacing.xs },
   editPhoneText: { fontSize: 13, color: Colors.textSecondary, fontWeight: '600' },
+  skipVerifyBtn: { alignItems: 'center', paddingVertical: Spacing.xs, marginTop: 4 },
+  skipVerifyText: { fontSize: 13, color: Colors.primary, fontWeight: '700' },
 });

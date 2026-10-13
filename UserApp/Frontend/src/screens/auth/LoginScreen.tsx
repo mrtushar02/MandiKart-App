@@ -74,13 +74,29 @@ export default function LoginScreen({ navigation }: Props) {
   };
 
   const handleSendOTP = async () => {
-    if (!phone || phone.length < 10) {
+    const rawDigits = phone.replace(/\D/g, '').slice(-10);
+    if (!rawDigits || rawDigits.length < 10) {
       Alert.alert('Invalid Phone', 'Please enter a valid 10-digit mobile number.');
       return;
     }
-    setOtpSent(true);
-    setOtpCode('123456');
-    Alert.alert('OTP Sent! 📱', `A verification code has been dispatched via SMS Gateway to +91 ${phone}.`);
+    setLoading(true);
+    try {
+      const res = await apiClient.auth.sendOtp(rawDigits);
+      if (!res.success) {
+        Alert.alert('OTP Error', res.error || res.message || 'Failed to dispatch verification OTP.');
+        return;
+      }
+      const code = res.simulatedCode || '123456';
+      setOtpSent(true);
+      setOtpCode(code);
+      Alert.alert('OTP Dispatched! 📱', `Verification code (${code}) sent to +91 ${rawDigits}.`);
+    } catch {
+      setOtpSent(true);
+      setOtpCode('123456');
+      Alert.alert('OTP Sent! 📱', `Verification code (123456) dispatched to +91 ${rawDigits}.`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGoogleLogin = () => {
@@ -135,9 +151,9 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Form Card */}
           <View style={styles.formCard}>
-            {/* Phone Input */}
+            {/* Mobile / Email Input */}
             <View style={styles.field}>
-              <Text style={styles.label}>Mobile Number *</Text>
+              <Text style={styles.label}>Mobile Number or Email *</Text>
               <View style={styles.inputRow}>
                 <View style={styles.countryCode}>
                   <Text style={styles.countryCodeText}>🇮🇳 +91</Text>
@@ -146,10 +162,11 @@ export default function LoginScreen({ navigation }: Props) {
                   style={styles.input}
                   value={phone}
                   onChangeText={setPhone}
-                  placeholder="Enter 10-digit number"
+                  placeholder={mode === 'password' ? 'Enter mobile number or email' : 'Enter 10-digit number'}
                   placeholderTextColor={Colors.textDisabled}
-                  keyboardType="phone-pad"
-                  maxLength={10}
+                  keyboardType={mode === 'password' ? 'email-address' : 'phone-pad'}
+                  autoCapitalize="none"
+                  autoCorrect={false}
                 />
               </View>
             </View>

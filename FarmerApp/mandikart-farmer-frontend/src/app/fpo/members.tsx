@@ -62,11 +62,13 @@ const ACCENT_GREEN = '#15803D';
 export default function FPOMembersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isHydrated } = useAuthStore();
+  const fpoId = user?.fpoDetails?.fpoId;
 
   const [members, setMembers] = useState<FPOMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'ALL' | 'ACTIVE' | 'PENDING'>('ALL');
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
@@ -81,14 +83,24 @@ export default function FPOMembersScreen() {
   const [kccBank, setKccBank] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchMembers = async () => {
+  const fetchMembers = async (activeFpoId = fpoId) => {
+    if (!activeFpoId) {
+      setLoading(false);
+      setError(isHydrated ? 'This FPO profile has no FPO ID yet.' : 'Waiting for the FPO profile to finish loading…');
+      setRefreshing(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
     try {
-      const res: any = await apiClient.getFPOMembers(user?.fpoDetails?.fpoId);
+      const res: any = await apiClient.getFPOMembers(activeFpoId);
       if (res?.data && Array.isArray(res.data)) {
         setMembers(res.data as FPOMember[]);
       }
     } catch (err) {
       console.warn('Failed to load members:', err);
+      setError('Member data could not be synced. Check the connection and try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -96,12 +108,12 @@ export default function FPOMembersScreen() {
   };
 
   useEffect(() => {
-    fetchMembers();
-  }, []);
+    fetchMembers(fpoId);
+  }, [fpoId, isHydrated]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchMembers();
+    fetchMembers(fpoId);
   };
 
   const handleCall = (phoneNumber: string) => {
@@ -130,10 +142,15 @@ export default function FPOMembersScreen() {
       Alert.alert('Required Fields', 'Please enter Name, Phone Number, and Village.');
       return;
     }
+    if (!fpoId) {
+      Alert.alert('FPO profile unavailable', 'Wait for the FPO profile to finish loading before adding a member.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const newMem = {
+        fpoId,
         fullName: name.trim(),
         phone: phone.trim(),
         village: village.trim(),
@@ -275,6 +292,20 @@ export default function FPOMembersScreen() {
           <ActivityIndicator size="large" color={FPO_BLUE} />
           <Text style={styles.loadingText}>Loading Member Registry...</Text>
         </View>
+      ) : error ? (
+        <ScrollView
+          contentContainerStyle={styles.stateContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={FPO_BLUE} />}
+        >
+          <View style={styles.errorState}>
+            <XCircle size={40} color="#B45309" />
+            <Text style={styles.emptyTitle}>Member sync unavailable</Text>
+            <Text style={styles.emptySubtitle}>{error}</Text>
+            <Pressable style={styles.emptyBtn} onPress={() => fetchMembers(fpoId)}>
+              <Text style={styles.emptyBtnText}>Retry sync</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.listContent}
@@ -521,7 +552,7 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     width: 38,
-    height: 38,
+    minHeight: 44,
     borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     alignItems: 'center',
@@ -548,6 +579,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     paddingHorizontal: 12,
     paddingVertical: 8,
+    minHeight: 44,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
@@ -559,6 +591,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 14,
     paddingVertical: 8,
+    minHeight: 44,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.35)',
@@ -649,6 +682,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  stateContent: {
+    flexGrow: 1,
+    padding: 16,
+    justifyContent: 'center',
+  },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
@@ -667,6 +705,28 @@ const styles = StyleSheet.create({
     marginTop: 30,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+  },
+  errorState: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  emptyBtn: {
+    backgroundColor: FPO_BLUE,
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  emptyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   emptyTitle: {
     fontSize: 16,
@@ -746,7 +806,7 @@ const styles = StyleSheet.create({
   },
   callIconBtn: {
     width: 38,
-    height: 38,
+    minHeight: 44,
     borderRadius: 12,
     backgroundColor: FPO_BLUE_BG,
     alignItems: 'center',
@@ -821,6 +881,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 8,
+    minHeight: 44,
     borderRadius: 6,
   },
   approveBtn: {

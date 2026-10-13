@@ -154,6 +154,8 @@ async function executeWithFailover<T>(
   throw new Error(`Server connection timed out or unreachable at ${failureUrl}.`);
 }
 
+const inFlightMutations = new Map<string, Promise<any>>();
+
 export const apiClient = {
   getBaseUrl: () => resolveFarmerApiBaseUrl(),
   getCandidates: () => getFarmerApiCandidates(),
@@ -225,6 +227,11 @@ export const apiClient = {
   },
 
   post: async <T, D>(endpoint: string, data: D, token?: string | null): Promise<T> => {
+    const dedupeKey = `POST:${endpoint}:${JSON.stringify(data || {})}`;
+    if (inFlightMutations.has(dedupeKey)) {
+      return inFlightMutations.get(dedupeKey) as Promise<T>;
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Idempotency-Key': `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -237,7 +244,7 @@ export const apiClient = {
       headers.Authorization = `Bearer ${effectiveToken}`;
     }
 
-    return executeWithFailover<T>(async (baseUrl, signal) => {
+    const promise = executeWithFailover<T>(async (baseUrl, signal) => {
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
         headers,
@@ -251,10 +258,20 @@ export const apiClient = {
       }
       const rawText = await response.text();
       return rawText ? JSON.parse(rawText) : ({} as T);
+    }).finally(() => {
+      setTimeout(() => inFlightMutations.delete(dedupeKey), 400);
     });
+
+    inFlightMutations.set(dedupeKey, promise);
+    return promise;
   },
 
   put: async <T, D>(endpoint: string, data: D, token?: string | null): Promise<T> => {
+    const dedupeKey = `PUT:${endpoint}:${JSON.stringify(data || {})}`;
+    if (inFlightMutations.has(dedupeKey)) {
+      return inFlightMutations.get(dedupeKey) as Promise<T>;
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Idempotency-Key': `idemp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -267,7 +284,7 @@ export const apiClient = {
       headers.Authorization = `Bearer ${effectiveToken}`;
     }
 
-    return executeWithFailover<T>(async (baseUrl, signal) => {
+    const promise = executeWithFailover<T>(async (baseUrl, signal) => {
       const response = await fetch(`${baseUrl}${endpoint}`, {
         method: 'PUT',
         headers,
@@ -281,7 +298,12 @@ export const apiClient = {
       }
       const rawText = await response.text();
       return rawText ? JSON.parse(rawText) : ({} as T);
+    }).finally(() => {
+      setTimeout(() => inFlightMutations.delete(dedupeKey), 400);
     });
+
+    inFlightMutations.set(dedupeKey, promise);
+    return promise;
   },
 
   delete: async <T>(endpoint: string, token?: string | null): Promise<T> => {
@@ -621,553 +643,98 @@ export const apiClient = {
    * Get aggregated bulk produce lots created by the FPO.
    */
   getFPOLots: async (fpoId?: string) => {
-    try {
-      const res = await apiClient.get(`/fpo/lots${fpoId ? `?fpoId=${fpoId}` : ''}`);
-      if ((res as any)?.data && Array.isArray((res as any).data)) {
-        return res;
-      }
-    } catch {}
+    if (!fpoId) {
+      throw new Error('FPO ID is required before loading lots.');
+    }
 
-    // Resilient offline fallback with realistic Indian FPO aggregated lot data
-    return {
-      data: [
-        {
-          id: 'lot_w01_2026',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          cropName: 'Sharbati Wheat (Grade A)',
-          grade: 'A',
-          estimatedQtyMT: 45,
-          availableFromDate: '2026-03-20',
-          availableToDate: '2026-04-15',
-          storageLocation: 'FPO Warehouse Bilaspur, Bay 3',
-          askPricePerKg: 34,
-          minimumBidPerKg: 32,
-          status: 'LIVE',
-          highestBidPerKg: 35.2,
-          highestBidBuyer: 'ITC Agri Business Hub',
-          totalBids: 4,
-          contributingMembers: 32,
-          notes: 'Standard moisture 10.8%, machine cleaned & sorted.',
-          createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: 'lot_b04_2026',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          cropName: 'Pusa Basmati 1509 Paddy',
-          grade: 'A',
-          estimatedQtyMT: 60,
-          availableFromDate: '2026-03-25',
-          availableToDate: '2026-04-20',
-          storageLocation: 'Kisan Cold & Dry Terminal',
-          askPricePerKg: 42,
-          minimumBidPerKg: 40,
-          status: 'CONTRACTED',
-          highestBidPerKg: 43.5,
-          highestBidBuyer: 'Adani Wilmar Exporters',
-          totalBids: 6,
-          contributingMembers: 48,
-          notes: 'Organic certification NPOP valid. Export grade grain length 8.2mm.',
-          createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: 'lot_m02_2026',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          cropName: 'Yellow Mustard (High Oil 42%)',
-          grade: 'B',
-          estimatedQtyMT: 28,
-          availableFromDate: '2026-03-15',
-          availableToDate: '2026-04-10',
-          storageLocation: 'Mandi Parishad Yard 2',
-          askPricePerKg: 58,
-          minimumBidPerKg: 56,
-          status: 'LIVE',
-          highestBidPerKg: 58.8,
-          highestBidBuyer: 'Patanjali Oil Mills',
-          totalBids: 3,
-          contributingMembers: 19,
-          notes: 'Oil test lab certified at 42.1%. Seed purity 99%.',
-          createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        {
-          id: 'lot_c08_2026',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          cropName: 'Desi Chana (Bengal Gram)',
-          grade: 'A',
-          estimatedQtyMT: 35,
-          availableFromDate: '2026-04-01',
-          availableToDate: '2026-04-30',
-          storageLocation: 'Central Warehouse Corp, Sec 4',
-          askPricePerKg: 61,
-          minimumBidPerKg: 59,
-          status: 'DRAFT',
-          totalBids: 0,
-          contributingMembers: 22,
-          notes: 'Aggregating from 22 member farms in Rampur block.',
-          createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-      isFallback: true,
-    };
+    const res: any = await apiClient.get(`/fpo/lots?fpoId=${encodeURIComponent(fpoId)}`);
+    if (res?.data && Array.isArray(res.data)) {
+      return res;
+    }
+    throw new Error('The FPO lots response was invalid.');
   },
 
   /**
    * Create a new aggregated produce lot.
    */
   createFPOLot: async (lotData: any) => {
-    try {
-      const res = await apiClient.post('/fpo/lots', lotData);
-      return res;
-    } catch (err: any) {
-      return {
-        data: {
-          id: `lot_${Date.now()}`,
-          ...lotData,
-          status: 'DRAFT',
-          totalBids: 0,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          simulated: true,
-        },
-        isFallback: true,
-      };
+    if (!lotData?.fpoId) {
+      throw new Error('FPO ID is required before creating a lot.');
     }
+    return apiClient.post('/fpo/lots', lotData);
   },
 
   /**
    * Get member farmers registered under this FPO.
    */
   getFPOMembers: async (fpoId?: string) => {
-    try {
-      const res = await apiClient.get(`/fpo/members${fpoId ? `?fpoId=${fpoId}` : ''}`);
-      if ((res as any)?.data && Array.isArray((res as any).data)) {
-        return res;
-      }
-    } catch {}
+    if (!fpoId) {
+      throw new Error('FPO ID is required before loading members.');
+    }
 
-    return {
-      data: [
-        {
-          id: 'mem_01',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          farmerId: 'far_101',
-          fullName: 'Rajesh Kumar Verma',
-          phone: '+91 98765 43210',
-          village: 'Bilaspur',
-          district: 'Bareilly',
-          landAcres: 4.5,
-          crops: ['Wheat', 'Mustard', 'Sugarcane'],
-          status: 'ACTIVE',
-          totalEarningsViaFPO: 245000,
-          totalDeliveredMT: 28.5,
-          kccLimit: 300000,
-          kccBank: 'State Bank of India',
-          joinedAt: '2024-03-12',
-        },
-        {
-          id: 'mem_02',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          farmerId: 'far_102',
-          fullName: 'Sunita Devi',
-          phone: '+91 94123 45678',
-          village: 'Rampur Kalan',
-          district: 'Bareilly',
-          landAcres: 3.2,
-          crops: ['Basmati Rice', 'Green Peas', 'Potato'],
-          status: 'ACTIVE',
-          totalEarningsViaFPO: 188000,
-          totalDeliveredMT: 19.2,
-          kccLimit: 200000,
-          kccBank: 'Punjab National Bank',
-          joinedAt: '2024-04-05',
-        },
-        {
-          id: 'mem_03',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          farmerId: 'far_103',
-          fullName: 'Ch. Harish Chand',
-          phone: '+91 98370 11223',
-          village: 'Manpur',
-          district: 'Bareilly',
-          landAcres: 7.0,
-          crops: ['Wheat', 'Chana', 'Mustard'],
-          status: 'ACTIVE',
-          totalEarningsViaFPO: 395000,
-          totalDeliveredMT: 42.0,
-          kccLimit: 500000,
-          kccBank: 'Bank of Baroda',
-          joinedAt: '2024-02-18',
-        },
-        {
-          id: 'mem_04',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          farmerId: 'far_104',
-          fullName: 'Vikram Singh',
-          phone: '+91 97580 99887',
-          village: 'Bilaspur',
-          district: 'Bareilly',
-          landAcres: 2.8,
-          crops: ['Mustard', 'Bajra'],
-          status: 'PENDING',
-          joinedAt: '2026-03-01',
-        },
-        {
-          id: 'mem_05',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          farmerId: 'far_105',
-          fullName: 'Anita Patel',
-          phone: '+91 96340 55443',
-          village: 'Shampur',
-          district: 'Bareilly',
-          landAcres: 5.5,
-          crops: ['Cotton', 'Soybean', 'Wheat'],
-          status: 'ACTIVE',
-          totalEarningsViaFPO: 310000,
-          totalDeliveredMT: 35.8,
-          kccLimit: 400000,
-          kccBank: 'Canara Bank',
-          joinedAt: '2024-01-20',
-        },
-        {
-          id: 'mem_06',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          farmerId: 'far_106',
-          fullName: 'Devendra Pal',
-          phone: '+91 98971 77665',
-          village: 'Fatehganj',
-          district: 'Bareilly',
-          landAcres: 3.8,
-          crops: ['Paddy', 'Potato'],
-          status: 'PENDING',
-          joinedAt: '2026-03-08',
-        },
-      ],
-      isFallback: true,
-    };
+    const res: any = await apiClient.get(`/fpo/members?fpoId=${encodeURIComponent(fpoId)}`);
+    if (res?.data && Array.isArray(res.data)) {
+      return res;
+    }
+    throw new Error('The FPO members response was invalid.');
   },
 
   /**
    * Add a new member farmer to the FPO.
    */
   addFPOMember: async (memberData: any) => {
-    try {
-      const res = await apiClient.post('/fpo/members', memberData);
-      return res;
-    } catch (err: any) {
-      return {
-        data: {
-          id: `mem_${Date.now()}`,
-          status: 'PENDING',
-          joinedAt: new Date().toISOString(),
-          ...memberData,
-          simulated: true,
-        },
-        isFallback: true,
-      };
+    if (!memberData?.fpoId) {
+      throw new Error('FPO ID is required before adding a member.');
     }
+    return apiClient.post('/fpo/members', memberData);
   },
 
   /**
    * Join an FPO using its unique join code or scanned QR code.
    */
-  joinFPOByCode: async (joinCode: string, farmerData: any) => {
-    try {
-      const res = await apiClient.post('/fpo/join', { joinCode, ...farmerData });
-      return res;
-    } catch (err: any) {
-      return {
-        data: {
-          id: `mem_${Date.now()}`,
-          fpoId: 'fpo_mandikart_01',
-          fpoName: 'Bareilly Kisan Producer Co.',
-          joinCode,
-          status: 'ACTIVE',
-          joinedAt: new Date().toISOString(),
-          ...farmerData,
-          simulated: true,
-        },
-        isFallback: true,
-      };
-    }
+  joinFPOByCode: async (_joinCode: string, _farmerData: any) => {
+    throw new Error('FPO joining is unavailable: no join backend route is connected.');
   },
 
   /**
    * Approve or reject a member registration.
    */
   updateFPOMemberStatus: async (memberId: string, status: 'ACTIVE' | 'INACTIVE' | 'REJECTED') => {
-    try {
-      const res = await apiClient.put(`/fpo/members/${memberId}`, { status });
-      return res;
-    } catch (err: any) {
-      return {
-        data: { id: memberId, status, updated: true, simulated: true },
-        isFallback: true,
-      };
-    }
+    return apiClient.put(`/fpo/members/${encodeURIComponent(memberId)}/status`, { status });
   },
 
   /**
    * Get collective bulk procurement orders.
    */
-  getFPOProcurements: async (fpoId?: string) => {
-    try {
-      const res = await apiClient.get(`/fpo/procurements${fpoId ? `?fpoId=${fpoId}` : ''}`);
-      if ((res as any)?.data && Array.isArray((res as any).data)) {
-        return res;
-      }
-    } catch {}
-
-    return {
-      data: [
-        {
-          id: 'proc_01',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          itemName: 'Certified DAP Fertilizer (IFFCO)',
-          itemType: 'FERTILIZER',
-          totalQuantity: 450,
-          unit: 'Bags (50kg)',
-          demandClosingDate: '2026-03-25',
-          status: 'COLLECTING_DEMAND',
-          bestQuotePrice: 1350,
-          bestQuoteSupplier: 'IFFCO State Cooperative Depot',
-          savingVsMarket: 11,
-          memberCount: 68,
-          createdAt: new Date(Date.now() - 4 * 86400000).toISOString(),
-        },
-        {
-          id: 'proc_02',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          itemName: 'Pioneer 45S46 Hybrid Mustard Seeds',
-          itemType: 'SEED',
-          totalQuantity: 140,
-          unit: 'Packs (1kg)',
-          demandClosingDate: '2026-03-30',
-          status: 'SEEKING_QUOTES',
-          bestQuotePrice: 890,
-          bestQuoteSupplier: 'Corteva Agriscience Direct',
-          savingVsMarket: 14,
-          memberCount: 42,
-          createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-        },
-        {
-          id: 'proc_03',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          itemName: 'Trichoderma Viride Bio-Fungicide',
-          itemType: 'PESTICIDE',
-          totalQuantity: 280,
-          unit: 'Litres',
-          demandClosingDate: '2026-03-15',
-          status: 'ORDER_PLACED',
-          bestQuotePrice: 240,
-          bestQuoteSupplier: 'National Seeds Corporation',
-          savingVsMarket: 18,
-          memberCount: 51,
-          createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
-        },
-        {
-          id: 'proc_04',
-          fpoId: fpoId || 'fpo_mandikart_01',
-          itemName: 'Multi-Crop Power Thresher (Custom Hiring)',
-          itemType: 'EQUIPMENT',
-          totalQuantity: 2,
-          unit: 'Units',
-          demandClosingDate: '2026-04-05',
-          status: 'COLLECTING_DEMAND',
-          bestQuotePrice: 185000,
-          bestQuoteSupplier: 'Mahindra Farm Machinery Agency',
-          savingVsMarket: 22,
-          memberCount: 84,
-          createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-        },
-      ],
-      isFallback: true,
-    };
+  getFPOProcurements: async (_fpoId?: string) => {
+    throw new Error('FPO procurement is unavailable: no procurement backend route is connected.');
   },
 
   /**
    * Create a collective procurement order.
    */
-  createFPOProcurement: async (procurementData: any) => {
-    try {
-      const res = await apiClient.post('/fpo/procurements', procurementData);
-      return res;
-    } catch (err: any) {
-      return {
-        data: {
-          id: `proc_${Date.now()}`,
-          status: 'COLLECTING_DEMAND',
-          createdAt: new Date().toISOString(),
-          ...procurementData,
-          simulated: true,
-        },
-        isFallback: true,
-      };
-    }
+  createFPOProcurement: async (_procurementData: any) => {
+    throw new Error('FPO procurement is unavailable: no procurement backend route is connected.');
   },
 
   /**
    * Get eligible & active government schemes for the FPO.
    */
   getFPOSchemes: async () => {
-    try {
-      const res = await apiClient.get('/fpo/schemes');
-      if ((res as any)?.data && Array.isArray((res as any).data)) {
-        return res;
-      }
-    } catch {}
-
-    return {
-      data: [
-        {
-          id: 'sch_10k_fpo',
-          schemeName: 'Formation & Promotion of 10,000 FPOs',
-          ministry: 'Ministry of Agriculture & Farmers Welfare',
-          benefit: 'Matching Equity Grant up to ₹15 Lakhs + FPO Management Grant ₹18 Lakhs over 3 years',
-          benefitAmount: 1500000,
-          deadline: '2026-06-30',
-          status: 'APPLIED',
-          appliedAt: '2025-11-14',
-          qualificationReasons: [
-            'Registered Producer Company under Companies Act',
-            'Minimum 100 shareholder farmer members reached',
-            'Board of Directors constituted with 30%+ women representation',
-          ],
-          applyUrl: 'https://enam.gov.in/web/fpo',
-        },
-        {
-          id: 'sch_aif',
-          schemeName: 'Agriculture Infrastructure Fund (AIF)',
-          ministry: 'Ministry of Agriculture & Farmers Welfare / NABARD',
-          benefit: '3% per annum Interest Subvention for loans up to ₹2 Crores for primary processing & warehouse',
-          benefitAmount: 20000000,
-          deadline: '2026-09-30',
-          status: 'ELIGIBLE',
-          qualificationReasons: [
-            'FPO verified with clean audited statements',
-            'Proposal for local sorting, cleaning, grading & packing shed',
-            'Eligible for CGTMSE credit guarantee coverage',
-          ],
-          applyUrl: 'https://agriinfra.dac.gov.in',
-        },
-        {
-          id: 'sch_smam',
-          schemeName: 'Sub-Mission on Agricultural Mechanization (SMAM)',
-          ministry: 'Department of Agriculture, Cooperation & Farmers Welfare',
-          benefit: '80% Capital Subsidy up to ₹10 Lakhs for setting up Farm Machinery Custom Hiring Centre (CHC)',
-          benefitAmount: 1000000,
-          deadline: '2026-05-15',
-          status: 'APPROVED',
-          appliedAt: '2025-08-20',
-          qualificationReasons: [
-            'Located in priority agricultural block',
-            'Caters to marginal (<2 ha) farmers collective needs',
-          ],
-          applyUrl: 'https://farmech.dac.gov.in',
-        },
-        {
-          id: 'sch_pmfby',
-          schemeName: 'PM Fasal Bima Yojana (FPO Group Enrolment)',
-          ministry: 'Ministry of Agriculture',
-          benefit: 'Group crop insurance at 1.5-2% premium with instant satellite based claim settlement',
-          deadline: '2026-07-31',
-          status: 'ELIGIBLE',
-          qualificationReasons: [
-            'Unified land register of 150+ member farmers',
-            'Direct claim disbursement to individual member KCC accounts',
-          ],
-          applyUrl: 'https://pmfby.gov.in',
-        },
-      ],
-      isFallback: true,
-    };
+    throw new Error('Government scheme data is unavailable: no schemes backend route is connected.');
   },
 
   /**
    * Apply for a government scheme.
    */
-  applyFPOScheme: async (schemeId: string) => {
-    try {
-      const res = await apiClient.post(`/fpo/schemes/${schemeId}/apply`, {});
-      return res;
-    } catch (err: any) {
-      return {
-        data: { schemeId, status: 'IN_REVIEW', appliedAt: new Date().toISOString(), simulated: true },
-        isFallback: true,
-      };
-    }
+  applyFPOScheme: async (_schemeId: string) => {
+    throw new Error('Scheme applications are unavailable: no application backend route is connected.');
   },
 
   /**
    * Get verified institutional B2B buyers looking for bulk produce lots.
    */
   getFPOBuyers: async () => {
-    try {
-      const res = await apiClient.get('/fpo/buyers');
-      if ((res as any)?.data && Array.isArray((res as any).data)) {
-        return res;
-      }
-    } catch {}
-
-    return {
-      data: [
-        {
-          id: 'buy_itc',
-          companyName: 'ITC Agri-Business Division (e-Choupal)',
-          buyerType: 'PROCESSOR',
-          verified: true,
-          requiredCrops: ['Sharbati Wheat', 'Yellow Mustard', 'Soybean', 'Chana'],
-          minLotMT: 20,
-          paymentTermDays: 3,
-          rating: 4.9,
-          location: 'Madhya Pradesh, UP & Rajasthan Hubs',
-          activeContracts: 142,
-          contactPerson: 'Arunav Sengupta (Head Procurement)',
-        },
-        {
-          id: 'buy_adani',
-          companyName: 'Adani Wilmar Agri-Sourcing',
-          buyerType: 'PROCESSOR',
-          verified: true,
-          requiredCrops: ['Yellow Mustard', 'Pusa Basmati', 'Soybean', 'Sunflower'],
-          minLotMT: 30,
-          paymentTermDays: 4,
-          rating: 4.8,
-          location: 'Pan-India Processing Plants',
-          activeContracts: 98,
-          contactPerson: 'Rajeev Sharma (Zonal Sourcing Manager)',
-        },
-        {
-          id: 'buy_bb',
-          companyName: 'BigBasket Wholesale (Innovative Retail)',
-          buyerType: 'RETAIL_CHAIN',
-          verified: true,
-          requiredCrops: ['Potato', 'Onion', 'Tomato', 'Green Peas', 'Pusa Basmati'],
-          minLotMT: 10,
-          paymentTermDays: 2,
-          rating: 4.7,
-          location: 'Delhi-NCR & Western UP Distribution Centers',
-          activeContracts: 215,
-          contactPerson: 'Meenakshi Iyer (Category Head - Farm Sourcing)',
-        },
-        {
-          id: 'buy_mother_dairy',
-          companyName: 'Mother Dairy (Safal Sourcing)',
-          buyerType: 'INSTITUTION',
-          verified: true,
-          requiredCrops: ['Potato', 'Tomato', 'Cauliflower', 'Sweet Corn'],
-          minLotMT: 15,
-          paymentTermDays: 5,
-          rating: 4.9,
-          location: 'Delhi-NCR Processing Facilities',
-          activeContracts: 86,
-          contactPerson: 'Suresh Chandra (Procurement Director)',
-        },
-      ],
-      isFallback: true,
-    };
+    throw new Error('Buyer discovery is unavailable: no buyer backend route is connected.');
   },
 };
-

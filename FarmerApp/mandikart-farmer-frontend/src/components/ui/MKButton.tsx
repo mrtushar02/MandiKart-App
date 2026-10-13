@@ -49,6 +49,18 @@ export const MKButton: React.FC<MKButtonProps> = ({
   fullWidth = true,
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const lastPressRef = useRef<number>(0);
+
+  const handlePress = () => {
+    if (disabled || loading) return;
+    const now = Date.now();
+    if (now - lastPressRef.current < 600) {
+      // Ignore rapid multi-clicks within 600ms
+      return;
+    }
+    lastPressRef.current = now;
+    onPress();
+  };
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
@@ -173,7 +185,7 @@ export const MKButton: React.FC<MKButtonProps> = ({
   return (
     <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, fullWidth && { width: '100%' }]}>
       <Pressable
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled || loading}
