@@ -79,7 +79,7 @@ const COUNTRY_CODES = [
 export default function SignUpScreen() {
   const router = useRouter();
   const { language } = useAppStore();
-  const { setPhoneNumber, setUser, setIsAuthenticated, setAuthenticated } = useAuthStore();
+  const { setPhoneNumber, setUser, setIsAuthenticated, setAuthenticated, setOnboarded } = useAuthStore();
   const { t } = useTranslation();
 
   const [firstName, setFirstName] = useState('');
@@ -519,16 +519,11 @@ export default function SignUpScreen() {
             setUser(farmer);
           }
           setIsAuthenticated(true);
-          const isComplete = Boolean(
-            !isNewUser &&
-            farmer?.village &&
-            (farmer?.farmSizeAcres || (farmer as any)?.farm_size_acres)
-          );
-          if (isComplete) {
+          setOnboarded(true);
+          setGoogleModalVisible(false);
+          setTimeout(() => {
             router.replace('/(tabs)/home');
-          } else {
-            router.replace('/onboarding/permissions');
-          }
+          }, 50);
         }}
         onError={(err) => {
           Alert.alert('Google Sign-Up', err);

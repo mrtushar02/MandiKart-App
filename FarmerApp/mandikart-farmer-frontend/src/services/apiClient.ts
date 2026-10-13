@@ -119,7 +119,7 @@ async function executeWithFailover<T>(
 
   for (const baseUrl of orderedList) {
     const controller = new AbortController();
-    const timeout = baseUrl === cachedWorkingBaseUrl ? REQUEST_TIMEOUT_MS : 6000;
+    const timeout = REQUEST_TIMEOUT_MS;
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
@@ -341,6 +341,11 @@ export const apiClient = {
     fullName: string;
     avatarUrl?: string;
     phone?: string;
+    village?: string;
+    district?: string;
+    state?: string;
+    farmSizeAcres?: number;
+    primaryCrops?: string[];
   }) => {
     return apiClient.post<{ data: { token: string; farmer: any; isNewUser: boolean } }, any>(
       '/auth/google',

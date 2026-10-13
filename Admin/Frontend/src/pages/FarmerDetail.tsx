@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { FarmerUser, AdminUser, KycRecord } from '../types/admin';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 interface FarmerDetailProps {
   user: AdminUser;
@@ -62,7 +63,7 @@ export const FarmerDetail: React.FC<FarmerDetailProps> = ({
   const activeListingsList = currentFarmer.activeListings || [];
 
   useEffect(() => {
-    fetch('http://localhost:4003/api/v1/admin/produce')
+    fetch(`${getAdminApiBaseUrl()}/produce`)
       .then((res) => res.json())
       .then((res) => {
         if (Array.isArray(res?.data) && res.data.length > 0) {
@@ -157,7 +158,7 @@ export const FarmerDetail: React.FC<FarmerDetailProps> = ({
     syncFarmerToLocalStorage(updated);
     
     // Call backend API in background
-    fetch(`http://localhost:4003/api/v1/admin/farmers/${currentFarmer.id}/verify`, {
+    fetch(`${getAdminApiBaseUrl()}/farmers/${currentFarmer.id}/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isVerified: true })
@@ -197,7 +198,7 @@ export const FarmerDetail: React.FC<FarmerDetailProps> = ({
 
     // Call Admin Backend
     try {
-      await fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/approve`, {
+      await fetch(`${getAdminApiBaseUrl()}/produce/${listingId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved: true })
@@ -219,7 +220,7 @@ export const FarmerDetail: React.FC<FarmerDetailProps> = ({
     syncFarmerToLocalStorage(updated);
 
     try {
-      await fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/reject`, {
+      await fetch(`${getAdminApiBaseUrl()}/produce/${listingId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Quality specifications do not meet grade standards' })

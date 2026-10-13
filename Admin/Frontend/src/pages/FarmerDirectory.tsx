@@ -3,6 +3,7 @@ import type { FarmerUser, AdminUser, FarmerProduceListing } from '../types/admin
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { mockFarmers as initialMockFarmers } from './FarmerDirectoryMock';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 // Crop photo resolver ensuring reliable, high-resolution agricultural images
 export const getCropFallbackImage = (cropName: string = '', category: string = '') => {
@@ -104,7 +105,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     if (showSpinner) setIsLoadingProduce(true);
     try {
       // 1. Fetch live produce immediately so new listings appear instantly
-      const producePromise = fetch('http://localhost:4003/api/v1/admin/produce')
+      const producePromise = fetch(`${getAdminApiBaseUrl()}/produce`)
         .then(r => r.json())
         .then(produceRes => {
           if (Array.isArray(produceRes?.data)) {
@@ -121,7 +122,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
         })
         .catch(() => []);
 
-      const farmersPromise = fetch('http://localhost:4003/api/v1/admin/farmers')
+      const farmersPromise = fetch(`${getAdminApiBaseUrl()}/farmers`)
         .then(r => r.json())
         .catch(() => ({ data: [] }));
 
@@ -332,7 +333,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     });
 
     // 4. Call Admin backend API to update Supabase & shared registry
-    fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/approve`, {
+    fetch(`${getAdminApiBaseUrl()}/produce/${listingId}/approve`, {
       method: 'POST',
     }).catch(err => console.warn('Approve produce API notice:', err));
 
@@ -347,7 +348,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
       prev.map(p => (p.id === listingId ? { ...p, status: 'REJECTED' } : p))
     );
 
-    fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/reject`, {
+    fetch(`${getAdminApiBaseUrl()}/produce/${listingId}/reject`, {
       method: 'POST',
     }).catch(err => console.warn('Reject produce API notice:', err));
 

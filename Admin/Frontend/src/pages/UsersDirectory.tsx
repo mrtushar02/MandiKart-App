@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { AdminUser } from '../types/admin';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 export interface BuyerUserData {
   id: string;
@@ -43,7 +44,7 @@ export const UsersDirectory: React.FC<UsersDirectoryProps> = ({
 
   const fetchUsers = (showSpinner = false) => {
     if (showSpinner) setIsLoading(true);
-    fetch('http://localhost:4003/api/v1/admin/users')
+    fetch(`${getAdminApiBaseUrl()}/users`)
       .then((res) => res.json())
       .then((resData) => {
         if (Array.isArray(resData?.data)) {

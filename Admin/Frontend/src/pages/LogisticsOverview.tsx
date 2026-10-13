@@ -4,6 +4,7 @@ import type { LogisticsShipment, ShipmentStatus } from '../types/logisticsAndAi'
 import { MOCK_SHIPMENTS, MOCK_CARRIERS } from './LogisticsAndAiMock';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 interface LogisticsOverviewProps {
   user: AdminUser;
@@ -38,7 +39,7 @@ export const LogisticsOverview: React.FC<LogisticsOverviewProps> = ({
   // Sync with live Admin backend (port 4003) for real-time shipment updates
   React.useEffect(() => {
     const fetchShipments = () => {
-      fetch('http://localhost:4003/api/v1/admin/shipments')
+      fetch(`${getAdminApiBaseUrl()}/shipments`)
         .then((res) => res.json())
         .then((result) => {
           if (Array.isArray(result?.data) && result.data.length > 0) {

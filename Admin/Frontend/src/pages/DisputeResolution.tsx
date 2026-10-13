@@ -4,6 +4,7 @@ import type { DisputeCase, DisputeStatus } from '../types/ordersAndDisputes';
 import { MOCK_DISPUTES } from './OrdersAndDisputesMock';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 interface DisputeResolutionProps {
   user: AdminUser;
@@ -36,7 +37,7 @@ export const DisputeResolution: React.FC<DisputeResolutionProps> = ({
   // Sync with live Admin backend (port 4003) for real-time dispute updates
   React.useEffect(() => {
     const fetchDisputes = () => {
-      fetch('http://localhost:4003/api/v1/admin/disputes')
+      fetch(`${getAdminApiBaseUrl()}/disputes`)
         .then((res) => res.json())
         .then((result) => {
           if (Array.isArray(result?.data) && result.data.length > 0) {
@@ -130,7 +131,7 @@ export const DisputeResolution: React.FC<DisputeResolutionProps> = ({
 
       // Call Admin Backend API
       try {
-        await fetch(`http://localhost:4003/api/v1/admin/disputes/${targetCase.orderId}/resolve`, {
+        await fetch(`${getAdminApiBaseUrl()}/disputes/${targetCase.orderId}/resolve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

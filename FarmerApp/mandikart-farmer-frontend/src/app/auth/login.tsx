@@ -28,7 +28,7 @@ import { GoogleAuthModal } from '@/components/GoogleAuthModal';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setPhoneNumber, setIsAuthenticated, setAuthenticated, setUser } = useAuthStore();
+  const { setPhoneNumber, setIsAuthenticated, setAuthenticated, setUser, setOnboarded } = useAuthStore();
 
   const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
@@ -232,16 +232,11 @@ export default function LoginScreen() {
             setUser(farmer);
           }
           setIsAuthenticated(true);
-          const isComplete = Boolean(
-            !isNewUser &&
-            farmer?.village &&
-            (farmer?.farmSizeAcres || (farmer as any)?.farm_size_acres)
-          );
-          if (isComplete) {
+          setOnboarded(true);
+          setGoogleModalVisible(false);
+          setTimeout(() => {
             router.replace('/(tabs)/home');
-          } else {
-            router.replace('/onboarding/permissions');
-          }
+          }, 50);
         }}
         onError={(err) => {
           Alert.alert('Google Sign-In', err);
