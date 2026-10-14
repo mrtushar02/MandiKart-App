@@ -31,6 +31,7 @@ import {
   StatusBar,
   Animated,
   ActivityIndicator,
+  InteractionManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -200,16 +201,25 @@ export default function HomeScreen() {
     }
   };
 
-  // Continuous 4-second real-time auto-refresh across Farmer App
+  // Defer background sync until after screen animations/interactions complete
   React.useEffect(() => {
-    useProduceStore.getState().syncWithBackend().catch(() => {});
-    useOrderStore.getState().syncWithBackend().catch(() => {});
-    fetchDashboardStats();
-    const timer = setInterval(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchDashboardStats();
       useProduceStore.getState().syncWithBackend().catch(() => {});
       useOrderStore.getState().syncWithBackend().catch(() => {});
-    }, 4000);
-    return () => clearInterval(timer);
+
+      // Moderate 20s interval so UI thread is never starved during navigation
+      timer = setInterval(() => {
+        useProduceStore.getState().syncWithBackend().catch(() => {});
+        useOrderStore.getState().syncWithBackend().catch(() => {});
+      }, 20000);
+    });
+
+    return () => {
+      task.cancel?.();
+      if (timer) clearInterval(timer);
+    };
   }, [fetchDashboardStats]);
 
   const farmerName =
@@ -239,8 +249,15 @@ export default function HomeScreen() {
   const totalEarningsFormatted = `₹${computedEarnings.toLocaleString('en-IN')}`;
   const targetProgressPct = Math.min(100, Math.round((computedEarnings / monthlyTarget) * 100));
 
-  // Live Gemini AI Suggestions Effect
+  // Live Gemini AI Suggestions Effect — only run when search bar is focused or query has text
   React.useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!searchFocused && !trimmed) {
+      setAiSuggestions([]);
+      setIsAiLoading(false);
+      return;
+    }
+
     let isMounted = true;
     setIsAiLoading(true);
     const timer = setTimeout(async () => {
@@ -253,24 +270,24 @@ export default function HomeScreen() {
       finally {
         if (isMounted) setIsAiLoading(false);
       }
-    }, 200);
+    }, 250);
 
     return () => {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [searchQuery, farmerLocation]);
+  }, [searchQuery, farmerLocation, searchFocused]);
 
-  // Live Google AI Agricultural Overview Effect
+  // Live Google AI Agricultural Overview Effect — only run when active query exists
   React.useEffect(() => {
-    let isMounted = true;
     const trimmed = searchQuery.trim();
-    if (!trimmed || trimmed.length < 2) {
+    if (!searchFocused || !trimmed || trimmed.length < 2) {
       setGoogleAiOverview(null);
       setIsGoogleAiLoading(false);
       return;
     }
 
+    let isMounted = true;
     setIsGoogleAiLoading(true);
     const timer = setTimeout(async () => {
       try {
@@ -289,7 +306,7 @@ export default function HomeScreen() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [searchQuery, farmerLocation]);
+  }, [searchQuery, farmerLocation, searchFocused]);
 
   // Automatically update search query when voice search detects spoken words
   React.useEffect(() => {
@@ -976,173 +993,177 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      {/* ── 7. Interactive Earnings & Monthly Target Modal ──── */}
-      <Modal
-        visible={earningsModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEarningsModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.earningsModalSheet}>
-            {/* Modal Header */}
-            <View style={styles.modalHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Wallet size={20} color="#168A45" strokeWidth={2.4} />
-                <Text style={styles.modalTitle}>Financial Intelligence</Text>
+      {/* ── 7. Interactive Earnings & Monthly Target Modal (Lazy-mounted) ──── */}
+      {earningsModalVisible ? (
+        <Modal
+          visible={earningsModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setEarningsModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.earningsModalSheet}>
+              {/* Modal Header */}
+              <View style={styles.modalHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Wallet size={20} color="#168A45" strokeWidth={2.4} />
+                  <Text style={styles.modalTitle}>Financial Intelligence</Text>
+                </View>
+                <Pressable onPress={() => setEarningsModalVisible(false)} hitSlop={10}>
+                  <X size={20} color="#64748B" />
+                </Pressable>
               </View>
-              <Pressable onPress={() => setEarningsModalVisible(false)} hitSlop={10}>
-                <X size={20} color="#64748B" />
-              </Pressable>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Gross vs Net Breakdown Cards */}
+                <View style={styles.financialStatsBox}>
+                  <Text style={styles.financialSectionHeading}>This Month Performance</Text>
+                  <View style={styles.statRow}>
+                    <Text style={styles.statLabel}>Total Realized Sales</Text>
+                    <Text style={styles.statVal}>₹56,200</Text>
+                  </View>
+                  <View style={styles.statRow}>
+                    <Text style={styles.statLabel}>Direct MandiKart Benefit (Zero Middleman)</Text>
+                    <Text style={[styles.statVal, { color: '#168A45' }]}>+ ₹7,700 Saved</Text>
+                  </View>
+                  <View style={styles.statRow}>
+                    <Text style={styles.statLabel}>Transit Fees & Weighbridge</Text>
+                    <Text style={[styles.statVal, { color: '#DC2626' }]}>- ₹0.00 (Free Pickup)</Text>
+                  </View>
+                  <View style={styles.dividerLine} />
+                  <View style={styles.statRow}>
+                    <Text style={styles.statTotalLabel}>Net Farmer Take-Home</Text>
+                    <Text style={styles.statTotalVal}>₹48,500</Text>
+                  </View>
+                </View>
+
+                {/* Set New Monthly Target Section */}
+                <View style={styles.targetSetterCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Leaf size={16} color="#168A45" />
+                    <Text style={styles.targetSetterTitle}>Update Monthly Target</Text>
+                  </View>
+                  <Text style={styles.targetSetterSub}>
+                    Set your personal revenue goal to track sales motivation and progress.
+                  </Text>
+
+                  {/* Target Value Input */}
+                  <View style={styles.targetInputRow}>
+                    <Text style={styles.targetRupeeSymbol}>₹</Text>
+                    <TextInput
+                      style={styles.targetTextInput}
+                      keyboardType="numeric"
+                      value={tempTargetInput}
+                      onChangeText={setTempTargetInput}
+                      placeholder="100000"
+                    />
+                  </View>
+
+                  {/* Quick Target Presets */}
+                  <Text style={styles.presetLabel}>Quick Presets:</Text>
+                  <View style={styles.presetsRow}>
+                    {[75000, 100000, 150000, 200000].map((val) => (
+                      <Pressable
+                        key={val}
+                        style={[
+                          styles.presetPill,
+                          monthlyTarget === val && styles.presetPillActive,
+                        ]}
+                        onPress={() => {
+                          setTempTargetInput(val.toString());
+                          handleSaveMonthlyTarget(val);
+                        }}
+                      >
+                        <Text style={[styles.presetText, monthlyTarget === val && styles.presetTextActive]}>
+                          ₹{(val / 1000)}k
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Save Target CTA */}
+                  <Pressable
+                    style={styles.saveTargetBtn}
+                    onPress={() => {
+                      handleSaveMonthlyTarget();
+                      setEarningsModalVisible(false);
+                    }}
+                  >
+                    <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.4} />
+                    <Text style={styles.saveTargetBtnText}>Save Target Goal</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
             </View>
+          </View>
+        </Modal>
+      ) : null}
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Gross vs Net Breakdown Cards */}
-              <View style={styles.financialStatsBox}>
-                <Text style={styles.financialSectionHeading}>This Month Performance</Text>
-                <View style={styles.statRow}>
-                  <Text style={styles.statLabel}>Total Realized Sales</Text>
-                  <Text style={styles.statVal}>₹56,200</Text>
-                </View>
-                <View style={styles.statRow}>
-                  <Text style={styles.statLabel}>Direct MandiKart Benefit (Zero Middleman)</Text>
-                  <Text style={[styles.statVal, { color: '#168A45' }]}>+ ₹7,700 Saved</Text>
-                </View>
-                <View style={styles.statRow}>
-                  <Text style={styles.statLabel}>Transit Fees & Weighbridge</Text>
-                  <Text style={[styles.statVal, { color: '#DC2626' }]}>- ₹0.00 (Free Pickup)</Text>
-                </View>
-                <View style={styles.dividerLine} />
-                <View style={styles.statRow}>
-                  <Text style={styles.statTotalLabel}>Net Farmer Take-Home</Text>
-                  <Text style={styles.statTotalVal}>₹48,500</Text>
-                </View>
+      {/* ── 8. Voice Search Modal (Lazy-mounted) ── */}
+      {voiceModalVisible ? (
+        <Modal
+          visible={voiceModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={handleCloseVoice}
+        >
+          <View style={styles.modalOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={handleCloseVoice} />
+            <View style={styles.voiceModalCard}>
+              <Animated.View style={[styles.voiceMicGlow, { transform: [{ scale: pulseAnim }] }]} />
+              <View style={styles.voiceMicCircle}>
+                <Mic size={36} color="#FFFFFF" strokeWidth={2.4} />
               </View>
 
-              {/* Set New Monthly Target Section */}
-              <View style={styles.targetSetterCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                  <Leaf size={16} color="#168A45" />
-                  <Text style={styles.targetSetterTitle}>Update Monthly Target</Text>
-                </View>
-                <Text style={styles.targetSetterSub}>
-                  Set your personal revenue goal to track sales motivation and progress.
-                </Text>
+              <Text style={styles.voiceModalTitle}>
+                {transcript ? 'Voice Captured!' : 'Listening for your voice...'}
+              </Text>
+              <Text style={styles.voiceModalHint}>
+                {transcript
+                  ? `Searching Google AI for "${transcript}"...`
+                  : 'Speak in Hindi, English, Marathi, or Odia (e.g. "प्याज का भाव", "Tomato rates")'}
+              </Text>
 
-                {/* Target Value Input */}
-                <View style={styles.targetInputRow}>
-                  <Text style={styles.targetRupeeSymbol}>₹</Text>
-                  <TextInput
-                    style={styles.targetTextInput}
-                    keyboardType="numeric"
-                    value={tempTargetInput}
-                    onChangeText={setTempTargetInput}
-                    placeholder="100000"
-                  />
+              {transcript ? (
+                <View style={styles.transcriptBox}>
+                  <CheckCircle2 size={16} color="#16A34A" />
+                  <Text style={styles.transcriptText}>"{transcript}"</Text>
                 </View>
+              ) : null}
 
-                {/* Quick Target Presets */}
-                <Text style={styles.presetLabel}>Quick Presets:</Text>
-                <View style={styles.presetsRow}>
-                  {[75000, 100000, 150000, 200000].map((val) => (
+              {/* Quick Tap Voice Prompt Chips */}
+              <View style={styles.quickVoicePromptWrap}>
+                <Text style={styles.quickVoicePromptTitle}>Or tap a sample voice query:</Text>
+                <View style={styles.quickVoiceGrid}>
+                  {[
+                    { text: '🧅 प्याज का भाव', query: 'Onion Mandi Rates' },
+                    { text: '🍅 टमाटर Pimpalgaon Rate', query: 'Tomato Price' },
+                    { text: '🥔 आलू Buyer Demand', query: 'Potato Buyers' },
+                    { text: '🌾 गेहूं MSP 2026', query: 'Wheat MSP' },
+                    { text: '⚡ PM Kisan योजना', query: 'PM Kisan Subsidy' },
+                  ].map((chip, idx) => (
                     <Pressable
-                      key={val}
-                      style={[
-                        styles.presetPill,
-                        monthlyTarget === val && styles.presetPillActive,
-                      ]}
+                      key={idx}
+                      style={styles.quickVoicePill}
                       onPress={() => {
-                        setTempTargetInput(val.toString());
-                        handleSaveMonthlyTarget(val);
+                        setSearchQuery(chip.query);
+                        setSearchFocused(true);
+                        handleCloseVoice();
                       }}
                     >
-                      <Text style={[styles.presetText, monthlyTarget === val && styles.presetTextActive]}>
-                        ₹{(val / 1000)}k
-                      </Text>
+                      <Text style={styles.quickVoicePillText}>{chip.text}</Text>
                     </Pressable>
                   ))}
                 </View>
-
-                {/* Save Target CTA */}
-                <Pressable
-                  style={styles.saveTargetBtn}
-                  onPress={() => {
-                    handleSaveMonthlyTarget();
-                    setEarningsModalVisible(false);
-                  }}
-                >
-                  <CheckCircle2 size={16} color="#FFFFFF" strokeWidth={2.4} />
-                  <Text style={styles.saveTargetBtnText}>Save Target Goal</Text>
-                </Pressable>
               </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
-      {/* ── 8. Voice Search Modal (Interactive with Direct Vernacular Prompts) ── */}
-      <Modal
-        visible={voiceModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCloseVoice}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={handleCloseVoice} />
-          <View style={styles.voiceModalCard}>
-            <Animated.View style={[styles.voiceMicGlow, { transform: [{ scale: pulseAnim }] }]} />
-            <View style={styles.voiceMicCircle}>
-              <Mic size={36} color="#FFFFFF" strokeWidth={2.4} />
+              <Pressable style={styles.voiceCloseBtn} onPress={handleCloseVoice}>
+                <Text style={styles.voiceCloseBtnText}>Done / Close</Text>
+              </Pressable>
             </View>
-
-            <Text style={styles.voiceModalTitle}>
-              {transcript ? 'Voice Captured!' : 'Listening for your voice...'}
-            </Text>
-            <Text style={styles.voiceModalHint}>
-              {transcript
-                ? `Searching Google AI for "${transcript}"...`
-                : 'Speak in Hindi, English, Marathi, or Odia (e.g. "प्याज का भाव", "Tomato rates")'}
-            </Text>
-
-            {transcript ? (
-              <View style={styles.transcriptBox}>
-                <CheckCircle2 size={16} color="#16A34A" />
-                <Text style={styles.transcriptText}>"{transcript}"</Text>
-              </View>
-            ) : null}
-
-            {/* Quick Tap Voice Prompt Chips */}
-            <View style={styles.quickVoicePromptWrap}>
-              <Text style={styles.quickVoicePromptTitle}>Or tap a sample voice query:</Text>
-              <View style={styles.quickVoiceGrid}>
-                {[
-                  { text: '🧅 प्याज का भाव', query: 'Onion Mandi Rates' },
-                  { text: '🍅 टमाटर Pimpalgaon Rate', query: 'Tomato Price' },
-                  { text: '🥔 आलू Buyer Demand', query: 'Potato Buyers' },
-                  { text: '🌾 गेहूं MSP 2026', query: 'Wheat MSP' },
-                  { text: '⚡ PM Kisan योजना', query: 'PM Kisan Subsidy' },
-                ].map((chip, idx) => (
-                  <Pressable
-                    key={idx}
-                    style={styles.quickVoicePill}
-                    onPress={() => {
-                      setSearchQuery(chip.query);
-                      setSearchFocused(true);
-                      handleCloseVoice();
-                    }}
-                  >
-                    <Text style={styles.quickVoicePillText}>{chip.text}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            <Pressable style={styles.voiceCloseBtn} onPress={handleCloseVoice}>
-              <Text style={styles.voiceCloseBtnText}>Done / Close</Text>
-            </Pressable>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      ) : null}
 
       {/* ── Floating Kisan AI Saathi Quick Access FAB ── */}
       <Pressable

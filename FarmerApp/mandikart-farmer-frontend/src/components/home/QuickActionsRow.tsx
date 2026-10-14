@@ -122,7 +122,7 @@ const QUICK_ACTIONS: QuickActionItem[] = [
   },
 ];
 
-export function QuickActionsRow() {
+export const QuickActionsRow = React.memo(function QuickActionsRow() {
   const router = useRouter();
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
 
@@ -205,7 +205,7 @@ export function QuickActionsRow() {
       </ScrollView>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
