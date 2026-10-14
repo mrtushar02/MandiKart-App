@@ -38,6 +38,17 @@ export const CROP_IMAGE_MAP: Record<string, string> = {
   cotton: 'https://images.unsplash.com/photo-1606041008023-472dfb5e530f?w=500&auto=format&fit=crop&q=80',
   sugarcane: 'https://images.unsplash.com/photo-1598030304671-5aa1d6f21128?w=500&auto=format&fit=crop&q=80',
   pulse: 'https://images.unsplash.com/photo-1515543237350-b3eea1ec8082?w=500&auto=format&fit=crop&q=80',
+  saffron: 'https://images.unsplash.com/photo-1599818816934-2e94828114c0?w=500&auto=format&fit=crop&q=80',
+  avocado: 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=500&auto=format&fit=crop&q=80',
+  dragonfruit: 'https://images.unsplash.com/photo-1527325678964-54921661f888?w=500&auto=format&fit=crop&q=80',
+  gucchi: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=80',
+  blackgarlic: 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80',
+  blackrice: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80',
+  cardamom: 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=500&auto=format&fit=crop&q=80',
+  vanilla: 'https://images.unsplash.com/photo-1509358271058-acd22cc93898?w=500&auto=format&fit=crop&q=80',
+  romanesco: 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80',
+  blueberry: 'https://images.unsplash.com/photo-1498557850523-fd3d118b962e?w=500&auto=format&fit=crop&q=80',
+  almond: 'https://images.unsplash.com/photo-1508061252224-414eb2949015?w=500&auto=format&fit=crop&q=80',
 };
 
 export const CATEGORY_FALLBACKS: Record<string, string> = {
@@ -56,6 +67,19 @@ export const CATEGORY_FALLBACKS: Record<string, string> = {
 export function getCropThumbnailUrl(cropName: string = '', category: string = ''): string {
   const n = (cropName || '').toLowerCase().trim();
   const c = (category || '').toLowerCase().trim();
+
+  // Rare & Premium Produce
+  if (n.includes('saffron') || n.includes('kesar') || n.includes('mongra')) return CROP_IMAGE_MAP.saffron;
+  if (n.includes('avocado') || n.includes('makhana') || n.includes('butter fruit')) return CROP_IMAGE_MAP.avocado;
+  if (n.includes('dragon') || n.includes('kamalam') || n.includes('pitaya')) return CROP_IMAGE_MAP.dragonfruit;
+  if (n.includes('gucchi') || n.includes('morel') || n.includes('mushroom')) return CROP_IMAGE_MAP.gucchi;
+  if (n.includes('black garlic')) return CROP_IMAGE_MAP.blackgarlic;
+  if (n.includes('black rice') || n.includes('chak-hao') || n.includes('chak hao')) return CROP_IMAGE_MAP.blackrice;
+  if (n.includes('cardamom') || n.includes('elaichi')) return CROP_IMAGE_MAP.cardamom;
+  if (n.includes('vanilla')) return CROP_IMAGE_MAP.vanilla;
+  if (n.includes('romanesco') || n.includes('broccoli')) return CROP_IMAGE_MAP.romanesco;
+  if (n.includes('blueberry') || n.includes('blueberries')) return CROP_IMAGE_MAP.blueberry;
+  if (n.includes('badam') || n.includes('almond') || n.includes('mamra')) return CROP_IMAGE_MAP.almond;
 
   // Tomatoes
   if (n.includes('tomato') || n.includes('tamatar')) return CROP_IMAGE_MAP.tomato;

@@ -3,6 +3,7 @@ import type { FarmerUser, AdminUser, FarmerProduceListing } from '../types/admin
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { mockFarmers as initialMockFarmers } from './FarmerDirectoryMock';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 // Crop photo resolver ensuring reliable, high-resolution agricultural images
 export const getCropFallbackImage = (cropName: string = '', category: string = '') => {
@@ -32,6 +33,41 @@ export const getCropFallbackImage = (cropName: string = '', category: string = '
   if (cat.includes('fruit')) return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=500&auto=format&fit=crop&q=80';
   if (cat.includes('grain')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
   return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500&auto=format&fit=crop&q=80';
+};
+
+// Client-side canvas image compressor for admin uploads
+export const compressAdminImage = (file: File): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const src = e.target?.result as string;
+      if (!src) return resolve('');
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const maxDim = 800;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width = Math.max(1, Math.round(width * ratio));
+          height = Math.max(1, Math.round(height * ratio));
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(src);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.75);
+        resolve(compressed);
+      };
+      img.onerror = () => resolve(src);
+      img.src = src;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
 };
 
 interface FarmerDirectoryProps {
@@ -104,7 +140,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     if (showSpinner) setIsLoadingProduce(true);
     try {
       // 1. Fetch live produce immediately so new listings appear instantly
-      const producePromise = fetch('http://localhost:4003/api/v1/admin/produce')
+      const producePromise = fetch(`${getAdminApiBaseUrl()}/produce?t=${Date.now()}`)
         .then(r => r.json())
         .then(produceRes => {
           if (Array.isArray(produceRes?.data)) {
@@ -121,7 +157,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
         })
         .catch(() => []);
 
-      const farmersPromise = fetch('http://localhost:4003/api/v1/admin/farmers')
+      const farmersPromise = fetch(`${getAdminApiBaseUrl()}/farmers`)
         .then(r => r.json())
         .catch(() => ({ data: [] }));
 
@@ -223,55 +259,64 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
   const rejectedProduceListings: (FarmerProduceListing & { farmerFullName: string; farmerCode: string })[] = [];
   const allProduceListings: (FarmerProduceListing & { farmerFullName: string; farmerCode: string })[] = [];
 
-  const rawListToProcess = rawLiveProduce.length > 0
-    ? rawLiveProduce.map(p => {
-        const matchedFarmer = farmers.find(f => f.id === p.farmerId);
-        const fullName = p.farmerName || p.farmerFullName || matchedFarmer?.fullName || 'Registered Farmer';
-        const farmerCode = p.farmerCode || (matchedFarmer ? matchedFarmer.farmerCode : (p.farmerPhone ? `FARM-${p.farmerPhone.slice(-4)}` : `FARM-${String(p.farmerId || p.id).slice(-4)}`));
-        const crop = p.cropName || 'Produce';
-        const cat = p.category || 'Vegetables';
-        const fallbackImg = getCropFallbackImage(crop, cat);
-        const rawImg = p.imageUrl || (p.images && p.images[0]);
-        const isOldHardcodedOnionUrl = rawImg && rawImg.includes('AB6AXuC5ju') && !crop.toLowerCase().includes('onion');
-        const validImg = (rawImg && !rawImg.startsWith('file://') && !isOldHardcodedOnionUrl) ? rawImg : fallbackImg;
+  const processedFromLive = rawLiveProduce.map(p => {
+    const matchedFarmer = farmers.find(f => f.id === p.farmerId);
+    const fullName = p.farmerName || p.farmerFullName || matchedFarmer?.fullName || 'Registered Farmer';
+    const farmerCode = p.farmerCode || (matchedFarmer ? matchedFarmer.farmerCode : (p.farmerPhone ? `FARM-${p.farmerPhone.slice(-4)}` : `FARM-${String(p.farmerId || p.id).slice(-4)}`));
+    const crop = p.cropName || 'Produce';
+    const cat = p.category || 'Vegetables';
+    const fallbackImg = getCropFallbackImage(crop, cat);
+    const rawImg = p.imageUrl || (p.images && p.images[0]);
+    const validImg = (rawImg && typeof rawImg === 'string' && !rawImg.startsWith('file://')) ? rawImg : fallbackImg;
 
-        const savedApproved = localStorage.getItem('mandikart_approved_listing_ids');
-        const approvedIds: string[] = savedApproved ? JSON.parse(savedApproved) : [];
-        const isLocallyApproved = approvedIds.includes(p.id);
-        const resolvedStatus = isLocallyApproved ? 'APPROVED' : (p.status || 'PENDING_APPROVAL');
+    const backendStatus = String(p.status || '').toUpperCase();
+    const resolvedStatus = (backendStatus === 'PENDING' || backendStatus === 'PENDING_APPROVAL' || backendStatus === 'UNDER_REVIEW')
+      ? 'PENDING_APPROVAL'
+      : (backendStatus || 'PENDING_APPROVAL');
 
-        return {
-          id: p.id,
-          farmerId: p.farmerId,
-          farmerFullName: fullName,
-          farmerName: fullName,
-          farmerCode,
-          cropName: crop,
-          category: cat,
-          availableKg: Number(p.availableKg || p.available_quantity || p.quantityKg || 100),
-          pricePerKg: Number(p.pricePerKg || p.base_price_per_unit || 30),
-          qualityGrade: p.qualityGrade || (p.grade === 'B' ? 'GRADE_B' : 'GRADE_A'),
-          harvestDate: p.harvestDate || p.harvest_date || 'Recent',
-          submittedAt: p.submittedAt || (p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'Today'),
-          createdAt: p.createdAt || new Date().toISOString(),
-          status: resolvedStatus,
-          mandiName: p.mandiName || 'Nashik APMC',
-          imageUrl: validImg,
-          images: [validImg],
-        };
-      })
-    : farmers.flatMap(f => f.activeListings.map(l => ({ ...l, farmerFullName: f.fullName, farmerCode: f.farmerCode })));
+    return {
+      id: p.id,
+      farmerId: p.farmerId,
+      farmerFullName: fullName,
+      farmerName: fullName,
+      farmerCode,
+      cropName: crop,
+      category: cat,
+      availableKg: Number(p.availableKg || p.available_quantity || p.quantityKg || 100),
+      pricePerKg: Number(p.pricePerKg || p.base_price_per_unit || 30),
+      qualityGrade: p.qualityGrade || (p.grade === 'B' ? 'GRADE_B' : 'GRADE_A'),
+      harvestDate: p.harvestDate || p.harvest_date || 'Recent',
+      submittedAt: p.submittedAt || (p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'Today'),
+      createdAt: p.createdAt || new Date().toISOString(),
+      status: resolvedStatus,
+      mandiName: p.mandiName || 'Nashik APMC',
+      imageUrl: validImg,
+      images: [validImg],
+    };
+  });
+
+  const existingIds = new Set(processedFromLive.map(p => p.id));
+  const fallbackFromFarmers = farmers.flatMap(f =>
+    (f.activeListings || [])
+      .filter(l => !existingIds.has(l.id))
+      .map(l => ({ ...l, farmerFullName: f.fullName, farmerCode: f.farmerCode }))
+  );
+
+  const rawListToProcess = [...processedFromLive, ...fallbackFromFarmers];
 
   rawListToProcess.forEach((item: any) => {
     allProduceListings.push(item);
-    if (item.status === 'PENDING_APPROVAL') {
+    const st = String(item.status || '').toUpperCase();
+    if (st === 'PENDING' || st === 'PENDING_APPROVAL' || st === 'UNDER_REVIEW' || !st) {
       pendingProduceListings.push(item);
-    } else if (item.status === 'APPROVED' || item.status === 'ADMIN_APPROVED') {
+    } else if (st === 'APPROVED' || st === 'ADMIN_APPROVED') {
       approvedProduceListings.push(item);
-    } else if (item.status === 'ACTIVE') {
+    } else if (st === 'ACTIVE') {
       activeProduceListings.push(item);
-    } else if (item.status === 'REJECTED') {
+    } else if (st === 'REJECTED') {
       rejectedProduceListings.push(item);
+    } else {
+      pendingProduceListings.push(item);
     }
   });
 
@@ -332,7 +377,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     });
 
     // 4. Call Admin backend API to update Supabase & shared registry
-    fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/approve`, {
+    fetch(`${getAdminApiBaseUrl()}/produce/${listingId}/approve`, {
       method: 'POST',
     }).catch(err => console.warn('Approve produce API notice:', err));
 
@@ -347,7 +392,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
       prev.map(p => (p.id === listingId ? { ...p, status: 'REJECTED' } : p))
     );
 
-    fetch(`http://localhost:4003/api/v1/admin/produce/${listingId}/reject`, {
+    fetch(`${getAdminApiBaseUrl()}/produce/${listingId}/reject`, {
       method: 'POST',
     }).catch(err => console.warn('Reject produce API notice:', err));
 
@@ -385,17 +430,20 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
   };
 
   // Simulate Farmer Submitting Product Handler
-  const handleSimulateSubmit = (e: React.FormEvent) => {
+  const handleSimulateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!simCropName) return;
 
     const targetFarmer = farmers.find(f => f.id === selectedFarmerId);
     const resolvedImg = simImageUrl.trim() || getCropFallbackImage(simCropName, simCategory);
+    const tempId = `prod_${Date.now()}`;
+    const nowIso = new Date().toISOString();
+
     const newListing: FarmerProduceListing = {
-      id: `lst-sim-${Date.now()}`,
+      id: tempId,
       farmerId: selectedFarmerId,
-      farmerName: targetFarmer?.fullName,
-      farmerCode: targetFarmer?.farmerCode,
+      farmerName: targetFarmer?.fullName || 'Registered Farmer',
+      farmerCode: targetFarmer?.farmerCode || 'FMR-REG',
       cropName: simCropName,
       category: simCategory,
       availableKg: Number(simQuantityKg),
@@ -410,6 +458,17 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
       images: [resolvedImg],
     };
 
+    // 1. Immediately update rawLiveProduce so it appears in Pending Approval tab right away
+    setRawLiveProduce(prev => [
+      {
+        ...newListing,
+        farmerFullName: newListing.farmerName,
+        createdAt: nowIso,
+      },
+      ...prev,
+    ]);
+
+    // 2. Also update local state
     setFarmers(prev => {
       const updated = prev.map(f => {
         if (f.id === selectedFarmerId) {
@@ -420,9 +479,7 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
         }
         return f;
       });
-      try {
-        localStorage.setItem('mandikart_admin_farmers_data', JSON.stringify(updated));
-      } catch {}
+      safeSaveFarmers(updated);
       return updated;
     });
 
@@ -430,8 +487,32 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
     setSimCropName('');
     setSimImageUrl('');
     setModerationTab('PENDING');
-    setApprovalNotification(`FARMER SUBMISSION RECEIVED: Farmer ${targetFarmer?.fullName} submitted "${simCropName}". Added to Admin Moderation Queue with product image!`);
+    setApprovalNotification(`FARMER SUBMISSION RECEIVED: Farmer ${targetFarmer?.fullName || 'Farmer'} submitted "${simCropName}". Added to Admin Moderation Queue with product image!`);
     setTimeout(() => setApprovalNotification(null), 7000);
+
+    // 3. Persist to Backend API so refreshing retains the pending produce listing!
+    try {
+      await fetch(`${getAdminApiBaseUrl()}/produce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          farmerId: selectedFarmerId,
+          farmerName: targetFarmer?.fullName,
+          farmerPhone: targetFarmer?.phone,
+          cropName: simCropName,
+          category: simCategory,
+          quantityKg: Number(simQuantityKg),
+          pricePerKg: Number(simPricePerKg),
+          grade: simGrade === 'GRADE_B' ? 'B' : 'A',
+          imageUrl: resolvedImg,
+          images: [resolvedImg],
+          mandiName: targetFarmer?.mandiName,
+        }),
+      });
+      fetchFarmersAndProduce(false);
+    } catch (err) {
+      console.warn('Could not persist simulated produce to backend:', err);
+    }
   };
 
   const filteredFarmers = farmers.filter((farmer) => {
@@ -1067,15 +1148,33 @@ export const FarmerDirectory: React.FC<FarmerDirectoryProps> = ({
               </div>
 
               <div>
-                <label className="text-zinc-400 block mb-1">Product Photo URL (Optional or pick preset):</label>
-                <div className="flex gap-2">
+                <label className="text-zinc-400 block mb-1">Product Photo (Upload Image, URL, or pick preset):</label>
+                <div className="flex gap-2 items-center">
                   <input 
-                    type="url" 
-                    placeholder="https://images.unsplash.com/... or auto-resolved from crop"
-                    value={simImageUrl}
+                    type="text" 
+                    placeholder="https://... or choose file or click preset below"
+                    value={simImageUrl.startsWith('data:image') ? 'Attached Image (Compressed Base64)' : simImageUrl}
                     onChange={(e) => setSimImageUrl(e.target.value)}
                     className="flex-1 bg-black text-white border border-white p-2 focus:outline-none text-[11px]"
                   />
+                  <label className="px-3 py-2 bg-zinc-900 border border-zinc-700 hover:border-emerald-400 text-zinc-300 hover:text-white rounded text-xs font-mono cursor-pointer flex items-center gap-1.5 shrink-0 transition-colors" title="Select photo from computer">
+                    <span className="material-symbols-outlined text-sm text-emerald-400">photo_camera</span>
+                    <span>Upload</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const compressed = await compressAdminImage(file);
+                          if (compressed) {
+                            setSimImageUrl(compressed);
+                          }
+                        }
+                      }}
+                    />
+                  </label>
                   {simImageUrl && (
                     <img 
                       src={simImageUrl} 

@@ -10,8 +10,17 @@ import os from 'node:os';
 import { OrderRegistryService } from './order-registry.service.js';
 import { OrderStatus } from '@mandikart/shared-types';
 
-export type NegotiationMessageType = 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT';
+export type NegotiationMessageType = 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT' | 'LOCATION';
 export type NegotiationSenderRole = 'BUYER' | 'FARMER' | 'SYSTEM';
+
+export interface SharedLocationData {
+  latitude: number;
+  longitude: number;
+  address: string;
+  name: string;
+  placeType: 'USER_LOCATION' | 'FARMER_LOCATION';
+  distanceKm?: number;
+}
 
 export interface NegotiationMessageItem {
   id: string;
@@ -26,6 +35,7 @@ export interface NegotiationMessageItem {
   unit?: string;
   totalAmount?: number;
   offerStatus?: 'PENDING' | 'ACCEPTED' | 'ACCEPTED_BY_FARMER' | 'REJECTED' | 'EXPIRED' | 'COUNTERED';
+  location?: SharedLocationData;
   orderId?: string;
   orderNumber?: string;
   timestamp: string;
@@ -38,6 +48,25 @@ export interface RegisteredNegotiation {
   cropName: string;
   cropImage?: string;
   grade?: string;
+  items?: Array<{
+    id: string;
+    cropName: string;
+    variety?: string;
+    category?: string;
+    grade?: string;
+    quantity: number;
+    unit: string;
+    targetPrice: number;
+    selectedByFarmer?: boolean;
+    farmerPrice?: number;
+  }>;
+  selectedItems?: Array<{
+    id: string;
+    cropName: string;
+    quantity: number;
+    unit: string;
+    farmerPrice: number;
+  }>;
   farmerId: string;
   farmerName: string;
   farmerPhone?: string;
@@ -201,36 +230,31 @@ export class NegotiationRegistryService {
     const totalAmount = Math.round(finalPrice * finalQty);
     const now = new Date().toISOString();
 
-    // 1. If FARMER accepts: prompt buyer for final order confirmation in chat
+    // 1. If FARMER accepts: finalize deal and create order immediately
     if (actorRole === 'FARMER') {
-      target.messages?.forEach((m) => {
-        if (m.messageType === 'OFFER' && (m.offerStatus === 'PENDING' || !m.offerStatus)) {
-          m.offerStatus = 'ACCEPTED_BY_FARMER';
-        }
-      });
-
-      const acceptMsg: NegotiationMessageItem = {
-        id: `msg_sys_acc_${Date.now()}`,
-        negotiationId: id,
-        senderId: actorId,
-        senderRole: 'FARMER',
-        senderName: actorName,
-        messageType: 'SYSTEM',
-        text: `🌾 Farmer ${actorName} accepted the offer of ₹${finalPrice}/${target.unit || 'kg'} for ${finalQty} ${target.unit || 'kg'}! Please confirm to place your order.`,
-        timestamp: now,
-      };
-
-      if (!target.messages) target.messages = [];
-      target.messages.push(acceptMsg);
-
-      target.status = 'PENDING_BUYER_CONFIRMATION';
-      target.updatedAt = now;
-      this.updateNegotiation(id, target);
-
-      return {
-        negotiation: target,
-        order: null,
-      };
+      const res = this.confirmBuyerNegotiationOrder(
+        id,
+        target.buyerId || 'buyer_default_01',
+        target.buyerName || 'MandiKart Buyer',
+        deliveryAddress || 'Farmgate Direct Collection Point',
+        target.buyerPhone
+      );
+      if (res && res.negotiation) {
+        const farmerAcceptMsg: NegotiationMessageItem = {
+          id: `msg_sys_facc_${Date.now()}`,
+          negotiationId: id,
+          senderId: actorId,
+          senderRole: 'FARMER',
+          senderName: actorName,
+          messageType: 'SYSTEM',
+          text: `🌾 Farmer ${actorName} accepted the deal (₹${finalPrice}/${target.unit || 'kg'} for ${finalQty} ${target.unit || 'kg'})! Order #${res.order?.orderNumber || 'CONFIRMED'} placed successfully.`,
+          timestamp: now,
+        };
+        if (!res.negotiation.messages) res.negotiation.messages = [];
+        res.negotiation.messages.push(farmerAcceptMsg);
+        this.updateNegotiation(id, res.negotiation);
+      }
+      return res;
     }
 
     // 2. If BUYER accepts / confirms: finalize order into OrderRegistryService
@@ -244,8 +268,8 @@ export class NegotiationRegistryService {
   }
 
   /**
-   * Buyer finalizes and confirms the accepted negotiation into a PLACED order.
-   * Order appears in User Orders and Farmer Orders (Pending Tab).
+   * Finalizes and confirms the accepted negotiation into a PLACED order in OrderRegistryService.
+   * Order appears immediately in User Orders and Farmer Orders (Pending Tab).
    */
   static confirmBuyerNegotiationOrder(
     id: string,
@@ -256,6 +280,16 @@ export class NegotiationRegistryService {
   ): { negotiation: RegisteredNegotiation; order: any } | undefined {
     const target = this.getNegotiationById(id);
     if (!target) return undefined;
+
+    // If order was already created, return existing
+    if (target.orderId) {
+      const existing = OrderRegistryService.getOrderById(target.orderId);
+      if (existing) {
+        target.status = 'ACCEPTED';
+        this.updateNegotiation(id, target);
+        return { negotiation: target, order: existing };
+      }
+    }
 
     const finalPrice = target.counterPrice || target.offeredPrice;
     const finalQty = target.quantity;
@@ -368,7 +402,14 @@ export class NegotiationRegistryService {
     actorName: string,
     counterPrice: number,
     counterQty: number,
-    message?: string
+    message?: string,
+    selectedItems?: Array<{
+      id: string;
+      cropName: string;
+      quantity: number;
+      unit: string;
+      farmerPrice: number;
+    }>
   ): RegisteredNegotiation | undefined {
     const target = this.getNegotiationById(id);
     if (!target) return undefined;
@@ -381,6 +422,38 @@ export class NegotiationRegistryService {
     });
 
     const now = new Date().toISOString();
+
+    // If multi-item selected, construct breakdown
+    let offerText = `Counter-Offer: ₹${counterPrice}/${target.unit || 'kg'} for ${counterQty} ${target.unit || 'kg'}`;
+    let computedTotal = Math.round(counterPrice * counterQty);
+
+    if (Array.isArray(selectedItems) && selectedItems.length > 0) {
+      target.selectedItems = selectedItems;
+      computedTotal = selectedItems.reduce((acc, item) => acc + (item.quantity * item.farmerPrice), 0);
+      const itemsListText = selectedItems
+        .map((it) => `• ${it.cropName} (${it.quantity} ${it.unit}): ₹${it.farmerPrice}/${it.unit}`)
+        .join('\n');
+      offerText = `🌾 Farmer Quote for Selected Demand (${selectedItems.length} Products):\n${itemsListText}\nTotal Selected Value: ₹${computedTotal.toLocaleString('en-IN')}`;
+
+      // Update target.items flags
+      if (Array.isArray(target.items)) {
+        target.items = target.items.map((it) => {
+          const match = selectedItems.find((s) => s.id === it.id || s.cropName === it.cropName);
+          if (match) {
+            return {
+              ...it,
+              selectedByFarmer: true,
+              farmerPrice: match.farmerPrice,
+            };
+          }
+          return {
+            ...it,
+            selectedByFarmer: false,
+          };
+        });
+      }
+    }
+
     const offerMsg: NegotiationMessageItem = {
       id: `msg_off_${Date.now()}`,
       negotiationId: id,
@@ -388,11 +461,11 @@ export class NegotiationRegistryService {
       senderRole: actorRole,
       senderName: actorName,
       messageType: 'OFFER',
-      text: `Counter-Offer: ₹${counterPrice}/${target.unit || 'kg'} for ${counterQty} ${target.unit || 'kg'}`,
+      text: offerText,
       price: counterPrice,
       quantity: counterQty,
       unit: target.unit || 'kg',
-      totalAmount: Math.round(counterPrice * counterQty),
+      totalAmount: computedTotal,
       offerStatus: 'PENDING',
       timestamp: now,
     };

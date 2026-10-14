@@ -35,7 +35,18 @@ export default function OrderListScreen({ navigation }: any) {
         })();
 
         // Normalize items — backend returns {cropName, quantity, pricePerUnit}, frontend returns {product: {...}, quantity}
-        const rawItems: any[] = o.items || [];
+        const rawItems: any[] =
+          o.items && o.items.length > 0
+            ? o.items
+            : [
+                {
+                  cropName: o.cropName || o.produceName || 'Fresh Farm Produce',
+                  imageUrl: o.imageUrl || o.cropImage || '',
+                  pricePerUnit: o.pricePerKg || o.pricePerUnit || 30,
+                  quantity: o.quantityKg || o.quantity || 1,
+                  unit: o.unit || 'kg',
+                },
+              ];
         const itemsPreview = rawItems.map((it: any) => {
           const realImg = it.imageUrl || it.image || (it.images && it.images[0]) || (it.product && (it.product.imageUrl || (it.product.images && it.product.images[0]))) || '';
           if (it.product) {

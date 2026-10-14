@@ -50,6 +50,21 @@ export const TopBar: React.FC<TopBarProps> = ({
   backendHealth,
 }) => {
   const zoomPercent = Math.round(scale * 100);
+  const [liveClock, setLiveClock] = React.useState('');
+
+  React.useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setLiveClock(
+        now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) +
+        ' • ' +
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      );
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full px-4 py-2 glass-panel border-b border-white/10 flex items-center justify-between gap-2.5 select-none shadow-xl flex-nowrap">
@@ -67,6 +82,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
               {deviceCount} Devices
             </span>
+            {liveClock && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-900/90 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {liveClock}
+              </span>
+            )}
           </div>
         </div>
       </div>

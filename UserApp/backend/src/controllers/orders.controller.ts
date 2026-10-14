@@ -109,11 +109,16 @@ export class BuyerOrdersController {
 
     try {
       const supabase = getSupabaseAdmin();
-      let { data, error } = await supabase
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error('Supabase timeout')), 1500)
+      );
+      const queryPromise = supabase
         .from('orders')
         .select('*, order_items(*)')
         .eq('buyer_id', buyerId)
         .order('created_at', { ascending: false });
+
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
       let finalData = mappedReg;
       if (!error && data && data.length > 0) {
@@ -147,11 +152,11 @@ export class BuyerOrdersController {
         meta: { total: finalData.length },
         error: null,
       });
-    } catch (err) {
-      res.status(500).json({
-        data: null,
-        meta: null,
-        error: { code: 'ORDERS_ERROR', message: (err as Error).message },
+    } catch {
+      res.status(200).json({
+        data: mappedReg,
+        meta: { total: mappedReg.length },
+        error: null,
       });
     }
   }

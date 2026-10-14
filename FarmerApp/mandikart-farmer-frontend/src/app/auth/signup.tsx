@@ -80,7 +80,7 @@ const COUNTRY_CODES = [
 export default function SignUpScreen() {
   const router = useRouter();
   const { language } = useAppStore();
-  const { setPhoneNumber, setUser, setIsAuthenticated, setAuthenticated } = useAuthStore();
+  const { setPhoneNumber, setUser, setIsAuthenticated, setAuthenticated, setOnboarded } = useAuthStore();
   const { t } = useTranslation();
 
   const [firstName, setFirstName] = useState('');
@@ -101,47 +101,7 @@ export default function SignUpScreen() {
   const [googleModalVisible, setGoogleModalVisible] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleGoogleSignUp = async () => {
-    if (Platform.OS === 'web') {
-      setGoogleLoading(true);
-      try {
-        const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
-        const result = await firebaseAuthService.signInWithGoogleFirebase(
-          cleanPhone ? `${countryCode}${cleanPhone}` : undefined
-        );
-
-        if (result.error === 'REDIRECTING') {
-          return;
-        }
-
-        if (!result.success || !result.farmer) {
-          if (result.error && !result.error.includes('cancelled')) {
-            Alert.alert('Google Sign-Up', result.error);
-          }
-          return;
-        }
-
-        const isProfileComplete = Boolean(
-          !result.isNewUser &&
-          result.farmer.village &&
-          (result.farmer.farmSizeAcres || (result.farmer as any).farm_size_acres)
-        );
-
-        const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
-        if (!alreadyConsented && !isProfileComplete) {
-          router.replace('/onboarding/permissions');
-        } else {
-          router.replace('/(tabs)/home');
-        }
-      } catch (err: any) {
-        Alert.alert('Google Sign-Up Error', err?.message || 'Could not connect to authentication service.');
-      } finally {
-        setGoogleLoading(false);
-      }
-      return;
-    }
-
-    // On Native (Android / iOS): Open in-app Google Auth Modal
+  const handleGoogleSignUp = () => {
     setGoogleModalVisible(true);
   };
 
@@ -552,13 +512,24 @@ export default function SignUpScreen() {
         visible={googleModalVisible}
         onClose={() => setGoogleModalVisible(false)}
         pendingPhone={mobile ? `${countryCode}${mobile.replace(/\D/g, '').slice(-10)}` : undefined}
-        onSuccess={async (farmer, isNewUser) => {
-          const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
-          if (!alreadyConsented && isNewUser) {
-            router.replace('/onboarding/permissions');
-          } else {
-            router.replace('/(tabs)/home');
+        onSuccess={async (farmer, isNewUser, token) => {
+          if (token && farmer) {
+            setAuthenticated(token, farmer);
           }
+          if (farmer) {
+            setUser(farmer);
+          }
+          setIsAuthenticated(true);
+          setOnboarded(true);
+          setGoogleModalVisible(false);
+          const alreadyConsented = await FrontendConsentService.hasAcceptedConsent();
+          setTimeout(() => {
+            if (!alreadyConsented && isNewUser) {
+              router.replace('/onboarding/permissions');
+            } else {
+              router.replace('/(tabs)/home');
+            }
+          }, 50);
         }}
         onError={(err) => {
           Alert.alert('Google Sign-Up', err);

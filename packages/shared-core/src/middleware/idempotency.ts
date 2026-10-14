@@ -27,6 +27,12 @@ setInterval(() => {
 }, 30000);
 
 export function requireIdempotency(req: Request, res: Response, next: NextFunction): void {
+  if ((req as any)._idempotencyHandled) {
+    next();
+    return;
+  }
+  (req as any)._idempotencyHandled = true;
+
   const idempotencyKey = req.headers['idempotency-key'] as string;
 
   if (!idempotencyKey) {
@@ -75,8 +81,11 @@ export function requireIdempotency(req: Request, res: Response, next: NextFuncti
     return originalJson(body);
   };
 
-  // Safety release on socket close/error
+  // Safety release on socket close/error/finish
   res.on('close', () => {
+    inFlightIdempotencyKeys.delete(idempotencyKey);
+  });
+  res.on('finish', () => {
     inFlightIdempotencyKeys.delete(idempotencyKey);
   });
 

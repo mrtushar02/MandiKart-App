@@ -157,8 +157,8 @@ export const GoogleAuthModal = ({
 
       // Sync with Logistics Backend (Port 4002) with failover endpoints
       const endpoints = [
-        'http://192.168.1.9:4002/api/v1/auth/google',
         'http://localhost:4002/api/v1/auth/google',
+        'http://192.168.68.73:4002/api/v1/auth/google',
         'http://10.0.2.2:4002/api/v1/auth/google',
       ];
 
@@ -223,7 +223,7 @@ export const GoogleAuthModal = ({
 
     const endpoints = [
       'http://localhost:4002/api/v1/auth/google',
-      'http://192.168.1.9:4002/api/v1/auth/google',
+      'http://192.168.68.73:4002/api/v1/auth/google',
       'http://10.0.2.2:4002/api/v1/auth/google',
     ];
 

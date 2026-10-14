@@ -31,19 +31,35 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const isMountedRef = useRef(true);
+  const isRefreshingRef = useRef(false);
 
   const refresh = useCallback(async (silent: boolean = false) => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
     try {
       if (!silent) {
         setIsLoading(true);
       }
       const live = await apiClient.catalog.search({ fresh: true });
-      if (isMountedRef.current && Array.isArray(live)) {
-        setProducts(live);
+      if (isMountedRef.current && Array.isArray(live) && live.length > 0) {
+        setProducts((prev) => {
+          if (!prev || prev.length === 0) return live;
+          const map = new Map<string, Product>();
+          for (const item of live) {
+            map.set(item.id, item);
+          }
+          for (const item of prev) {
+            if (!map.has(item.id)) {
+              map.set(item.id, item);
+            }
+          }
+          return Array.from(map.values());
+        });
       }
     } catch (err) {
       console.log('[CatalogContext] Refresh notice, keeping cached products:', err);
     } finally {
+      isRefreshingRef.current = false;
       if (isMountedRef.current && !silent) {
         setIsLoading(false);
       }
@@ -56,10 +72,12 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
     // 1. Initial immediate fetch
     refresh(false);
 
-    // 2. Auto-refresh every 4 seconds as requested to show newly listed products and price changes
+    // 2. Auto-refresh periodically to show newly approved/listed products
     const interval = setInterval(() => {
-      refresh(true);
-    }, 4000);
+      if (!isRefreshingRef.current) {
+        refresh(true);
+      }
+    }, 6000);
 
     // 3. Supabase Realtime channel for sub-second push updates when farmer adds/edits a crop
     const channel = supabase

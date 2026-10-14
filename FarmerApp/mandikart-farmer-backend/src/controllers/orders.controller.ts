@@ -53,6 +53,11 @@ function mapRegisteredOrderToFarmerOrder(reg: any, fallbackFarmerId: string) {
     buyerId: reg.buyerId || 'buyer_mumbai_retail_04',
     buyerName: reg.buyerName || 'MandiKart Buyer',
     buyerPhone: reg.buyerPhone || '+91 9820011223',
+    cropName,
+    produceName: cropName,
+    quantity,
+    quantityKg: quantity,
+    pricePerKg: pricePerUnit,
     status: reg.status as OrderStatus,
     totalAmount,
     platformFee,
@@ -96,41 +101,55 @@ export class OrdersController {
       });
       const mappedRegOrders = rawRegOrders.map((r) => mapRegisteredOrderToFarmerOrder(r, rawFarmerId));
 
-      if (!isSupabaseConfigured()) {
-        let combined = [...mappedRegOrders];
-        if (statusFilter) {
-          const statuses = statusFilter.split(',');
-          combined = combined.filter((o) => statuses.includes(o.status));
-        }
+      let combinedReg = [...mappedRegOrders];
+      if (statusFilter) {
+        const statuses = statusFilter.split(',');
+        combinedReg = combinedReg.filter((o) => statuses.includes(o.status));
+      }
 
+      if (!isSupabaseConfigured()) {
         res.status(200).json({
-          data: combined,
-          meta: { page: 1, limit: 20, total: combined.length, totalPages: 1 },
+          data: combinedReg,
+          meta: { page: 1, limit: 20, total: combinedReg.length, totalPages: 1 },
           error: null,
         });
         return;
       }
 
-      const supabase = getSupabaseAdmin();
-      let query = supabase
-        .from('orders')
-        .select('*, order_items(*)', { count: 'exact' })
-        .eq('farmer_id', uuidFarmerId)
-        .order('created_at', { ascending: false });
+      let dbOrders: any[] = [];
+      try {
+        const supabase = getSupabaseAdmin();
+        let query = supabase
+          .from('orders')
+          .select('*, order_items(*)', { count: 'exact' })
+          .eq('farmer_id', uuidFarmerId)
+          .order('created_at', { ascending: false });
 
-      if (statusFilter) {
-        const statuses = statusFilter.split(',');
-        query = query.in('status', statuses);
+        if (statusFilter) {
+          const statuses = statusFilter.split(',');
+          query = query.in('status', statuses);
+        }
+
+        const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+          setTimeout(() => reject(new Error('Supabase timeout')), 1500)
+        );
+        const { data, error } = await Promise.race([
+          query.range(offset, offset + limit - 1),
+          timeoutPromise,
+        ]);
+
+        if (!error && Array.isArray(data)) {
+          dbOrders = data;
+        }
+      } catch {
+        // Fall back to disk registry gracefully
       }
 
-      const { data, count, error } = await query.range(offset, offset + limit - 1);
-
-      let finalOrders = mappedRegOrders;
-      if (!error && data && data.length > 0) {
-        // Merge Supabase orders with registered orders (avoiding duplicates)
-        const dbIds = new Set(data.map((d: any) => d.id));
-        const nonDuplicateReg = mappedRegOrders.filter((o) => !dbIds.has(o.id));
-        finalOrders = [...data, ...nonDuplicateReg];
+      let finalOrders = combinedReg;
+      if (dbOrders.length > 0) {
+        const dbIds = new Set(dbOrders.map((d: any) => d.id));
+        const nonDuplicateReg = combinedReg.filter((o) => !dbIds.has(o.id));
+        finalOrders = [...dbOrders, ...nonDuplicateReg];
       }
 
       res.status(200).json({

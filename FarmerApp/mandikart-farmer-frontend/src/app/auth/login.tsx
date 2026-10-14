@@ -28,7 +28,7 @@ import { GoogleAuthModal } from '@/components/GoogleAuthModal';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setPhoneNumber, setIsAuthenticated, setAuthenticated, setUser } = useAuthStore();
+  const { setPhoneNumber, setIsAuthenticated, setAuthenticated, setUser, setOnboarded } = useAuthStore();
 
   const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
@@ -37,34 +37,7 @@ export default function LoginScreen() {
   const [googleModalVisible, setGoogleModalVisible] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
-  const handleGoogleLogin = async () => {
-    if (Platform.OS === 'web') {
-      setGoogleLoading(true);
-      try {
-        const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
-        const result = await firebaseAuthService.signInWithGoogleFirebase(
-          cleanPhone ? `+91${cleanPhone}` : undefined
-        );
-
-        if (result.error === 'REDIRECTING') return;
-
-        if (!result.success || !result.farmer) {
-          if (result.error && !result.error.includes('cancelled')) {
-            Alert.alert('Google Sign-In', result.error);
-          }
-          return;
-        }
-
-        router.replace('/(tabs)/home');
-      } catch (err: any) {
-        setErrors({ mobile: err?.message || 'Could not connect to Google authentication service.' });
-      } finally {
-        setGoogleLoading(false);
-      }
-      return;
-    }
-
-    // On Native (Android / iOS): Open in-app Google Auth Modal
+  const handleGoogleLogin = () => {
     setGoogleModalVisible(true);
   };
 
@@ -251,13 +224,19 @@ export default function LoginScreen() {
         visible={googleModalVisible}
         onClose={() => setGoogleModalVisible(false)}
         pendingPhone={mobile ? `+91${mobile.replace(/\D/g, '').slice(-10)}` : undefined}
-        onSuccess={(farmer, isNewUser) => {
-          const isComplete = Boolean(
-            !isNewUser &&
-            farmer?.village &&
-            (farmer?.farmSizeAcres || (farmer as any)?.farm_size_acres)
-          );
-          router.replace('/(tabs)/home');
+        onSuccess={(farmer, isNewUser, token) => {
+          if (token && farmer) {
+            setAuthenticated(token, farmer);
+          }
+          if (farmer) {
+            setUser(farmer);
+          }
+          setIsAuthenticated(true);
+          setOnboarded(true);
+          setGoogleModalVisible(false);
+          setTimeout(() => {
+            router.replace('/(tabs)/home');
+          }, 50);
         }}
         onError={(err) => {
           Alert.alert('Google Sign-In', err);

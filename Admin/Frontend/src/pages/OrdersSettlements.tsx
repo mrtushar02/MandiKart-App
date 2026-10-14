@@ -4,6 +4,7 @@ import type { DetailedOrder, EscrowStatus } from '../types/ordersAndDisputes';
 import { MOCK_ORDERS } from './OrdersAndDisputesMock';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 // Crop photo resolver
 const getCropFallbackImage = (cropName: string = '') => {
@@ -57,7 +58,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
   // Sync with live Admin backend (port 4003) with 3s polling for real-time order updates
   React.useEffect(() => {
     const fetchAdminOrders = () => {
-      fetch('http://localhost:4003/api/v1/admin/orders')
+      fetch(`${getAdminApiBaseUrl()}/orders`)
         .then(res => res.json())
         .then(result => {
           if (result.data && Array.isArray(result.data) && result.data.length > 0) {
@@ -153,7 +154,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
 
   // ACCEPT ORDER HANDLER: Admin accepts order -> Transitions PLACED to CONFIRMED
   const handleAcceptOrder = (orderId: string) => {
-    fetch(`http://localhost:4003/api/v1/admin/orders/${orderId}/accept`, {
+    fetch(`${getAdminApiBaseUrl()}/orders/${orderId}/accept`, {
       method: 'POST',
     }).catch(err => console.warn('Accept order API notice:', err));
 
@@ -163,7 +164,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
 
   // REJECT ORDER HANDLER: Admin rejects order -> Transitions PLACED to REJECTED & refunds escrow
   const handleRejectOrder = (orderId: string) => {
-    fetch(`http://localhost:4003/api/v1/admin/orders/${orderId}/reject`, {
+    fetch(`${getAdminApiBaseUrl()}/orders/${orderId}/reject`, {
       method: 'POST',
     }).catch(err => console.warn('Reject order API notice:', err));
 
@@ -176,7 +177,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
 
   // DISPATCH ORDER HANDLER: CONFIRMED -> IN_TRANSIT
   const handleDispatchOrder = (orderId: string) => {
-    fetch(`http://localhost:4003/api/v1/admin/orders/${orderId}/status`, {
+    fetch(`${getAdminApiBaseUrl()}/orders/${orderId}/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'IN_TRANSIT' }),
@@ -188,7 +189,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
 
   // MARK DELIVERED HANDLER: IN_TRANSIT -> DELIVERED
   const handleMarkDelivered = (orderId: string) => {
-    fetch(`http://localhost:4003/api/v1/admin/orders/${orderId}/status`, {
+    fetch(`${getAdminApiBaseUrl()}/orders/${orderId}/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'DELIVERED' }),
@@ -200,7 +201,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
 
   // Escrow Action Handler: Release to Farmer
   const handleReleaseEscrow = (orderId: string) => {
-    fetch(`http://localhost:4003/api/v1/admin/orders/${orderId}/release-escrow`, {
+    fetch(`${getAdminApiBaseUrl()}/orders/${orderId}/release-escrow`, {
       method: 'POST',
     }).catch(err => console.warn('Release escrow API notice:', err));
 
@@ -213,7 +214,7 @@ export const OrdersSettlements: React.FC<OrdersSettlementsProps> = ({
 
   // Escrow Action Handler: Refund to Buyer
   const handleRefundBuyer = (orderId: string) => {
-    fetch(`http://localhost:4003/api/v1/admin/orders/${orderId}/refund-buyer`, {
+    fetch(`${getAdminApiBaseUrl()}/orders/${orderId}/refund-buyer`, {
       method: 'POST',
     }).catch(err => console.warn('Refund buyer API notice:', err));
 

@@ -20,6 +20,7 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,7 @@ import { Colors, Spacing, BorderRadius, Shadows } from '../../theme';
 import { apiClient } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
+import { calculateHaversineDistance } from '../../services/aStarRouting';
 
 interface ChatItem {
   id: string;
@@ -34,7 +36,7 @@ interface ChatItem {
   senderId: string;
   senderRole: 'BUYER' | 'FARMER' | 'SYSTEM';
   senderName: string;
-  messageType: 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT';
+  messageType: 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT' | 'LOCATION';
   text: string;
   price?: number;
   quantity?: number;
@@ -45,6 +47,14 @@ interface ChatItem {
   orderNumber?: string;
   timestamp: string;
   isRead?: boolean;
+  location?: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+    name?: string;
+    placeType?: 'USER_LOCATION' | 'FARMER_LOCATION';
+    distanceKm?: number;
+  };
 }
 
 export default function ChatScreen({ navigation, route }: any) {
@@ -91,7 +101,7 @@ export default function ChatScreen({ navigation, route }: any) {
     timestamp: new Date().toISOString(),
   }), [activeNegId, defaultNeg, currentUserId, currentUserName]);
 
-  const { activeSavedAddress } = useLocation();
+  const { activeSavedAddress, currentLocation, currentAddress, fetchCurrentLocation } = useLocation();
   const [negotiation, setNegotiation] = useState<any>(null);
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [text, setText] = useState('');
@@ -184,6 +194,70 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   };
 
+  // Share Real-time GPS Location with Farmer
+  const handleShareLocation = async () => {
+    if (submitting) return;
+
+    try {
+      setSubmitting(true);
+      let coords = currentLocation;
+      if (!coords && fetchCurrentLocation) {
+        coords = await fetchCurrentLocation(false);
+      }
+      const lat = coords?.latitude || activeSavedAddress?.latitude || 18.5204;
+      const lon = coords?.longitude || activeSavedAddress?.longitude || 73.8567;
+      const addrStr = activeSavedAddress?.formattedAddress || currentAddress?.formattedAddress || 'FC Road, Shivajinagar, Pune, Maharashtra';
+
+      // Distance from Farmer harvest gate (Nashik Farm default: 19.9975, 73.7898)
+      const farmerLat = 19.9975;
+      const farmerLon = 73.7898;
+      const distKm = Math.round(calculateHaversineDistance(
+        { latitude: lat, longitude: lon },
+        { latitude: farmerLat, longitude: farmerLon }
+      ) * 10) / 10;
+
+      const locationPayload = {
+        latitude: lat,
+        longitude: lon,
+        address: addrStr,
+        name: currentUserName ? `${currentUserName}'s Delivery Location` : 'Buyer Delivery Location',
+        placeType: 'USER_LOCATION' as const,
+        distanceKm: distKm,
+      };
+
+      const tempId = `msg_loc_${Date.now()}`;
+      const optimisticMsg: ChatItem = {
+        id: tempId,
+        negotiationId: activeNegId,
+        senderId: currentUserId,
+        senderRole: 'BUYER',
+        senderName: currentUserName,
+        messageType: 'LOCATION',
+        text: `📍 Shared Delivery Location: ${addrStr}`,
+        location: locationPayload,
+        timestamp: new Date().toISOString(),
+        isRead: false,
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
+
+      if (activeNegId) {
+        await apiClient.negotiations.sendMessage(
+          activeNegId,
+          `📍 Shared Delivery Location: ${addrStr}`,
+          'LOCATION',
+          locationPayload
+        );
+        loadNegotiation(true);
+      }
+    } catch (err) {
+      console.warn('Failed to share location:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Send Counter Offer
   const handleSendCounter = async () => {
     const priceNum = parseFloat(counterPrice);
@@ -214,59 +288,83 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   };
 
-  // Accept Deal & Order
-  const handleAcceptNegotiation = async () => {
-    if (!activeNegId || !negotiation) return;
-    const currentPrice = negotiation.counterPrice || negotiation.offeredPrice;
-    const total = Math.round(currentPrice * negotiation.quantity);
+  // Execute acceptance and order creation
+  const executeAcceptNegotiation = async () => {
+    const targetNeg = negotiation || defaultNeg;
+    const targetId = activeNegId || targetNeg?.id;
+    if (!targetId || submitting) return;
 
-    Alert.alert(
-      'Accept & Place Order?',
-      `Confirm acceptance of ₹${currentPrice}/${negotiation.unit} for ${negotiation.quantity} ${negotiation.unit}?\n\nTotal: ₹${total.toLocaleString('en-IN')}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm & Order',
-          onPress: async () => {
-            try {
-              setSubmitting(true);
-              const res = await apiClient.negotiations.confirmOrder(
-                activeNegId,
-                activeSavedAddress?.formattedAddress || 'Selected Delivery Address'
-              );
+    const currentPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
+    const total = Math.round(currentPrice * (targetNeg.quantity || 1));
 
-              // Update local state
-              loadNegotiation(false);
+    try {
+      setSubmitting(true);
+      const destAddr = activeSavedAddress?.formattedAddress || 'Selected Delivery Location';
+      const res = await apiClient.negotiations.confirmOrder(targetId, destAddr);
 
-              Alert.alert(
-                'Order Confirmed! 🎉',
-                `Your order #${res?.order?.orderNumber || res?.orderNumber || 'CONFIRMED'} has been placed.`,
-                [
-                  {
-                    text: 'View Checkout Review',
-                    onPress: () => {
-                      navigation.navigate('CheckoutStack', {
-                        screen: 'CheckoutReview',
-                        params: {
-                          isNegotiated: true,
-                          negotiation: res?.negotiation || negotiation,
-                          order: res?.order,
-                        },
-                      });
-                    },
-                  },
-                  { text: 'Stay Here' },
-                ]
-              );
-            } catch (err: any) {
-              Alert.alert('Acceptance Error', err.message || 'Failed to accept offer.');
-            } finally {
-              setSubmitting(false);
-            }
+      // Re-fetch negotiation to update status and chat messages
+      await loadNegotiation(false);
+
+      const placedOrderNumber = res?.order?.orderNumber || res?.orderNumber || 'CONFIRMED';
+      const successNotice = `Deal Accepted! 🎉\n\nYou accepted ₹${currentPrice}/${targetNeg.unit || 'kg'} for ${targetNeg.quantity} ${targetNeg.unit || 'kg'}.\n\nOrder #${placedOrderNumber} has been placed in your Orders!`;
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const viewOrders = window.confirm(`${successNotice}\n\nClick OK to view your order in My Orders, or Cancel to stay here.`);
+        if (viewOrders) {
+          (navigation as any).navigate('Main', { screen: 'Orders' });
+        }
+      } else {
+        Alert.alert(
+          'Deal Accepted! 🎉',
+          `Order #${placedOrderNumber} has been placed successfully!`,
+          [
+            {
+              text: 'View Orders',
+              onPress: () => (navigation as any).navigate('Main', { screen: 'Orders' }),
+            },
+            { text: 'Stay in Chat', style: 'cancel' },
+          ]
+        );
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || 'Failed to accept deal.';
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.alert(`Acceptance Error: ${errMsg}`);
+      } else {
+        Alert.alert('Acceptance Error', errMsg);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Accept Deal Trigger with Web & Native Confirmation
+  const handleAcceptNegotiation = () => {
+    const targetNeg = negotiation || defaultNeg;
+    const currentPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
+    const total = Math.round(currentPrice * (targetNeg.quantity || 1));
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const confirmed = window.confirm(
+        `Accept Deal & Place Order?\n\nCrop: ${targetNeg.cropName || cropName}\nRate: ₹${currentPrice}/${targetNeg.unit || 'kg'}\nQuantity: ${targetNeg.quantity} ${targetNeg.unit || 'kg'}\nTotal Deal Amount: ₹${total.toLocaleString('en-IN')}\n\nClick OK to confirm and place order.`
+      );
+      if (confirmed) {
+        executeAcceptNegotiation();
+      }
+    } else {
+      Alert.alert(
+        'Accept Deal & Place Order?',
+        `Confirm acceptance of ₹${currentPrice}/${targetNeg.unit || 'kg'} for ${targetNeg.quantity} ${targetNeg.unit || 'kg'}?\n\nTotal: ₹${total.toLocaleString('en-IN')}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Confirm & Order',
+            style: 'default',
+            onPress: executeAcceptNegotiation,
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const effectiveNeg = negotiation || defaultNeg;
@@ -285,42 +383,8 @@ export default function ChatScreen({ navigation, route }: any) {
             m.text?.toLowerCase().includes('accepted your offer'))
       ));
 
-  const handleConfirmOrderFromChat = async () => {
-    if (!activeNegId && !effectiveNeg) return;
-    const targetId = activeNegId || effectiveNeg?.id;
-    if (!targetId) return;
-
-    try {
-      setSubmitting(true);
-      const destAddr = activeSavedAddress?.formattedAddress || 'Selected Delivery Address';
-      const res = await apiClient.negotiations.confirmOrder(targetId, destAddr);
-
-      // Reload negotiation to reflect updated order event
-      await loadNegotiation(false);
-
-      const placedOrder = res?.order;
-      const ordNum = placedOrder?.orderNumber || res?.orderNumber || 'CONFIRMED';
-
-      if (Platform.OS === 'web') {
-        window.alert(`Order Confirmed! 🎉\nYour order #${ordNum} has been placed.\n\nIt is now active in your Orders screen.`);
-      } else {
-        Alert.alert(
-          'Order Confirmed! 🎉',
-          `Your order #${ordNum} has been placed successfully!\n\nIt is now visible in your Orders screen.`,
-          [
-            {
-              text: 'View My Orders',
-              onPress: () => (navigation as any).navigate('MainTabs', { screen: 'Orders' }),
-            },
-            { text: 'Stay in Chat' },
-          ]
-        );
-      }
-    } catch (err: any) {
-      Alert.alert('Confirmation Error', err.message || 'Failed to confirm order.');
-    } finally {
-      setSubmitting(false);
-    }
+  const handleConfirmOrderFromChat = () => {
+    executeAcceptNegotiation();
   };
 
   const openCounterModal = () => {
@@ -391,13 +455,13 @@ export default function ChatScreen({ navigation, route }: any) {
               </View>
             </View>
 
-            {/* Action buttons if pending counter from farmer */}
-            {offerPending && isFromFarmer && (
+            {/* Action buttons if offer is active and deal not yet finalized */}
+            {!isAccepted && (
               <View style={styles.negActions}>
                 <TouchableOpacity style={styles.declineBtn} onPress={openCounterModal}>
                   <Text style={styles.declineBtnText}>Counter</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.acceptBtn} onPress={handleAcceptNegotiation}>
+                <TouchableOpacity style={styles.acceptBtn} onPress={handleAcceptNegotiation} disabled={submitting}>
                   <Ionicons name="checkmark-circle" size={16} color={Colors.white} />
                   <Text style={styles.acceptBtnText}>Accept Deal</Text>
                 </TouchableOpacity>
@@ -422,7 +486,80 @@ export default function ChatScreen({ navigation, route }: any) {
       );
     }
 
-    // 3. Standard Text Message Bubble
+    // 3. Interactive Location Card (User <-> Farmer Location Sharing)
+    if (item.messageType === 'LOCATION' || item.location) {
+      const loc = item.location || {
+        latitude: item.senderRole === 'FARMER' ? 19.9975 : 18.5204,
+        longitude: item.senderRole === 'FARMER' ? 73.7898 : 73.8567,
+        name: item.senderRole === 'FARMER' ? `${farmerName}'s Farm Location` : 'Buyer Delivery Point',
+        address: item.text.replace(/^📍\s*/, ''),
+        placeType: (item.senderRole === 'FARMER' ? 'FARMER_LOCATION' : 'USER_LOCATION') as any,
+        distanceKm: 158.4,
+      };
+      const isFarmerPlace = loc.placeType === 'FARMER_LOCATION' || item.senderRole === 'FARMER';
+
+      const openLocationMap = () => {
+        const url = `https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}`;
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.open(url, '_blank');
+        } else {
+          Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open map'));
+        }
+      };
+
+      return (
+        <View style={[styles.msgRow, isMine ? styles.msgRowRight : styles.msgRowLeft]}>
+          <View style={[styles.locCardWrap, isMine ? styles.locCardMine : styles.locCardTheirs]}>
+            <View style={styles.locCardHeader}>
+              <View style={[styles.locIconBadge, isFarmerPlace ? styles.locIconFarmer : styles.locIconBuyer]}>
+                <Ionicons name={isFarmerPlace ? 'leaf' : 'location'} size={15} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.locCardTitle}>
+                  {isFarmerPlace ? '🌾 FARM PLACE / HARVEST GATE' : '📍 REALTIME DELIVERY GPS'}
+                </Text>
+                <Text style={styles.locCardSubtitle}>
+                  {loc.name || (isFarmerPlace ? `${farmerName}'s Farm` : 'Buyer Location')}
+                </Text>
+              </View>
+              <Text style={styles.locTimestamp}>{formatTime(item.timestamp)}</Text>
+            </View>
+
+            <View style={styles.locBody}>
+              <Text style={styles.locAddressText} numberOfLines={2}>
+                {loc.address || 'Live GPS Coordinates Pin'}
+              </Text>
+              <View style={styles.locMetaRow}>
+                <View style={styles.locCoordBadge}>
+                  <Ionicons name="compass-outline" size={12} color="#047857" />
+                  <Text style={styles.locCoordText}>
+                    {Number(loc.latitude).toFixed(4)}° N, {Number(loc.longitude).toFixed(4)}° E
+                  </Text>
+                </View>
+                {typeof loc.distanceKm === 'number' && (
+                  <View style={styles.locDistanceBadge}>
+                    <Ionicons name="navigate-outline" size={12} color="#B45309" />
+                    <Text style={styles.locDistanceText}>{loc.distanceKm} km away</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.locMapBtn}
+              onPress={openLocationMap}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="map" size={14} color="#FFFFFF" />
+              <Text style={styles.locMapBtnText}>Open in GPS Map</Text>
+              <Ionicons name="open-outline" size={13} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    // 4. Standard Text Message Bubble
     return (
       <View style={[styles.msgRow, isMine ? styles.msgRowRight : styles.msgRowLeft]}>
         {!isMine && (
@@ -503,6 +640,52 @@ export default function ChatScreen({ navigation, route }: any) {
         </View>
       )}
 
+      {/* Sticky Active Deal Banner with Fast Accept/Counter Actions */}
+      {effectiveNeg && (
+        <View style={[styles.activeDealBanner, isAccepted && styles.activeDealBannerAccepted]}>
+          <View style={styles.dealBannerInfoCol}>
+            <Text style={styles.dealBannerLabel}>
+              {isAccepted ? 'DEAL ACCEPTED • ORDER CONFIRMED' : 'ACTIVE NEGOTIATION OFFER'}
+            </Text>
+            <Text style={styles.dealBannerValue}>
+              ₹{currentPrice}/{effectiveNeg.unit} • {effectiveNeg.quantity} {effectiveNeg.unit} = ₹{currentTotal.toLocaleString('en-IN')}
+            </Text>
+          </View>
+
+          {!isAccepted && (
+            <View style={styles.dealBannerActions}>
+              <TouchableOpacity style={styles.dealBannerCounterBtn} onPress={openCounterModal}>
+                <Text style={styles.dealBannerCounterText}>Counter</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.dealBannerAcceptBtn}
+                onPress={handleAcceptNegotiation}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                    <Text style={styles.dealBannerAcceptText}>Accept Deal</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {isAccepted && (
+            <TouchableOpacity
+              style={styles.dealBannerOrdersBtn}
+              onPress={() => (navigation as any).navigate('Main', { screen: 'Orders' })}
+            >
+              <Text style={styles.dealBannerOrdersText}>View in Orders</Text>
+              <Ionicons name="chevron-forward" size={13} color="#FFFFFF" />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {/* Messages */}
       <KeyboardAvoidingView
         style={styles.flex}
@@ -577,6 +760,70 @@ export default function ChatScreen({ navigation, route }: any) {
           </View>
         )}
 
+        {/* Deal Finalized & Placed Order Card */}
+        {isAccepted && (
+          <View style={[styles.pendingConfirmCard, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }]}>
+            <View style={styles.pendingConfirmHeader}>
+              <View style={[styles.sparkleBadge, { backgroundColor: '#16A34A' }]}>
+                <Ionicons name="checkmark-done-circle" size={18} color={Colors.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pendingConfirmTitle, { color: '#15803D' }]}>
+                  Deal Finalized & Order Placed! 🎉
+                </Text>
+                <Text style={styles.pendingConfirmSub}>
+                  ₹{currentPrice}/{effectiveNeg?.unit || 'kg'} • {effectiveNeg?.quantity || 1} {effectiveNeg?.unit || 'kg'} = ₹{currentTotal.toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+              <TouchableOpacity
+                style={[styles.confirmOrderBtn, { flex: 1, backgroundColor: '#15803D' }]}
+                onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Orders' })}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="receipt-outline" size={17} color={Colors.white} />
+                <Text style={styles.confirmOrderBtnText}>View My Orders</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.confirmOrderBtn, { flex: 1, backgroundColor: '#059669' }]}
+                onPress={() => {
+                  (navigation as any).navigate('CheckoutStack', {
+                    screen: 'Payment',
+                    params: {
+                      amount: currentTotal,
+                      total: currentTotal,
+                      isNegotiated: true,
+                      negotiation: effectiveNeg,
+                      items: [
+                        {
+                          id: effectiveNeg?.productId || 'prod_neg',
+                          productId: effectiveNeg?.productId || 'prod_neg',
+                          cropName: effectiveNeg?.cropName || cropName,
+                          grade: effectiveNeg?.grade || 'A',
+                          quantity: effectiveNeg?.quantity || 1,
+                          unit: effectiveNeg?.unit || 'kg',
+                          pricePerUnit: currentPrice,
+                          subtotal: currentTotal,
+                          imageUrl: productImage || effectiveNeg?.cropImage || '',
+                        },
+                      ],
+                      recipientName: currentUserName,
+                      deliveryAddress: activeSavedAddress?.formattedAddress || 'Selected Delivery Location',
+                    },
+                  });
+                }}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="card-outline" size={17} color={Colors.white} />
+                <Text style={styles.confirmOrderBtnText}>Pay / Checkout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Input Bar */}
         <View style={styles.inputBar}>
           <TouchableOpacity
@@ -592,6 +839,15 @@ export default function ChatScreen({ navigation, route }: any) {
             <Text style={[styles.offerButtonText, isAccepted && { color: Colors.textDisabled }]}>
               Counter
             </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.locShareBtn}
+            onPress={handleShareLocation}
+            disabled={submitting}
+            accessibilityLabel="Share Realtime Location with Farmer"
+          >
+            <Ionicons name="location" size={19} color="#059669" />
           </TouchableOpacity>
 
           <TextInput
@@ -1212,4 +1468,204 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  activeDealBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#EFF6FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#BFDBFE',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  activeDealBannerAccepted: {
+    backgroundColor: '#ECFDF5',
+    borderBottomColor: '#A7F3D0',
+  },
+  dealBannerInfoCol: {
+    flex: 1,
+  },
+  dealBannerLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1E40AF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dealBannerValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1E3A8A',
+    marginTop: 1,
+  },
+  dealBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dealBannerCounterBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+  },
+  dealBannerCounterText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  dealBannerAcceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primary,
+  },
+  dealBannerAcceptText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  dealBannerOrdersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#15803D',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+  },
+  dealBannerOrdersText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  locShareBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    marginRight: 6,
+  },
+  locCardWrap: {
+    width: 280,
+    borderRadius: BorderRadius.lg,
+    padding: 12,
+    borderWidth: 1.5,
+  },
+  locCardMine: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
+  },
+  locCardTheirs: {
+    backgroundColor: '#FEFCE8',
+    borderColor: '#FDE047',
+  },
+  locCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  locIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locIconFarmer: {
+    backgroundColor: '#16A34A',
+  },
+  locIconBuyer: {
+    backgroundColor: '#0284C7',
+  },
+  locCardTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#374151',
+    letterSpacing: 0.5,
+  },
+  locCardSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  locTimestamp: {
+    fontSize: 10,
+    color: Colors.textDisabled,
+  },
+  locBody: {
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: BorderRadius.md,
+    padding: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  locAddressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 6,
+    lineHeight: 16,
+  },
+  locMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  locCoordBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  locCoordText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#065F46',
+  },
+  locDistanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  locDistanceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  locMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.primary,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.md,
+  },
+  locMapBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.white,
+  },
 });
+

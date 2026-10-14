@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '@/services/apiClient';
 import { safeAsyncStorage } from '@/utils/safeStorage';
 import { resolveCropThumbnail, getCropThumbnailUrl } from '@/utils/cropThumbnail';
+import { useAuthStore } from './authStore';
 
 export type CropCondition = 'Good' | 'Needs Attention' | 'Deteriorating' | 'Condition not updated';
 export type QualityGrade = 'Grade A' | 'Grade B' | 'Grade C' | 'Unsorted';
@@ -48,6 +49,7 @@ export interface CropItem {
   conditionUpdatedAt?: string;
   conditionNote?: string;
   imageUri: string;
+  images?: string[];
   expectedPricePerKg?: number;
 
   // Shelf-life Intelligence (Always labelled Approx / Estimated)
@@ -136,6 +138,12 @@ export const useProduceStore = create<ProduceStoreState>()(
             syncingCropIds.add(localCrop.id);
             try {
               const mappedGrade = localCrop.grade === 'Grade B' ? 'B' : localCrop.grade === 'Grade C' ? 'C' : 'A';
+              const user = useAuthStore.getState().user;
+              const farmer = useAuthStore.getState().farmer;
+              const fName = user?.fullName || user?.name || farmer?.fullName || 'Farmer';
+              const fPhone = user?.phone || farmer?.phone || '';
+              const fLoc = user?.district ? `${user.district}, ${user.state || 'Maharashtra'}` : (localCrop.location || 'Nashik Mandi Area');
+
               const created: any = await apiClient.createProduct({
                 cropName: localCrop.cropName.trim(),
                 cropVariety: localCrop.variety?.trim() || undefined,
@@ -150,10 +158,10 @@ export const useProduceStore = create<ProduceStoreState>()(
                 isActive: false,
                 images: localCrop.imageUri ? [localCrop.imageUri] : [],
                 shelfLifeDays: localCrop.shelfLifeDaysEstMax || 7,
-                pickupAddress: localCrop.location || 'Nashik Mandi Area',
-                farmerName: 'Farmer',
-                farmerPhone: '',
-                location: localCrop.location || 'Nashik, Maharashtra',
+                pickupAddress: fLoc,
+                farmerName: fName,
+                farmerPhone: fPhone,
+                location: fLoc,
               } as any, token);
 
               if (created?.data?.id) {
@@ -364,13 +372,23 @@ export const useProduceStore = create<ProduceStoreState>()(
             return c;
           }),
         }));
-        // Sync update to backend API
+        // Sync update to backend API including image updates
+        const safeImages = updates.imageUri
+          ? [updates.imageUri]
+          : updates.images && updates.images.length > 0
+          ? updates.images
+          : undefined;
+
         apiClient.updateProduct(id, {
           availableQuantity: updates.availableKg,
+          totalQuantity: updates.totalKg,
           basePricePerUnit: updates.expectedPricePerKg,
           cropVariety: updates.variety,
           storageType: updates.storageType,
           pickupAddress: updates.location,
+          grade: updates.grade ? (updates.grade === 'Grade B' ? 'B' : updates.grade === 'Grade C' ? 'C' : 'A') : undefined,
+          shelfLifeDays: updates.shelfLifeDaysEstMax,
+          images: safeImages,
         }).catch((err) => {
           console.warn('[produceStore] updateProduct backend note:', err?.message);
         });

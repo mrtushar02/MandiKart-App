@@ -194,7 +194,7 @@ export default function RealOsmMapView({
       attribution: '${tileAttr}'
     }).addTo(map);
 
-    // 1. Origin Farm Marker
+    // 1. Origin Farmer Farmgate Marker
     var farmIcon = L.divIcon({
       className: '',
       html: '<div class="farm-pin">🌾</div>',
@@ -202,7 +202,7 @@ export default function RealOsmMapView({
       iconAnchor: [18, 18]
     });
     var farmMarker = L.marker([${originLat}, ${originLon}], { icon: farmIcon }).addTo(map)
-      .bindPopup('<div class="popup-title">${origin.title}</div><div class="popup-sub">${origin.subtitle || "Farmgate Origin"}</div>');
+      .bindPopup('<div class="popup-title">🌾 Farmer Place: ${origin.title}</div><div class="popup-sub">${origin.subtitle || "Farmgate Source"} • Lat: ${originLat.toFixed(4)}, Lon: ${originLon.toFixed(4)}</div>');
 
     // 2. Destination Buyer Marker
     var destIcon = L.divIcon({
@@ -212,9 +212,9 @@ export default function RealOsmMapView({
       iconAnchor: [18, 18]
     });
     var destMarker = L.marker([${destLat}, ${destLon}], { icon: destIcon }).addTo(map)
-      .bindPopup('<div class="popup-title">${destination.title}</div><div class="popup-sub">${destination.subtitle || "Delivery Destination"}</div>');
+      .bindPopup('<div class="popup-title">🏢 Buyer Place: ${destination.title}</div><div class="popup-sub">${destination.subtitle || "Delivery Destination"}</div>');
 
-    // 3. Dijkstra Polyline Segments
+    // 3. A* Optimal Polyline Segments
     var completedCoords = ${completedJson};
     var remainingCoords = ${remainingJson};
 
@@ -222,7 +222,7 @@ export default function RealOsmMapView({
       L.polyline(completedCoords, {
         color: '#16A34A',
         weight: 6,
-        opacity: 0.9,
+        opacity: 0.95,
         lineCap: 'round',
         lineJoin: 'round'
       }).addTo(map);
@@ -239,7 +239,7 @@ export default function RealOsmMapView({
       }).addTo(map);
     }
 
-    // 4. Moving Vehicle Partner Marker
+    // 4. Moving Realtime Vehicle GPS Pin
     var vehIcon = L.divIcon({
       className: '',
       html: '<div class="vehicle-pin"><div class="vehicle-pulse"></div><div class="vehicle-core" style="transform: rotate(${vehHeading}deg);">🚛</div></div>',
@@ -247,7 +247,7 @@ export default function RealOsmMapView({
       iconAnchor: [22, 22]
     });
     var vehicleMarker = L.marker([${vehLat}, ${vehLon}], { icon: vehIcon }).addTo(map)
-      .bindPopup('<div class="popup-title">${vehDriver}</div><div class="popup-sub">Speed: ${vehSpeed} km/h • Realtime GPS</div>');
+      .bindPopup('<div class="popup-title">🚛 Realtime Vehicle: ${vehDriver}</div><div class="popup-sub">Speed: ${vehSpeed} km/h • Realtime GPS Active</div>');
 
     // Fit map bounds to encompass route
     var bounds = L.latLngBounds([

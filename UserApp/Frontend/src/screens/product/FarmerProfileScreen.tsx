@@ -142,7 +142,7 @@ export default function FarmerProfileScreen({ navigation, route }: any) {
             <TouchableOpacity
               key={product.id}
               style={styles.productCard}
-              onPress={() => navigation.navigate('ProductDetails', { productId: product.id })}
+              onPress={() => navigation.navigate('ProductDetails', { productId: product.id, product })}
               activeOpacity={0.9}
             >
               <Image source={{ uri: product.imageUrl }} style={styles.productImg} />

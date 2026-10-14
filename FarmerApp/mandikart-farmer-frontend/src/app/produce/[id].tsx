@@ -26,6 +26,7 @@ import {
   TextInput,
   Alert,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,6 +53,8 @@ import {
   Trash2,
   PlusCircle,
   Lock,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import {
@@ -63,6 +66,7 @@ import {
   StorageType,
 } from '@/store/produceStore';
 import { resolveCropThumbnail } from '@/utils/cropThumbnail';
+import { pickImageFromGallery, takePhotoWithCamera } from '@/services/imagePickerService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -120,6 +124,8 @@ export default function CropDetailsScreen() {
   const [editShelfLifeMax, setEditShelfLifeMax] = useState('');
   const [editCondition, setEditCondition] = useState<CropCondition>('Good');
   const [editConditionNote, setEditConditionNote] = useState('');
+  const [editImageUri, setEditImageUri] = useState<string | null>(null);
+  const [isPhotoLoading, setIsPhotoLoading] = useState(false);
 
   const handleOpenEditModal = () => {
     if (!crop) return;
@@ -132,7 +138,26 @@ export default function CropDetailsScreen() {
     setEditShelfLifeMax(crop.shelfLifeDaysEstMax ? crop.shelfLifeDaysEstMax.toString() : '10');
     setEditCondition(crop.condition || 'Good');
     setEditConditionNote(crop.conditionNote || '');
+    setEditImageUri(crop.imageUri || null);
     setEditModalVisible(true);
+  };
+
+  const handlePickEditFromGallery = async () => {
+    setIsPhotoLoading(true);
+    const res = await pickImageFromGallery({ isCrop: true, maxWidth: 800, maxHeight: 800 });
+    setIsPhotoLoading(false);
+    if (!res.cancelled && res.uri) {
+      setEditImageUri(res.uri);
+    }
+  };
+
+  const handleTakeEditPhoto = async () => {
+    setIsPhotoLoading(true);
+    const res = await takePhotoWithCamera({ isCrop: true, maxWidth: 800, maxHeight: 800 });
+    setIsPhotoLoading(false);
+    if (!res.cancelled && res.uri) {
+      setEditImageUri(res.uri);
+    }
   };
 
   const handleSaveEdit = () => {
@@ -157,10 +182,11 @@ export default function CropDetailsScreen() {
       condition: editCondition,
       conditionNote: editConditionNote,
       conditionUpdatedAt: 'Today',
+      imageUri: editImageUri || crop.imageUri,
     });
 
     setEditModalVisible(false);
-    Alert.alert('Crop Updated', `${crop.cropName} details have been updated successfully.`);
+    Alert.alert('Crop Updated', `${crop.cropName} details and photo have been updated successfully.`);
   };
 
   if (!crop) {
@@ -214,21 +240,32 @@ export default function CropDetailsScreen() {
   };
 
   const handleDeleteCrop = () => {
-    Alert.alert(
-      'Remove Crop',
-      `Are you sure you want to remove ${crop.cropName} from your active inventory?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            deleteCrop(crop.id);
-            router.replace('/(tabs)/produce');
+    const executeDelete = () => {
+      deleteCrop(crop.id);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.alert(`${crop.cropName} has been permanently removed from your inventory.`);
+      }
+      router.replace('/(tabs)/produce');
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(`Are you sure you want to permanently delete "${crop.cropName}"? This action cannot be undone.`)) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert(
+        'Remove Crop',
+        `Are you sure you want to remove ${crop.cropName} from your active inventory?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: executeDelete,
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const getConditionBadge = (cond: CropCondition) => {
@@ -337,7 +374,28 @@ export default function CropDetailsScreen() {
       >
         {/* ── Hero Media & Vital Card ──────────────────────────────── */}
         <View style={styles.heroCard}>
-          <Image source={{ uri: resolveCropThumbnail(crop.cropName, crop.category, crop.imageUri) }} style={styles.heroImage} />
+          <View style={{ position: 'relative' }}>
+            <Image source={{ uri: resolveCropThumbnail(crop.cropName, crop.category, crop.imageUri) }} style={styles.heroImage} />
+            <Pressable
+              style={{
+                position: 'absolute',
+                bottom: 12,
+                right: 12,
+                backgroundColor: 'rgba(0, 0, 0, 0.72)',
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 20,
+                gap: 6,
+              }}
+              onPress={handleOpenEditModal}
+              accessibilityLabel="Change Crop Photo"
+            >
+              <Camera size={14} color="#FFFFFF" />
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Change Photo</Text>
+            </Pressable>
+          </View>
 
           <View style={styles.heroBody}>
             <View style={styles.heroTitleRow}>
@@ -985,6 +1043,74 @@ export default function CropDetailsScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Crop Photo Section with Auto Compression */}
+              <Text style={styles.modalFieldLabel}>Crop Image:</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6, marginBottom: 14 }}>
+                <Image
+                  source={{
+                    uri: editImageUri || resolveCropThumbnail(crop.cropName, crop.category, crop.imageUri),
+                  }}
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 12,
+                    borderWidth: 2,
+                    borderColor: editImageUri ? MKColors.primaryGreen : MKColors.border,
+                    backgroundColor: '#F3F4F6',
+                  }}
+                />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#F0FDF4',
+                        borderWidth: 1,
+                        borderColor: MKColors.primaryGreen,
+                        borderRadius: 8,
+                        paddingVertical: 8,
+                        gap: 6,
+                      }}
+                      onPress={handleTakeEditPhoto}
+                      disabled={isPhotoLoading}
+                    >
+                      <Camera size={15} color={MKColors.primaryGreen} />
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: MKColors.primaryGreenDark }}>
+                        {isPhotoLoading ? '...' : 'Camera'}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#F3F4F6',
+                        borderWidth: 1,
+                        borderColor: MKColors.border,
+                        borderRadius: 8,
+                        paddingVertical: 8,
+                        gap: 6,
+                      }}
+                      onPress={handlePickEditFromGallery}
+                      disabled={isPhotoLoading}
+                    >
+                      <ImageIcon size={15} color={MKColors.textSecondary} />
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: MKColors.textSecondary }}>
+                        {isPhotoLoading ? '...' : 'Gallery'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text style={{ fontSize: 11, color: MKColors.textMuted }}>
+                    {editImageUri ? '✅ Compressed to <80KB & ready to save' : 'Tap to change photo (auto-compressed)'}
+                  </Text>
+                </View>
+              </View>
+
               {/* Variety Name */}
               <Text style={styles.modalFieldLabel}>Crop Variety / Sub-Type:</Text>
               <TextInput

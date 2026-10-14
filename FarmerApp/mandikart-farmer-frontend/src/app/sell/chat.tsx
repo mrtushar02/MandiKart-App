@@ -26,6 +26,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
@@ -46,12 +47,14 @@ import {
   X,
   Phone,
   AlertCircle,
+  MapPin,
+  Compass,
+  Navigation,
+  Map,
 } from 'lucide-react-native';
 import { useSellStore } from '../../store/sellStore';
-import { useProduceStore } from '../../store/produceStore';
 import { useAuthStore } from '../../store/authStore';
-import { apiClient } from '../../services/apiClient';
-
+import { apiClient, resolveFarmerApiBaseUrl } from '../../services/apiClient';
 
 interface ChatMessage {
   id: string;
@@ -59,7 +62,7 @@ interface ChatMessage {
   senderId: string;
   senderRole: 'BUYER' | 'FARMER' | 'SYSTEM';
   senderName: string;
-  messageType: 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT';
+  messageType: 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT' | 'LOCATION';
   text: string;
   price?: number;
   quantity?: number;
@@ -70,6 +73,27 @@ interface ChatMessage {
   orderNumber?: string;
   timestamp: string;
   isRead?: boolean;
+  location?: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+    name?: string;
+    placeType?: 'USER_LOCATION' | 'FARMER_LOCATION';
+    distanceKm?: number;
+  };
+}
+
+interface DemandedCropItem {
+  id: string;
+  cropName: string;
+  variety?: string;
+  category?: string;
+  grade?: string;
+  quantity: number;
+  unit: string;
+  targetPrice: number;
+  selectedByFarmer?: boolean;
+  farmerPrice?: number;
 }
 
 interface NegotiationDetail {
@@ -78,6 +102,14 @@ interface NegotiationDetail {
   cropName: string;
   cropImage?: string;
   grade?: string;
+  items?: DemandedCropItem[];
+  selectedItems?: Array<{
+    id: string;
+    cropName: string;
+    quantity: number;
+    unit: string;
+    farmerPrice: number;
+  }>;
   farmerId: string;
   farmerName: string;
   buyerId: string;
@@ -165,8 +197,41 @@ export default function FarmerNegotiationChatScreen() {
   const [counterQty, setCounterQty] = useState('');
   const [counterNote, setCounterNote] = useState('');
 
+  // Multi-Product Farmer Demand Selection State
+  const [farmerItemQuotes, setFarmerItemQuotes] = useState<Array<{
+    id: string;
+    cropName: string;
+    variety?: string;
+    grade?: string;
+    quantity: number;
+    unit: string;
+    targetPrice: number;
+    selected: boolean;
+    farmerPrice: string;
+  }>>([]);
+
   const flatListRef = useRef<FlatList>(null);
   const isFetchingRef = useRef(false);
+
+  // Synchronize farmerItemQuotes when negotiation with items arrives
+  useEffect(() => {
+    if (negotiation?.items && Array.isArray(negotiation.items) && negotiation.items.length > 0) {
+      setFarmerItemQuotes((prev) => {
+        if (prev.length > 0 && prev.length === negotiation.items?.length) return prev;
+        return (negotiation.items || []).map((it: any) => ({
+          id: it.id || `item_${Math.random()}`,
+          cropName: it.cropName,
+          variety: it.variety,
+          grade: it.grade,
+          quantity: it.quantity,
+          unit: it.unit || 'kg',
+          targetPrice: it.targetPrice,
+          selected: it.selectedByFarmer !== false,
+          farmerPrice: String(it.farmerPrice || it.targetPrice),
+        }));
+      });
+    }
+  }, [negotiation?.items]);
 
   // Fetch negotiation details & messages
   const fetchNegotiation = async (silent = false) => {
@@ -196,6 +261,71 @@ export default function FarmerNegotiationChatScreen() {
     }, 2000);
     return () => clearInterval(timer);
   }, [negotiationId]);
+
+  // Send Multi-Item Counter Offer
+  const handleSendMultiItemCounterOffer = async () => {
+    const selected = farmerItemQuotes.filter((item) => item.selected);
+    if (selected.length === 0) {
+      Alert.alert('Selection Required', 'Please check the box for at least 1 product you have in stock.');
+      return;
+    }
+
+    for (const s of selected) {
+      const p = parseFloat(s.farmerPrice);
+      if (isNaN(p) || p <= 0) {
+        Alert.alert('Invalid Price', `Please enter a valid price for ${s.cropName}.`);
+        return;
+      }
+    }
+
+    const payloadSelected = selected.map((s) => ({
+      id: s.id,
+      cropName: s.cropName,
+      quantity: s.quantity,
+      unit: s.unit,
+      farmerPrice: parseFloat(s.farmerPrice),
+    }));
+
+    const totalSelectedValue = payloadSelected.reduce((acc, i) => acc + (i.quantity * i.farmerPrice), 0);
+    const avgRate = Math.round(totalSelectedValue / (payloadSelected.reduce((acc, i) => acc + i.quantity, 0) || 1));
+
+    try {
+      setSubmitting(true);
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/respond`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Idempotency-Key': `idemp-multi-cnt-${Date.now()}`,
+        },
+        body: JSON.stringify({
+          action: 'COUNTER',
+          counterPrice: avgRate,
+          counterQty: payloadSelected.reduce((acc, i) => acc + i.quantity, 0),
+          selectedItems: payloadSelected,
+          message: `Supplying ${payloadSelected.length} commodities: ${payloadSelected.map(p => `${p.cropName} (${p.quantity} ${p.unit}) @ ₹${p.farmerPrice}/${p.unit}`).join(', ')}`,
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        setNegotiation(json.data);
+        if (Array.isArray(json.data.messages)) {
+          setMessages(json.data.messages);
+        }
+        Alert.alert(
+          'Farmer Quote Sent! 🌾',
+          `Your counter-quote for ${payloadSelected.length} selected items (Total ₹${totalSelectedValue.toLocaleString('en-IN')}) has been sent to the buyer.`
+        );
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not send multi-product counter quote.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   // Send Text Message
   const handleSendMessage = async () => {
@@ -229,6 +359,86 @@ export default function FarmerNegotiationChatScreen() {
       }
     } catch (e) {
       Alert.alert('Message Error', 'Failed to send message. Please retry.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Share Farmer Farmgate / GPS Location with Buyer
+  const handleShareLocation = async () => {
+    if (submitting) return;
+
+    const farmLat = 19.9975;
+    const farmLon = 73.7898;
+    const farmAddress = 'Nashik Farmgate Hub, Survey 42/B, Dindori Road, Nashik, Maharashtra 422004';
+    const farmerDisplayName = useAuthStore.getState().user?.name || useAuthStore.getState().user?.fullName || 'Ramesh Patel (Farm)';
+
+    // Find if buyer shared location or use default buyer transit distance
+    const buyerLocMsg = messages.find((m) => m.senderRole === 'BUYER' && m.location);
+    let distKm = 158.4;
+    if (buyerLocMsg?.location) {
+      const dLat = (buyerLocMsg.location.latitude - farmLat) * (Math.PI / 180);
+      const dLon = (buyerLocMsg.location.longitude - farmLon) * (Math.PI / 180);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(farmLat * (Math.PI / 180)) *
+          Math.cos(buyerLocMsg.location.latitude * (Math.PI / 180)) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
+      distKm = Math.round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+    }
+
+    const locationPayload = {
+      latitude: farmLat,
+      longitude: farmLon,
+      address: farmAddress,
+      name: `${farmerDisplayName}'s Harvest Gate`,
+      placeType: 'FARMER_LOCATION' as const,
+      distanceKm: distKm,
+    };
+
+    const tempMsgId = `msg_f_loc_${Date.now()}`;
+    const currentFarmerId = useAuthStore.getState().user?.id || useAuthStore.getState().farmer?.id || 'farmer_primary';
+    const optimisticMsg: ChatMessage = {
+      id: tempMsgId,
+      negotiationId,
+      senderId: currentFarmerId,
+      senderRole: 'FARMER',
+      senderName: 'Farmer (You)',
+      messageType: 'LOCATION',
+      text: `📍 Shared Farmgate GPS: ${farmAddress}`,
+      location: locationPayload,
+      timestamp: new Date().toISOString(),
+      isRead: false,
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
+
+    try {
+      setSubmitting(true);
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Idempotency-Key': `idemp-loc-${Date.now()}`,
+        },
+        body: JSON.stringify({
+          text: `📍 Shared Farmgate GPS: ${farmAddress}`,
+          messageType: 'LOCATION',
+          location: locationPayload,
+          messageId: tempMsgId,
+        }),
+      });
+      const json = await res.json();
+      if (json.data) {
+        fetchNegotiation(true);
+      }
+    } catch (e) {
+      Alert.alert('Location Error', 'Failed to share location. Please retry.');
     } finally {
       setSubmitting(false);
     }
@@ -281,22 +491,38 @@ export default function FarmerNegotiationChatScreen() {
 
     try {
       setSubmitting(true);
-      const res: any = await apiClient.acceptNegotiation(
-        negotiationId,
-        'Farmgate Direct Collection Point'
-      );
-      if (res?.data) {
-        setNegotiation(res.data);
+      const apiBase = resolveFarmerApiBaseUrl();
+      const token = useAuthStore.getState().token || '';
+      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Idempotency-Key': `idemp-acc-${Date.now()}`,
+        },
+        body: JSON.stringify({
+          action: 'ACCEPT',
+          deliveryAddress: 'Farmgate Direct Collection Point',
+        }),
+      });
+      const json = await res.json().catch(() => ({ data: null }));
+      if (json.data) {
+        setNegotiation(json.data);
         await fetchNegotiation(false);
+        try {
+          const { useOrderStore } = require('@/store/orderStore');
+          await useOrderStore.getState().syncWithBackend();
+        } catch {}
 
-        const noticeMsg = `Offer Accepted! 🌾\n\nYou accepted the deal (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit} • Total ₹${total.toLocaleString('en-IN')}).\n\nThe buyer has been notified in their chat to confirm and submit their delivery address.\n\nOnce the buyer confirms, this order will appear in your Orders > Pending section for dispatch!`;
+        const placedOrderNumber = json.data?.orderNumber || json.data?.order?.orderNumber || effectiveNegotiation.orderNumber || 'CONFIRMED';
+        const noticeMsg = `Offer Accepted! 🌾\n\nYou accepted the deal (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit} • Total ₹${total.toLocaleString('en-IN')}).\n\nOrder #${placedOrderNumber} is now active in your Orders > Pending section for dispatch scheduling!`;
 
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
           window.alert(noticeMsg);
         } else {
           Alert.alert(
             'Offer Accepted! 🌾',
-            `You have accepted the offer (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit}).\n\nThe buyer has been notified in their chat to confirm and submit their delivery address. Once confirmed, it will appear in your Orders Pending section.`,
+            `You have accepted the offer (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit}).\n\nOrder #${placedOrderNumber} is now placed in your Orders section!`,
             [
               {
                 text: 'View Orders',
@@ -364,7 +590,11 @@ export default function FarmerNegotiationChatScreen() {
   };
 
   const effectiveNegotiation = negotiation || defaultNeg;
-  const isAccepted = effectiveNegotiation?.status === 'ACCEPTED';
+  const isAccepted =
+    (effectiveNegotiation?.status as string) === 'ACCEPTED' ||
+    (effectiveNegotiation?.status as string) === 'CONFIRMED' ||
+    (effectiveNegotiation?.status as string) === 'PENDING_BUYER_CONFIRMATION' ||
+    (effectiveNegotiation?.status as string) === 'COMPLETED';
   const currentPrice = effectiveNegotiation ? effectiveNegotiation.counterPrice || effectiveNegotiation.offeredPrice : 0;
   const currentTotal = effectiveNegotiation ? Math.round(currentPrice * effectiveNegotiation.quantity) : 0;
   const displayMessages = messages.length > 0 ? messages : [defaultInitialOfferMsg];
@@ -405,9 +635,9 @@ export default function FarmerNegotiationChatScreen() {
 
     // 2. Structured Offer Card
     if (item.messageType === 'OFFER') {
-      const offerAccepted = item.offerStatus === 'ACCEPTED' || isAccepted;
+      const offerAccepted = item.offerStatus === 'ACCEPTED' || (item.offerStatus as any) === 'ACCEPTED_BY_FARMER' || isAccepted;
       const offerCountered = item.offerStatus === 'COUNTERED';
-      const offerPending = item.offerStatus === 'PENDING' && !isAccepted;
+      const offerPending = (item.offerStatus === 'PENDING' || !item.offerStatus) && !isAccepted;
 
       return (
         <View style={[styles.msgRow, isFarmer ? styles.msgRowRight : styles.msgRowLeft]}>
@@ -466,7 +696,87 @@ export default function FarmerNegotiationChatScreen() {
       );
     }
 
-    // 3. Normal Text Message Bubble
+    // 3. Shared Realtime Location Card (User <-> Farmer)
+    if (item.messageType === 'LOCATION' || item.location) {
+      const loc = item.location || {
+        latitude: item.senderRole === 'FARMER' ? 19.9975 : 18.5204,
+        longitude: item.senderRole === 'FARMER' ? 73.7898 : 73.8567,
+        name: item.senderRole === 'FARMER' ? 'Farmer Harvest Gate' : 'Buyer Delivery Address',
+        address: item.text.replace(/^📍\s*/, ''),
+        placeType: (item.senderRole === 'FARMER' ? 'FARMER_LOCATION' : 'USER_LOCATION') as any,
+        distanceKm: 158.4,
+      };
+      const isFarmerPlace = loc.placeType === 'FARMER_LOCATION' || item.senderRole === 'FARMER';
+
+      const openExternalMap = () => {
+        const url = `https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}`;
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.open(url, '_blank');
+        } else {
+          Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open map application.'));
+        }
+      };
+
+      return (
+        <View style={[styles.msgRow, isFarmer ? styles.msgRowRight : styles.msgRowLeft]}>
+          {!isFarmer && (
+            <View style={styles.avatarMini}>
+              <Text style={styles.avatarMiniText}>
+                {negotiation?.buyerName?.charAt(0) || 'B'}
+              </Text>
+            </View>
+          )}
+          <View style={[styles.locCardWrap, isFarmer ? styles.locCardFarmer : styles.locCardBuyer]}>
+            <View style={styles.locCardHeader}>
+              <View style={[styles.locIconBadge, isFarmerPlace ? styles.locIconBadgeFarmer : styles.locIconBadgeBuyer]}>
+                <MapPin size={15} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.locCardTitle}>
+                  {isFarmerPlace ? '🌾 FARM PLACE / HARVEST GATE' : '📍 BUYER DELIVERY LOCATION'}
+                </Text>
+                <Text style={styles.locCardSubtitle}>
+                  {loc.name || (isFarmerPlace ? 'Farmgate Dispatch Point' : 'Buyer Delivery Point')}
+                </Text>
+              </View>
+              <Text style={styles.locTimestamp}>{formatTime(item.timestamp)}</Text>
+            </View>
+
+            <View style={styles.locBody}>
+              <Text style={styles.locAddressText} numberOfLines={2}>
+                {loc.address || 'Real-time GPS Location'}
+              </Text>
+              <View style={styles.locMetaRow}>
+                <View style={styles.locCoordBadge}>
+                  <Compass size={11} color="#047857" />
+                  <Text style={styles.locCoordText}>
+                    {Number(loc.latitude).toFixed(4)}° N, {Number(loc.longitude).toFixed(4)}° E
+                  </Text>
+                </View>
+                {typeof loc.distanceKm === 'number' && (
+                  <View style={styles.locDistanceBadge}>
+                    <Navigation size={11} color="#B45309" />
+                    <Text style={styles.locDistanceText}>{loc.distanceKm} km transit distance</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.locMapBtn}
+              onPress={openExternalMap}
+              activeOpacity={0.85}
+            >
+              <Map size={14} color="#FFFFFF" />
+              <Text style={styles.locMapBtnText}>Open in Navigation Map</Text>
+              <ExternalLink size={13} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    // 4. Normal Text Message Bubble
     return (
       <View style={[styles.msgRow, isFarmer ? styles.msgRowRight : styles.msgRowLeft]}>
         {!isFarmer && (
@@ -562,12 +872,120 @@ export default function FarmerNegotiationChatScreen() {
         </View>
       )}
 
+      {/* Multi-Product Demands Interactive Selection Card */}
+      {effectiveNegotiation && effectiveNegotiation.items && effectiveNegotiation.items.length > 0 && (
+        <View style={styles.multiDemandCard}>
+          <View style={styles.multiDemandHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Package size={16} color="#047857" />
+              <Text style={styles.multiDemandTitle}>
+                Buyer's Demanded Commodities ({farmerItemQuotes.length || effectiveNegotiation.items.length})
+              </Text>
+            </View>
+            <View style={styles.demandPill}>
+              <Text style={styles.demandPillText}>Farmer Selection</Text>
+            </View>
+          </View>
+          <Text style={styles.multiDemandSub}>
+            Select the commodities you have in stock, set your asking price per unit, and send your quote to the buyer:
+          </Text>
+
+          <View style={styles.multiDemandList}>
+            {farmerItemQuotes.map((item) => {
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.demandItemRow,
+                    item.selected && styles.demandItemRowSelected,
+                  ]}
+                >
+                  {/* Checkbox */}
+                  <TouchableOpacity
+                    style={[styles.itemCheckbox, item.selected && styles.itemCheckboxSelected]}
+                    onPress={() => {
+                      if (isAccepted) return;
+                      setFarmerItemQuotes((prev) =>
+                        prev.map((q) => (q.id === item.id ? { ...q, selected: !q.selected } : q))
+                      );
+                    }}
+                    disabled={isAccepted}
+                  >
+                    {item.selected && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+                  </TouchableOpacity>
+
+                  {/* Crop details */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.demandItemName, !item.selected && { color: '#9CA3AF' }]}>
+                      {item.cropName} {item.variety ? `(${item.variety})` : ''}
+                    </Text>
+                    <Text style={styles.demandItemMeta}>
+                      Req: <Text style={{ fontWeight: '700', color: '#1F2937' }}>{item.quantity} {item.unit}</Text> • Target: ₹{item.targetPrice}/{item.unit}
+                    </Text>
+                  </View>
+
+                  {/* Farmer Asking Price Input */}
+                  <View style={styles.farmerPriceCol}>
+                    <Text style={styles.farmerPriceLabel}>Your Rate:</Text>
+                    <View style={styles.farmerPriceInputWrap}>
+                      <Text style={styles.farmerRupee}>₹</Text>
+                      <TextInput
+                        style={[styles.farmerPriceInput, !item.selected && { backgroundColor: '#F3F4F6', color: '#9CA3AF' }]}
+                        value={item.farmerPrice}
+                        keyboardType="numeric"
+                        editable={item.selected && !isAccepted}
+                        onChangeText={(val) => {
+                          setFarmerItemQuotes((prev) =>
+                            prev.map((q) => (q.id === item.id ? { ...q, farmerPrice: val } : q))
+                          );
+                        }}
+                      />
+                      <Text style={styles.farmerUnit}>/{item.unit}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Multi-Product Action Bar */}
+          {!isAccepted && (
+            <View style={styles.multiDemandFooter}>
+              <View>
+                <Text style={styles.multiFooterLabel}>
+                  Selected: {farmerItemQuotes.filter((i) => i.selected).length} of {farmerItemQuotes.length} Items
+                </Text>
+                <Text style={styles.multiFooterTotal}>
+                  Quote: ₹
+                  {farmerItemQuotes
+                    .filter((i) => i.selected)
+                    .reduce((acc, i) => acc + (parseFloat(i.farmerPrice) || i.targetPrice) * i.quantity, 0)
+                    .toLocaleString('en-IN')}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.sendMultiQuoteBtn,
+                  farmerItemQuotes.filter((i) => i.selected).length === 0 && styles.sendMultiQuoteBtnDisabled,
+                ]}
+                onPress={handleSendMultiItemCounterOffer}
+                disabled={farmerItemQuotes.filter((i) => i.selected).length === 0 || submitting}
+              >
+                <Sparkles size={14} color="#FFFFFF" />
+                <Text style={styles.sendMultiQuoteBtnText}>Send Quote for Selected</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
       {/* Current Offer Banner with Quick Action CTAs */}
       {effectiveNegotiation && (
         <View style={[styles.currentOfferBanner, isAccepted && styles.currentOfferBannerAccepted]}>
           <View style={styles.bannerInfoCol}>
             <Text style={styles.bannerLabel}>
-              {isAccepted ? 'DEAL ACCEPTED' : 'ACTIVE PROPOSED OFFER'}
+              {isAccepted ? 'DEAL ACCEPTED • ORDER PLACED' : 'ACTIVE PROPOSED OFFER'}
             </Text>
             <Text style={styles.bannerValue}>
               ₹{currentPrice}/{effectiveNegotiation.unit} • {effectiveNegotiation.quantity} {effectiveNegotiation.unit} = ₹{currentTotal.toLocaleString('en-IN')}
@@ -591,7 +1009,7 @@ export default function FarmerNegotiationChatScreen() {
               style={styles.bannerViewOrderBtn}
               onPress={() => router.push('/(tabs)/orders')}
             >
-              <Text style={styles.bannerViewOrderBtnText}>View Order</Text>
+              <Text style={styles.bannerViewOrderBtnText}>View in Orders</Text>
               <ChevronRight size={14} color="#FFFFFF" />
             </TouchableOpacity>
           )}
@@ -637,6 +1055,15 @@ export default function FarmerNegotiationChatScreen() {
             <Text style={[styles.makeOfferBtnText, isAccepted && { color: '#9CA3AF' }]}>
               Offer
             </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shareFarmLocBtn}
+            onPress={handleShareLocation}
+            disabled={submitting}
+            accessibilityLabel="Share Farmgate GPS Location"
+          >
+            <MapPin size={18} color="#15803D" />
           </TouchableOpacity>
 
           <TextInput
@@ -1446,4 +1873,278 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  multiDemandCard: {
+    backgroundColor: '#F0FDF4',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#86EFAC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  multiDemandHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  multiDemandTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  demandPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  demandPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  multiDemandSub: {
+    fontSize: 11,
+    color: '#166534',
+    marginBottom: 8,
+    lineHeight: 15,
+  },
+  multiDemandList: {
+    gap: 6,
+  },
+  demandItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 8,
+  },
+  demandItemRowSelected: {
+    borderColor: '#16A34A',
+    backgroundColor: '#FFFFFF',
+  },
+  itemCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#9CA3AF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  itemCheckboxSelected: {
+    backgroundColor: '#16A34A',
+    borderColor: '#16A34A',
+  },
+  demandItemName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  demandItemMeta: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  farmerPriceCol: {
+    alignItems: 'flex-end',
+  },
+  farmerPriceLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#4B5563',
+    marginBottom: 2,
+  },
+  farmerPriceInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    borderRadius: 6,
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 6,
+    height: 32,
+  },
+  farmerRupee: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  farmerPriceInput: {
+    width: 65,
+    height: 30,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#15803D',
+    paddingVertical: 0,
+    paddingHorizontal: 3,
+  },
+  farmerUnit: {
+    fontSize: 10,
+    color: '#6B7280',
+  },
+  multiDemandFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#BBF7D0',
+  },
+  multiFooterLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  multiFooterTotal: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  sendMultiQuoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  sendMultiQuoteBtnDisabled: {
+    backgroundColor: '#9CA3AF',
+  },
+  sendMultiQuoteBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  shareFarmLocBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    marginRight: 6,
+  },
+  locCardWrap: {
+    width: 280,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1.5,
+  },
+  locCardFarmer: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
+  },
+  locCardBuyer: {
+    backgroundColor: '#FEFCE8',
+    borderColor: '#FDE047',
+  },
+  locCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  locIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locIconBadgeFarmer: {
+    backgroundColor: '#16A34A',
+  },
+  locIconBadgeBuyer: {
+    backgroundColor: '#0284C7',
+  },
+  locCardTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#374151',
+    letterSpacing: 0.5,
+  },
+  locCardSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  locTimestamp: {
+    fontSize: 10,
+    color: '#9CA3AF',
+  },
+  locBody: {
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  locAddressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 6,
+    lineHeight: 16,
+  },
+  locMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  locCoordBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  locCoordText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#065F46',
+  },
+  locDistanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  locDistanceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#92400E',
+  },
+  locMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#16A34A',
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  locMapBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });
+

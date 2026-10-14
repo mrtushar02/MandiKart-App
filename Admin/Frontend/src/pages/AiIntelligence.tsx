@@ -4,6 +4,7 @@ import type { PriceForecast, SpoilageRiskAlert, SupplyDemandForecast } from '../
 import { MOCK_PRICE_FORECASTS, MOCK_SPOILAGE_ALERTS, MOCK_SUPPLY_DEMAND } from './LogisticsAndAiMock';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
+import { getAdminApiBaseUrl } from '../services/apiConfig';
 
 interface AiIntelligenceProps {
   user: AdminUser;
@@ -28,7 +29,7 @@ export const AiIntelligence: React.FC<AiIntelligenceProps> = ({
   const fetchAiInsights = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:4003/api/v1/admin/ai-insights');
+      const res = await fetch(`${getAdminApiBaseUrl()}/ai-insights`);
       if (res.ok) {
         const json = await res.json();
         if (json?.data) {

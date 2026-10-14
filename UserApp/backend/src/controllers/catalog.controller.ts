@@ -1,13 +1,9 @@
 /**
  * MandiKart — Catalog Controller (User App)
  *
- * Listing visibility rules:
- *   is_active = true  → farmer has pressed "Sell to All Buyers" (confirmed global listing)
- *   target_buyer = 'BOTH' → crop is published to the global buyer marketplace
- *
- * A product is shown in the User App catalog ONLY when BOTH conditions are met.
- * Admin approval alone (is_active=false, target_buyer='ADMIN_APPROVED') does NOT
- * make it visible until the farmer explicitly confirms the global listing.
+ * Displays live produce listings for consumers/retail buyers.
+ * Listings with status APPROVED, ADMIN_APPROVED, or ACTIVE are visible to buyers.
+ * Fast timeouts prevent cloud delays from freezing the user experience.
  */
 
 import { Request, Response } from 'express';
@@ -15,8 +11,230 @@ import { getSupabaseAdmin, FastLRUCache, ProductRegistryService, getCropImageUrl
 
 const catalogCache = new FastLRUCache<any[]>(1000);
 
+// Helper for timeout
+const withTimeout = <T>(promise: PromiseLike<T>, ms = 1200): Promise<T> => {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+};
+
+// Helper to determine if a product listing is visible to buyers
+const isVisibleToBuyers = (reg: any): boolean => {
+  if (!reg) return false;
+  if (reg.status === 'REJECTED' || reg.status === 'PENDING_APPROVAL') return false;
+  if (reg.status === 'APPROVED' || reg.status === 'ADMIN_APPROVED' || reg.status === 'ACTIVE' || reg.isActive === true) return true;
+  if (['BOTH', 'ALL', 'CONSUMER', 'RETAIL', 'ADMIN_APPROVED'].includes(reg.targetBuyer)) return true;
+  return false;
+};
+
 // Alias for crop name → canonical HTTP image URL (no base64, no file://)
 const getCropFallbackUrl = (cropName: string, category: string) => getCropImageUrl(cropName, category);
+
+const DEFAULT_MANDI_CATALOG = [
+  {
+    id: 'prod_1',
+    farmerId: 'farmer_bashir_01',
+    farmerName: 'Bashir Ahmed Wani',
+    location: 'Pampore, Jammu & Kashmir',
+    cropName: 'Kashmiri Mongra Saffron',
+    cropVariety: 'Mongra Grade 1 (GI Certified)',
+    grade: 'A',
+    category: 'Spices',
+    availableQuantity: 45,
+    totalQuantity: 50,
+    quantityUnit: 'kg',
+    basePricePerUnit: 280000.0,
+    minOrderQuantity: 1,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1608755728617-aefab37d2edd?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1608755728617-aefab37d2edd?w=600',
+    shelfLifeDays: 365,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_2',
+    farmerId: 'farmer_kuttappa_02',
+    farmerName: 'Kuttappa Bopanna',
+    location: 'Madikeri, Coorg, Karnataka',
+    cropName: 'Hass Avocado',
+    cropVariety: 'Coorg Hass Premium',
+    grade: 'A',
+    category: 'Fruits',
+    availableQuantity: 1200,
+    totalQuantity: 1500,
+    quantityUnit: 'kg',
+    basePricePerUnit: 340.0,
+    minOrderQuantity: 10,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=600',
+    shelfLifeDays: 14,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_3',
+    farmerId: 'farmer_patel_03',
+    farmerName: 'Bhavesh Patel',
+    location: 'Bhuj, Kutch, Gujarat',
+    cropName: 'Dragon Fruit (Kamalam)',
+    cropVariety: 'Red Pitahaya Royal',
+    grade: 'A',
+    category: 'Fruits',
+    availableQuantity: 2800,
+    totalQuantity: 3200,
+    quantityUnit: 'kg',
+    basePricePerUnit: 195.0,
+    minOrderQuantity: 15,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1527325678964-54921661f888?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1527325678964-54921661f888?w=600',
+    shelfLifeDays: 18,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_4',
+    farmerId: 'farmer_thakur_04',
+    farmerName: 'Sunil Singh Thakur',
+    location: 'Doda, Jammu & Kashmir',
+    cropName: 'Himalayan Gucchi Mushrooms',
+    cropVariety: 'Wild Morel (Morchella)',
+    grade: 'A',
+    category: 'Vegetables',
+    availableQuantity: 65,
+    totalQuantity: 80,
+    quantityUnit: 'kg',
+    basePricePerUnit: 18500.0,
+    minOrderQuantity: 1,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600',
+    shelfLifeDays: 180,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_5',
+    farmerId: 'farmer_sharma_05',
+    farmerName: 'Mahendra Sharma',
+    location: 'Solan, Himachal Pradesh',
+    cropName: 'Single Clove Black Garlic',
+    cropVariety: 'Aged Fermented Himalayan',
+    grade: 'A',
+    category: 'Vegetables',
+    availableQuantity: 400,
+    totalQuantity: 500,
+    quantityUnit: 'kg',
+    basePricePerUnit: 950.0,
+    minOrderQuantity: 5,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1540148426945-6cf22a6b2383?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1540148426945-6cf22a6b2383?w=600',
+    shelfLifeDays: 120,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_6',
+    farmerId: 'farmer_singh_06',
+    farmerName: 'Ningthouja Tomba Singh',
+    location: 'Imphal East, Manipur',
+    cropName: 'Chak-Hao Black Rice',
+    cropVariety: 'Aromatic GI Purple-Black',
+    grade: 'A',
+    category: 'Grains',
+    availableQuantity: 3500,
+    totalQuantity: 4000,
+    quantityUnit: 'kg',
+    basePricePerUnit: 240.0,
+    minOrderQuantity: 25,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600',
+    shelfLifeDays: 365,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_7',
+    farmerId: 'farmer_kelkar_07',
+    farmerName: 'Dattatray Kelkar',
+    location: 'Devgad, Sindhudurg, Maharashtra',
+    cropName: 'Ratnagiri Alphonso Mango',
+    cropVariety: 'Devgad Hapus (GI Certified)',
+    grade: 'A',
+    category: 'Fruits',
+    availableQuantity: 950,
+    totalQuantity: 1200,
+    quantityUnit: 'kg',
+    basePricePerUnit: 450.0,
+    minOrderQuantity: 5,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1553279768-865429fa0078?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600',
+    shelfLifeDays: 12,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_8',
+    farmerId: 'farmer_mathew_08',
+    farmerName: 'George Mathew',
+    location: 'Idukki, Kerala',
+    cropName: 'Alleppey Green Cardamom',
+    cropVariety: '8mm Bold Export Super',
+    grade: 'A',
+    category: 'Spices',
+    availableQuantity: 650,
+    totalQuantity: 800,
+    quantityUnit: 'kg',
+    basePricePerUnit: 2400.0,
+    minOrderQuantity: 2,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600',
+    shelfLifeDays: 365,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_9',
+    farmerId: 'farmer_joseph_09',
+    farmerName: 'Thomas Joseph',
+    location: 'Wayanad, Kerala',
+    cropName: 'Natural Bourbon Vanilla Beans',
+    cropVariety: 'Cured Gourmet Pods Grade A',
+    grade: 'A',
+    category: 'Spices',
+    availableQuantity: 180,
+    totalQuantity: 220,
+    quantityUnit: 'kg',
+    basePricePerUnit: 4500.0,
+    minOrderQuantity: 1,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1509358271058-acd22cc93898?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1509358271058-acd22cc93898?w=600',
+    shelfLifeDays: 365,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'prod_10',
+    farmerId: 'farmer_deshmukh_10',
+    farmerName: 'Rajesh Deshmukh',
+    location: 'Mahabaleshwar, Maharashtra',
+    cropName: 'Mahabaleshwar Blueberries',
+    cropVariety: 'Biloxi Handpicked Punnets',
+    grade: 'A',
+    category: 'Fruits',
+    availableQuantity: 450,
+    totalQuantity: 600,
+    quantityUnit: 'kg',
+    basePricePerUnit: 680.0,
+    minOrderQuantity: 2,
+    targetBuyer: 'BOTH',
+    images: ['https://images.unsplash.com/photo-1498557850523-fd3d118b962e?w=600'],
+    imageUrl: 'https://images.unsplash.com/photo-1498557850523-fd3d118b962e?w=600',
+    shelfLifeDays: 10,
+    createdAt: new Date().toISOString(),
+  },
+];
 
 export class CatalogController {
   static async searchCatalog(req: Request, res: Response): Promise<void> {
@@ -33,169 +251,6 @@ export class CatalogController {
         return;
       }
     }
-
-    const DEFAULT_MANDI_CATALOG = [
-      {
-        id: 'prod_1',
-        farmerId: 'farmer_ramesh_01',
-        farmerName: 'Ramesh Patil',
-        location: 'Nashik, Maharashtra',
-        cropName: 'Red Onion',
-        cropVariety: 'Garwa',
-        grade: 'A',
-        category: 'Vegetables',
-        availableQuantity: 1400,
-        totalQuantity: 1500,
-        quantityUnit: 'kg',
-        basePricePerUnit: 26.5,
-        minOrderQuantity: 1,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600',
-        shelfLifeDays: 30,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_2',
-        farmerId: 'farmer_ramesh_01',
-        farmerName: 'Ramesh Patil',
-        location: 'Nashik, Maharashtra',
-        cropName: 'Fresh Tomatoes',
-        cropVariety: 'Vaishali',
-        grade: 'A',
-        category: 'Vegetables',
-        availableQuantity: 550,
-        totalQuantity: 600,
-        quantityUnit: 'kg',
-        basePricePerUnit: 35.0,
-        minOrderQuantity: 1,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=600',
-        shelfLifeDays: 7,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_3',
-        farmerId: 'farmer_suresh_02',
-        farmerName: 'Suresh Deshmukh',
-        location: 'Indore, Madhya Pradesh',
-        cropName: 'Farm Potatoes',
-        cropVariety: 'Jyoti',
-        grade: 'A',
-        category: 'Vegetables',
-        availableQuantity: 2000,
-        totalQuantity: 2000,
-        quantityUnit: 'kg',
-        basePricePerUnit: 22.0,
-        minOrderQuantity: 2,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=600',
-        shelfLifeDays: 45,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_4',
-        farmerId: 'farmer_sanjay_03',
-        farmerName: 'Sanjay Ratnagiri',
-        location: 'Ratnagiri, Maharashtra',
-        cropName: 'Alphonso Mangoes',
-        cropVariety: 'Hapus',
-        grade: 'A',
-        category: 'Fruits',
-        availableQuantity: 300,
-        totalQuantity: 350,
-        quantityUnit: 'dozen',
-        basePricePerUnit: 650.0,
-        minOrderQuantity: 1,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1553279768-865429fa0078?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600',
-        shelfLifeDays: 10,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_5',
-        farmerId: 'farmer_balwinder_04',
-        farmerName: 'Balwinder Singh',
-        location: 'Karnal, Haryana',
-        cropName: 'Royal Basmati Rice',
-        cropVariety: '1121 XXL',
-        grade: 'A',
-        category: 'Grains',
-        availableQuantity: 5000,
-        totalQuantity: 5000,
-        quantityUnit: 'kg',
-        basePricePerUnit: 85.0,
-        minOrderQuantity: 5,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600',
-        shelfLifeDays: 365,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_6',
-        farmerId: 'farmer_vipin_05',
-        farmerName: 'Vipin Sharma',
-        location: 'Shimla, Himachal Pradesh',
-        cropName: 'Royal Gala Apples',
-        cropVariety: 'Kinnaur Red',
-        grade: 'A',
-        category: 'Fruits',
-        availableQuantity: 800,
-        totalQuantity: 800,
-        quantityUnit: 'kg',
-        basePricePerUnit: 140.0,
-        minOrderQuantity: 1,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=600',
-        shelfLifeDays: 20,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_7',
-        farmerId: 'farmer_ramesh_01',
-        farmerName: 'Ramesh Patil',
-        location: 'Nashik, Maharashtra',
-        cropName: 'Green Chillies',
-        cropVariety: 'G4 Hot',
-        grade: 'A',
-        category: 'Spices',
-        availableQuantity: 250,
-        totalQuantity: 250,
-        quantityUnit: 'kg',
-        basePricePerUnit: 60.0,
-        minOrderQuantity: 1,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600',
-        shelfLifeDays: 14,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'prod_8',
-        farmerId: 'farmer_mohan_06',
-        farmerName: 'Mohan Lal',
-        location: 'Jaipur, Rajasthan',
-        cropName: 'Organic Mustard Oil',
-        cropVariety: 'Kachi Ghani Cold Pressed',
-        grade: 'A',
-        category: 'Oils',
-        availableQuantity: 400,
-        totalQuantity: 400,
-        quantityUnit: 'litre',
-        basePricePerUnit: 165.0,
-        minOrderQuantity: 1,
-        targetBuyer: 'BOTH',
-        images: ['https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=600'],
-        imageUrl: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=600',
-        shelfLifeDays: 180,
-        createdAt: new Date().toISOString(),
-      },
-    ];
 
     const isMock = !process.env.SUPABASE_URL || process.env.SUPABASE_URL.includes('placeholder');
 
@@ -214,8 +269,7 @@ export class CatalogController {
       let query = supabase
         .from('products')
         .select('*')
-        .eq('is_active', true)
-        .in('target_buyer', ['BOTH', 'RETAIL'])
+        .in('status', ['ACTIVE', 'APPROVED', 'ADMIN_APPROVED'])
         .gt('available_quantity', 0)
         .order('created_at', { ascending: false });
 
@@ -227,7 +281,7 @@ export class CatalogController {
       let error: any = null;
 
       try {
-        const resp = await query.limit(50);
+        const resp: any = await withTimeout(query.limit(50), 1200);
         data = resp.data;
         error = resp.error;
       } catch (qErr: any) {
@@ -240,9 +294,10 @@ export class CatalogController {
         try {
           const registered = ProductRegistryService.getRegisteredProducts();
           for (const reg of registered) {
-            const isListingActive = reg.isActive === true || reg.status === 'ACTIVE';
-            const targetValid = !reg.targetBuyer || ['BOTH', 'ALL', 'CONSUMER', 'RETAIL'].includes(reg.targetBuyer);
-            if (isListingActive && targetValid) {
+            if (isVisibleToBuyers(reg)) {
+              if (crop && !reg.cropName?.toLowerCase().includes(crop.toLowerCase())) continue;
+              if (category && reg.category?.toLowerCase() !== category.toLowerCase()) continue;
+              if (grade && reg.grade?.toLowerCase() !== grade.toLowerCase()) continue;
               fallbackList.push({
                 ...reg,
                 imageUrl: (reg.images && reg.images[0]) || getCropFallbackUrl(reg.cropName, reg.category),
@@ -252,12 +307,15 @@ export class CatalogController {
         } catch {}
 
         for (const def of DEFAULT_MANDI_CATALOG) {
+          if (crop && !def.cropName?.toLowerCase().includes(crop.toLowerCase())) continue;
+          if (category && def.category?.toLowerCase() !== category.toLowerCase()) continue;
+          if (grade && def.grade?.toLowerCase() !== grade.toLowerCase()) continue;
           if (!fallbackList.some(p => p.id === def.id || p.cropName?.toLowerCase() === def.cropName.toLowerCase())) {
             fallbackList.push(def);
           }
         }
 
-        catalogCache.set(cacheKey, fallbackList, 10);
+        catalogCache.set(cacheKey, fallbackList, 2);
         res.status(200).json({
           data: fallbackList,
           meta: { total: fallbackList.length, fallback: true },
@@ -266,19 +324,11 @@ export class CatalogController {
         return;
       }
 
-      /**
-       * Sanitize image URLs:
-       *   - base64 (data:...) → too large for mobile, replace with crop-name fallback
-       *   - file:// local device path → only valid on the device that uploaded, replace
-       *   - empty / null → replace with crop-name fallback
-       *   - valid https:// URL → keep as-is
-       */
       const sanitizeCatalogImg = (rawUrl: string | undefined, cropName: string, category: string): string => {
         if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim() === '') return getCropFallbackUrl(cropName, category);
-        if (rawUrl.startsWith('file://')) return getCropFallbackUrl(cropName, category); // local device path
+        if (rawUrl.startsWith('file://')) return getCropFallbackUrl(cropName, category);
         const isOldHardcodedOnion = rawUrl.includes('AB6AXuC5ju') && !(cropName || '').toLowerCase().includes('onion');
         if (isOldHardcodedOnion) return getCropFallbackUrl(cropName, category);
-        // Allow compact base64 data URIs under 2MB
         if (rawUrl.startsWith('data:image/') && rawUrl.length < 2000000) return rawUrl;
         if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) return rawUrl;
         return getCropFallbackUrl(cropName, category);
@@ -315,14 +365,15 @@ export class CatalogController {
         };
       });
 
-      // Merge live registered products — only fully published active ones
+      // Merge live registered products — all approved and active produce
       try {
         const registered = ProductRegistryService.getRegisteredProducts();
         for (const reg of registered) {
-          const isListingActive = reg.isActive === true || reg.status === 'ACTIVE';
-          const targetValid = !reg.targetBuyer || ['BOTH', 'ALL', 'CONSUMER', 'RETAIL'].includes(reg.targetBuyer);
-          if (isListingActive && targetValid && !formatted.some((p: any) => p.id === reg.id)) {
-            // Sanitize registry images too
+          if (isVisibleToBuyers(reg) && !formatted.some((p: any) => p.id === reg.id)) {
+            if (crop && !reg.cropName?.toLowerCase().includes(crop.toLowerCase())) continue;
+            if (category && reg.category?.toLowerCase() !== category.toLowerCase()) continue;
+            if (grade && reg.grade?.toLowerCase() !== grade.toLowerCase()) continue;
+
             const regImages = (reg.images || []).map((img: string) =>
               sanitizeCatalogImg(img, reg.cropName, reg.category)
             ).filter(Boolean);
@@ -332,14 +383,13 @@ export class CatalogController {
         }
       } catch {}
 
-      // Sort with newest listings at the top
       formatted.sort((a: any, b: any) => {
         const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
         const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
         return timeB - timeA;
       });
 
-      catalogCache.set(cacheKey, formatted, 0.5); // Fast TTL for real-time visibility
+      catalogCache.set(cacheKey, formatted, 2);
 
       res.status(200).json({
         data: formatted,
@@ -357,19 +407,53 @@ export class CatalogController {
   }
 
   static async getBatchById(req: Request, res: Response): Promise<void> {
-    const { id } = req.params;
+    const id = String(req.params.id || '');
     try {
-      const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (error || !data) {
-        res.status(404).json({ data: null, error: { message: 'Product batch not found' } });
+      // 1. Check ProductRegistryService first (fast in-memory / disk lookup)
+      const fromRegistry = ProductRegistryService.getProductById(id);
+      if (fromRegistry) {
+        const regImages = (fromRegistry.images || []).filter(Boolean);
+        if (regImages.length === 0) regImages.push(getCropFallbackUrl(fromRegistry.cropName, fromRegistry.category));
+        res.status(200).json({
+          data: {
+            ...fromRegistry,
+            crop_name: fromRegistry.cropName,
+            crop_variety: fromRegistry.cropVariety,
+            base_price_per_unit: fromRegistry.basePricePerUnit,
+            available_quantity: fromRegistry.availableQuantity,
+            quantity_unit: fromRegistry.quantityUnit,
+            images: regImages,
+            imageUrl: regImages[0],
+          },
+          error: null,
+        });
         return;
       }
-      res.status(200).json({ data, error: null });
+
+      // 2. Try Supabase with withTimeout
+      const supabase = getSupabaseAdmin();
+      let sbData: any = null;
+      try {
+        const sbRes: any = await withTimeout(
+          supabase.from('products').select('*').eq('id', id).single(),
+          1000
+        );
+        sbData = sbRes.data;
+      } catch {}
+
+      if (sbData) {
+        res.status(200).json({ data: sbData, error: null });
+        return;
+      }
+
+      // 3. Fallback to DEFAULT_MANDI_CATALOG
+      const fromDefault = DEFAULT_MANDI_CATALOG.find((p) => p.id === id);
+      if (fromDefault) {
+        res.status(200).json({ data: fromDefault, error: null });
+        return;
+      }
+
+      res.status(404).json({ data: null, error: { message: 'Product batch not found' } });
     } catch (err) {
       res.status(500).json({ data: null, error: { message: (err as Error).message } });
     }

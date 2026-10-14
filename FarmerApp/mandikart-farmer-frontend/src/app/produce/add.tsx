@@ -33,6 +33,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -46,14 +47,19 @@ import {
   Warehouse,
   Scale,
   ArrowRight,
+  Plus,
+  FileText,
+  ShieldCheck,
+  Tag,
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import { useProduceStore, QualityGrade, StorageType, CropCondition } from '@/store/produceStore';
 import { pickImageFromGallery, takePhotoWithCamera } from '@/services/imagePickerService';
 import { apiClient } from '@/services/apiClient';
 import { useAuthStore } from '@/store/authStore';
+import { detectCropAndOcr, CropVisionOcrResult } from '@/services/aiVisionOcrService';
 
-// Curated crop presets with reliable default assets & market rates
+// Curated crop presets with reliable default assets & market rates for Rare & Premium Produce
 interface CropPreset {
   name: string;
   category: string;
@@ -68,76 +74,148 @@ interface CropPreset {
 
 const CROP_PRESETS: CropPreset[] = [
   {
-    name: 'Red Onion',
-    category: 'Vegetables',
-    defaultVariety: 'Nashik Red Garwa',
+    name: 'Kashmiri Mongra Saffron',
+    category: 'Spices & Condiments',
+    defaultVariety: 'Kashmir Grade A++ Extra Bold',
     defaultImage:
-      'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80',
-    refPrice: 22,
+      'https://images.unsplash.com/photo-1599818816934-2e94828114c0?w=500&auto=format&fit=crop&q=80',
+    refPrice: 280000,
+    minDays: 365,
+    maxDays: 730,
+    basis: 'Hermetically sealed dark tin container with desiccant (<8% moisture)',
+    mandi: 'Pampore Saffron Mandi (J&K)',
+  },
+  {
+    name: 'Hass Avocado (Coorg)',
+    category: 'Exotic Fruits',
+    defaultVariety: 'Coorg Hass Grade A Export',
+    defaultImage:
+      'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=500&auto=format&fit=crop&q=80',
+    refPrice: 340,
     minDays: 8,
+    maxDays: 14,
+    basis: 'Padded corrugated ventilated crates at 5-7°C cold storage',
+    mandi: 'Madikeri Agri Hub',
+  },
+  {
+    name: 'Dragon Fruit (Kamalam)',
+    category: 'Exotic Fruits',
+    defaultVariety: 'Red Flesh C-Variety',
+    defaultImage:
+      'https://images.unsplash.com/photo-1527325678964-54921661f888?w=500&auto=format&fit=crop&q=80',
+    refPrice: 195,
+    minDays: 7,
     maxDays: 12,
-    basis: 'Ventilated wooden slatted storage, dry ambient condition',
-    mandi: 'Nashik APMC Mandi',
+    basis: 'Ventilated foam-netted plastic crates at 8-10°C ambient storage',
+    mandi: 'Kutch Agri Hub (Gujarat)',
   },
   {
-    name: 'Tomato',
-    category: 'Vegetables',
-    defaultVariety: 'Abhinav Hybrid',
+    name: 'Himalayan Gucchi Mushrooms',
+    category: 'Medicinal & Fungi',
+    defaultVariety: 'Wild Morel (Morchella Conica)',
     defaultImage:
-      'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80',
-    refPrice: 28,
-    minDays: 3,
-    maxDays: 5,
-    basis: 'Plastic crates at ambient temperature in farm shade',
-    mandi: 'Pimpalgaon Mandi',
+      'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=80',
+    refPrice: 18500,
+    minDays: 180,
+    maxDays: 365,
+    basis: 'Sun-dried wild harvested, vacuum sealed kraft bags with silica',
+    mandi: 'Shimla Special Mandi (HP)',
   },
   {
-    name: 'Potato',
-    category: 'Vegetables',
-    defaultVariety: 'Kufri Jyoti',
+    name: 'Single Clove Black Garlic',
+    category: 'Gourmet Vegetables',
+    defaultVariety: 'Fermented Aged Superfood',
     defaultImage:
-      'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80',
-    refPrice: 18,
-    minDays: 20,
-    maxDays: 35,
-    basis: 'Burlap bags in cool dark ventilated storage',
-    mandi: 'Lasalgaon Mandi Hub',
-  },
-  {
-    name: 'Wheat',
-    category: 'Grains',
-    defaultVariety: 'Lokwan Sharbati',
-    defaultImage:
-      'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&auto=format&fit=crop&q=80',
-    refPrice: 26,
+      'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80',
+    refPrice: 950,
     minDays: 90,
     maxDays: 180,
-    basis: 'Moisture-controlled sealed dry gunny bags',
-    mandi: 'Kalyan Wholesale APMC',
+    basis: 'Aged 90-days fermented whole bulb, humidity controlled pack',
+    mandi: 'Mandsaur Premium Mandi',
   },
   {
-    name: 'Soybean',
-    category: 'Oilseeds',
-    defaultVariety: 'JS-335',
+    name: 'Chak-Hao Black Rice',
+    category: 'GI Heritage Grains',
+    defaultVariety: 'Manipur GI Aromatic Rice',
     defaultImage:
-      'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=400&auto=format&fit=crop&q=80',
-    refPrice: 46,
-    minDays: 60,
-    maxDays: 120,
-    basis: 'Warehouse dry storage with <10% grain moisture',
-    mandi: 'Latur APMC',
+      'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80',
+    refPrice: 240,
+    minDays: 180,
+    maxDays: 365,
+    basis: 'Double hermetic gunny sacks with certified organic lining',
+    mandi: 'Imphal APMC (Manipur)',
   },
   {
-    name: 'Garlic',
-    category: 'Vegetables',
-    defaultVariety: 'Desi G2',
+    name: 'Ratnagiri Alphonso Mango',
+    category: 'Exotic Fruits',
+    defaultVariety: 'Devgad Hapus GI Tagged',
     defaultImage:
-      'https://images.unsplash.com/photo-1540148426945-6cf22a6b2383?w=400&auto=format&fit=crop&q=80',
-    refPrice: 115,
-    minDays: 30,
-    maxDays: 60,
-    basis: 'Hanging ventilated mesh bags',
-    mandi: 'Mandsaur Mandi',
+      'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80',
+    refPrice: 450,
+    minDays: 6,
+    maxDays: 10,
+    basis: 'Grass-hay cushioned wooden peti box, ambient 24°C ripening',
+    mandi: 'Ratnagiri APMC Terminal',
+  },
+  {
+    name: 'Alleppey Green Cardamom',
+    category: 'Spices & Condiments',
+    defaultVariety: '8mm Bold Export Grade',
+    defaultImage:
+      'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=500&auto=format&fit=crop&q=80',
+    refPrice: 2400,
+    minDays: 180,
+    maxDays: 365,
+    basis: 'Triple-layer sealed polythene gunny bags in cool dark room',
+    mandi: 'Vandanmedu Spices Park (Kerala)',
+  },
+  {
+    name: 'Natural Bourbon Vanilla Beans',
+    category: 'Spices & Condiments',
+    defaultVariety: 'Kerala Gourmet Grade A (16cm+)',
+    defaultImage:
+      'https://images.unsplash.com/photo-1509358271058-acd22cc93898?w=500&auto=format&fit=crop&q=80',
+    refPrice: 4500,
+    minDays: 270,
+    maxDays: 540,
+    basis: 'Vacuum packed bundles of 250g in food-grade foil packaging',
+    mandi: 'Kochi Spices Exchange',
+  },
+  {
+    name: 'Hydroponic Romanesco Broccoli',
+    category: 'Gourmet Vegetables',
+    defaultVariety: 'Fractal Brassica Exotic',
+    defaultImage:
+      'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80',
+    refPrice: 175,
+    minDays: 4,
+    maxDays: 8,
+    basis: 'Cold chain transit 4°C, film-wrapped breathable micro-perforated tray',
+    mandi: 'Pune Narayangaon Hub',
+  },
+  {
+    name: 'Mahabaleshwar Blueberries',
+    category: 'Exotic Fruits',
+    defaultVariety: 'Misty / Jewel Fresh Clamshell',
+    defaultImage:
+      'https://images.unsplash.com/photo-1498557850523-fd3d118b962e?w=500&auto=format&fit=crop&q=80',
+    refPrice: 680,
+    minDays: 7,
+    maxDays: 14,
+    basis: '125g vented clamshell punnets in refrigerated cold van (2°C)',
+    mandi: 'Mahabaleshwar Cold APMC',
+  },
+  {
+    name: 'Iranian Mamra Badam',
+    category: 'Dry Fruits & Nuts',
+    defaultVariety: 'Kashmir/Afghani Grade 1 (High Oil)',
+    defaultImage:
+      'https://images.unsplash.com/photo-1508061252224-414eb2949015?w=500&auto=format&fit=crop&q=80',
+    refPrice: 1950,
+    minDays: 180,
+    maxDays: 365,
+    basis: 'Nitrogen flushed hermetic 10kg poly-lined jute sacks',
+    mandi: 'Khari Baoli Terminal (Delhi)',
   },
 ];
 
@@ -217,7 +295,13 @@ export default function AddProduceScreen() {
     return val;
   })();
 
+  const [isCustomMode, setIsCustomMode] = useState(false);
+  const [isScanningOcr, setIsScanningOcr] = useState(false);
+  const [ocrResult, setOcrResult] = useState<CropVisionOcrResult | null>(null);
+  const [ocrApplied, setOcrApplied] = useState(false);
+
   const handleSelectPreset = (preset: CropPreset) => {
+    setIsCustomMode(false);
     setSelectedPreset(preset);
     setCropName(preset.name);
     setVariety(preset.defaultVariety);
@@ -227,9 +311,19 @@ export default function AddProduceScreen() {
     setExpectedPrice(preset.refPrice.toString());
   };
 
+  const handleSelectCustomMode = () => {
+    setIsCustomMode(true);
+    setCropName('');
+    setVariety('');
+    setCategory('Specialty Produce');
+    setExpectedPrice('');
+    setHasCustomPhoto(false);
+    setPhotoUri(getCropThumbnailUrl('custom', 'produce'));
+  };
+
   const handleCropNameChange = (text: string) => {
     setCropName(text);
-    if (!hasCustomPhoto) {
+    if (!hasCustomPhoto && !isCustomMode) {
       const match = CROP_PRESETS.find(
         (p) => p.name.toLowerCase() === text.trim().toLowerCase()
       );
@@ -245,11 +339,38 @@ export default function AddProduceScreen() {
     }
   };
 
+  const triggerAiVisionScan = async (uri: string) => {
+    setIsScanningOcr(true);
+    setOcrApplied(false);
+    try {
+      const result = await detectCropAndOcr(uri, cropName);
+      setOcrResult(result);
+    } catch (err) {
+      console.log('[AddProduce] AI Vision OCR scan note:', err);
+    } finally {
+      setIsScanningOcr(false);
+    }
+  };
+
+  const applyOcrResultsToForm = () => {
+    if (!ocrResult) return;
+    setCropName(ocrResult.cropName);
+    setVariety(ocrResult.variety);
+    setCategory(ocrResult.category);
+    setGrade(ocrResult.grade);
+    setExpectedPrice(ocrResult.refPrice.toString());
+    if (ocrResult.basis) {
+      setStorageDetails(ocrResult.basis);
+    }
+    setOcrApplied(true);
+  };
+
   const handlePickFromGallery = async () => {
     const res = await pickImageFromGallery();
     if (!res.cancelled && res.uri) {
       setHasCustomPhoto(true);
       setPhotoUri(res.uri);
+      triggerAiVisionScan(res.uri);
     }
   };
 
@@ -258,12 +379,13 @@ export default function AddProduceScreen() {
     if (!res.cancelled && res.uri) {
       setHasCustomPhoto(true);
       setPhotoUri(res.uri);
+      triggerAiVisionScan(res.uri);
     }
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSaveCrop = () => {
+  const handleSaveCrop = async () => {
     if (isSubmitting) return;
 
     const errors: { [key: string]: string } = {};
@@ -285,6 +407,13 @@ export default function AddProduceScreen() {
 
     const expPriceNum = parseFloat(expectedPrice) || selectedPreset.refPrice;
 
+    const now = new Date();
+    const todayFormatted = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const yesterdayFormatted = new Date(Date.now() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const threeDaysAgoFormatted = new Date(Date.now() - 3 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const weekAgoFormatted = new Date(Date.now() - 7 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const currentClockFormatted = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ', ' + now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
     // Build crop entity in PENDING_APPROVAL state
     const newCrop = addCrop({
       cropName: cropName.trim(),
@@ -299,12 +428,12 @@ export default function AddProduceScreen() {
       status: 'PENDING_APPROVAL',
       harvestDate:
         harvestOption === 'Today'
-          ? 'Today (04 Sep 2026)'
+          ? `Today (${todayFormatted})`
           : harvestOption === 'Yesterday'
-          ? 'Yesterday (03 Sep 2026)'
+          ? `Yesterday (${yesterdayFormatted})`
           : harvestOption === '3 Days Ago'
-          ? '01 Sep 2026'
-          : '28 Aug 2026',
+          ? threeDaysAgoFormatted
+          : weekAgoFormatted,
       availableFrom: availableFrom,
       location: 'Main Farm Warehouse',
       storageType: storageType,
@@ -325,32 +454,31 @@ export default function AddProduceScreen() {
       marketName: selectedPreset.mandi,
       marketDistanceKm: 18,
       marketSource: 'AGMARKNET Official Feed',
-      marketLastUpdated: '04 Sep, 10:30 AM',
+      marketLastUpdated: currentClockFormatted,
 
       history7D: [
-        { date: '29 Aug', price: selectedPreset.refPrice - 2 },
-        { date: '31 Aug', price: selectedPreset.refPrice - 1 },
-        { date: '02 Sep', price: selectedPreset.refPrice },
-        { date: '04 Sep', price: selectedPreset.refPrice },
+        { date: new Date(Date.now() - 5 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 2 },
+        { date: new Date(Date.now() - 3 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 1 },
+        { date: new Date(Date.now() - 1 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice },
+        { date: now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice },
       ],
       history30D: [
-        { date: '05 Aug', price: selectedPreset.refPrice - 4 },
-        { date: '15 Aug', price: selectedPreset.refPrice - 3 },
-        { date: '25 Aug', price: selectedPreset.refPrice - 1 },
-        { date: '04 Sep', price: selectedPreset.refPrice },
+        { date: new Date(Date.now() - 25 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 4 },
+        { date: new Date(Date.now() - 15 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 3 },
+        { date: new Date(Date.now() - 5 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 1 },
+        { date: now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice },
       ],
       history90D: [
-        { date: '05 Jun', price: selectedPreset.refPrice - 6 },
-        { date: '05 Jul', price: selectedPreset.refPrice - 4 },
-        { date: '05 Aug', price: selectedPreset.refPrice - 3 },
-        { date: '04 Sep', price: selectedPreset.refPrice },
+        { date: new Date(Date.now() - 75 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 6 },
+        { date: new Date(Date.now() - 45 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 4 },
+        { date: new Date(Date.now() - 20 * 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice - 3 },
+        { date: now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), price: selectedPreset.refPrice },
       ],
 
       watchTag: 'Newly Added Harvest',
       watchUrgency: 'positive',
     });
 
-    // Asynchronously dispatch to backend API & Supabase database
     const mappedGrade = grade === 'Grade B' ? 'B' : grade === 'Grade C' ? 'C' : 'A';
     const quantityVal = parseFloat(quantityInput) || computedKg;
     const user = useAuthStore.getState().user;
@@ -363,37 +491,69 @@ export default function AddProduceScreen() {
     const safeImage = resolveCropThumbnail(cropName, category, photoUri);
     const remoteImages = [safeImage];
 
-    apiClient.createProduct({
-      cropName: cropName.trim(),
-      cropVariety: variety.trim() || undefined,
-      grade: mappedGrade,
-      category: category || 'Vegetables',
-      totalQuantity: computedKg || quantityVal,
-      quantityUnit: 'kg',
-      basePricePerUnit: expPriceNum,
-      minOrderQuantity: 10,
-      targetBuyer: 'PENDING_APPROVAL',
-      status: 'PENDING_APPROVAL',
-      isActive: false,
-      images: remoteImages,
-      shelfLifeDays: selectedPreset.maxDays || 7,
-      pickupAddress: realLocation,
-      farmerName: realFarmerName,
-      farmerPhone: realFarmerPhone,
-      location: realLocation,
-    } as any, useAuthStore.getState().token)
-      .then((res: any) => {
-        if (res?.data?.id) {
-          useProduceStore.getState().replaceCropId(newCrop.id, res.data.id);
-        }
-        useProduceStore.getState().syncWithBackend();
-      })
-      .catch((err) => {
-        console.log('[AddProduce] Product saved locally, pending server sync:', err?.message);
-      });
-
     setCreatedCropId(newCrop.id);
     setSuccessModalVisible(true);
+
+    try {
+      const res: any = await apiClient.createProduct({
+        cropName: cropName.trim(),
+        cropVariety: variety.trim() || undefined,
+        grade: mappedGrade,
+        category: category || 'Vegetables',
+        totalQuantity: computedKg || quantityVal,
+        quantityUnit: 'kg',
+        basePricePerUnit: expPriceNum,
+        minOrderQuantity: 10,
+        targetBuyer: 'PENDING_APPROVAL',
+        status: 'PENDING_APPROVAL',
+        isActive: false,
+        images: remoteImages,
+        shelfLifeDays: selectedPreset.maxDays || 7,
+        pickupAddress: realLocation,
+        farmerName: realFarmerName,
+        farmerPhone: realFarmerPhone,
+        location: realLocation,
+      } as any, useAuthStore.getState().token);
+
+      if (res?.data?.id) {
+        useProduceStore.getState().replaceCropId(newCrop.id, res.data.id);
+        setCreatedCropId(res.data.id);
+      }
+      await useProduceStore.getState().syncWithBackend();
+    } catch (err: any) {
+      console.log('[AddProduce] Primary sync note, trying direct admin sync:', err?.message);
+      try {
+        const adminHost = typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : 'localhost';
+        const adminUrls = [`http://${adminHost}:4003/api/v1/admin/produce`, 'http://localhost:4003/api/v1/admin/produce'];
+        for (const aUrl of adminUrls) {
+          try {
+            await fetch(aUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                farmerId: user?.id || farmer?.id || 'd1111111-1111-1111-1111-111111111111',
+                farmerName: realFarmerName,
+                farmerPhone: realFarmerPhone,
+                cropName: cropName.trim(),
+                variety: variety.trim() || 'Hybrid',
+                category: category || 'Vegetables',
+                quantityKg: computedKg || quantityVal,
+                pricePerKg: expPriceNum,
+                qualityGrade: mappedGrade === 'B' ? 'GRADE_B' : 'GRADE_A',
+                pickupAddress: realLocation,
+                imageUrl: safeImage,
+                images: remoteImages,
+              }),
+            });
+            break;
+          } catch {}
+        }
+      } catch (adminErr) {
+        console.warn('[AddProduce] Admin backup sync notice:', adminErr);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -424,14 +584,40 @@ export default function AddProduceScreen() {
         >
           {/* ── Step 1: Quick Crop Selector ─────────────────────── */}
           <View style={styles.formSection}>
-            <Text style={styles.sectionLabel}>1. Select Crop *</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionLabel}>1. Select Crop / Commodity *</Text>
+              <View style={styles.premiumBadgeHeader}>
+                <Sparkles size={12} color="#D97706" />
+                <Text style={styles.premiumBadgeHeaderText}>Rare & Premium</Text>
+              </View>
+            </View>
+
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.presetChipsRow}
             >
+              {/* + Add Your Product (Custom Commodity) Chip */}
+              <Pressable
+                style={[
+                  styles.customPresetChip,
+                  isCustomMode && styles.customPresetChipSelected,
+                ]}
+                onPress={handleSelectCustomMode}
+              >
+                <Plus size={13} color={isCustomMode ? '#FFFFFF' : '#D97706'} />
+                <Text
+                  style={[
+                    styles.customPresetChipText,
+                    isCustomMode && styles.customPresetChipTextSelected,
+                  ]}
+                >
+                  + Add Your Product
+                </Text>
+              </Pressable>
+
               {CROP_PRESETS.map((preset) => {
-                const isSelected = cropName === preset.name;
+                const isSelected = !isCustomMode && cropName === preset.name;
                 return (
                   <Pressable
                     key={preset.name}
@@ -454,13 +640,24 @@ export default function AddProduceScreen() {
               })}
             </ScrollView>
 
+            {isCustomMode && (
+              <View style={styles.customInfoBox}>
+                <Sparkles size={14} color="#D97706" />
+                <Text style={styles.customInfoText}>
+                  Custom Commodity Mode: Enter your rare crop, GI heritage produce, or custom harvested product details below.
+                </Text>
+              </View>
+            )}
+
             <View style={styles.inputWrap}>
-              <Text style={styles.fieldSublabel}>Crop Name:</Text>
+              <Text style={styles.fieldSublabel}>
+                {isCustomMode ? 'Custom Crop / Product Name *:' : 'Crop Name *:'}
+              </Text>
               <TextInput
                 style={[styles.textInput, formErrors.cropName && styles.inputError]}
                 value={cropName}
                 onChangeText={handleCropNameChange}
-                placeholder="e.g. Red Onion, Wheat, Tomato..."
+                placeholder={isCustomMode ? "e.g. Kashmiri Mongra, Hass Avocado, Wild Morel..." : "e.g. Kashmiri Mongra Saffron, Hass Avocado..."}
                 placeholderTextColor={MKColors.textMuted}
               />
               {formErrors.cropName && (
@@ -474,10 +671,23 @@ export default function AddProduceScreen() {
                 style={styles.textInput}
                 value={variety}
                 onChangeText={setVariety}
-                placeholder="e.g. Nashik Garwa, Sharbati, Hybrid 105..."
+                placeholder="e.g. Grade A++ Extra Bold, GI Tagged, Fermented..."
                 placeholderTextColor={MKColors.textMuted}
               />
             </View>
+
+            {isCustomMode && (
+              <View style={styles.inputWrap}>
+                <Text style={styles.fieldSublabel}>Agricultural Category:</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={category}
+                  onChangeText={setCategory}
+                  placeholder="e.g. Spices & Condiments, Exotic Fruits, Fungi..."
+                  placeholderTextColor={MKColors.textMuted}
+                />
+              </View>
+            )}
           </View>
 
           {/* ── Step 2: Quantity & Unit ─────────────────────────── */}
@@ -649,9 +859,16 @@ export default function AddProduceScreen() {
             </View>
           </View>
 
-          {/* ── Step 5: Crop Photo ──────────────────────────────── */}
+          {/* ── Step 5: Crop Photo & AI OCR Scanner ─────────────── */}
           <View style={styles.formSection}>
-            <Text style={styles.sectionLabel}>5. Crop Photo</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionLabel}>5. Crop Photo & AI OCR Scanner</Text>
+              <View style={styles.aiBadgeHeader}>
+                <Sparkles size={12} color={MKColors.primaryGreen} />
+                <Text style={styles.aiBadgeHeaderText}>AI Object & OCR Active</Text>
+              </View>
+            </View>
+
             <View style={styles.photoUploadContainer}>
               <Image source={{ uri: photoUri }} style={styles.uploadedPreview} />
               <View style={styles.photoActionsCol}>
@@ -670,11 +887,112 @@ export default function AddProduceScreen() {
                   <ImageIcon size={16} color={MKColors.primaryGreen} />
                   <Text style={styles.photoActionText}>Choose from Gallery</Text>
                 </Pressable>
-                <Text style={styles.photoHintText}>
-                  Clear photos build buyer trust and improve offer response rates.
-                </Text>
+
+                <Pressable
+                  style={[styles.photoActionButton, styles.ocrManualTriggerBtn]}
+                  onPress={() => triggerAiVisionScan(photoUri)}
+                  disabled={isScanningOcr}
+                >
+                  <Sparkles size={15} color="#D97706" />
+                  <Text style={[styles.photoActionText, { color: '#D97706' }]}>
+                    {isScanningOcr ? 'Scanning with AI...' : 'Scan Photo with AI OCR'}
+                  </Text>
+                </Pressable>
               </View>
             </View>
+
+            <Text style={styles.photoHintText}>
+              Snap sacks, crates, or produce. AI will identify the crop, assess freshness, and run OCR on packaging labels & batch numbers.
+            </Text>
+
+            {/* AI Scanning Loader */}
+            {isScanningOcr && (
+              <View style={styles.ocrScanningBox}>
+                <ActivityIndicator size="small" color={MKColors.primaryGreen} />
+                <Text style={styles.ocrScanningText}>
+                  AI inspecting produce visual characteristics & reading OCR stamps...
+                </Text>
+              </View>
+            )}
+
+            {/* AI Vision & OCR Results HUD Card */}
+            {ocrResult && !isScanningOcr && (
+              <View style={styles.aiOcrCard}>
+                <View style={styles.aiOcrHeader}>
+                  <View style={styles.aiOcrTitleWrap}>
+                    <Sparkles size={16} color="#059669" />
+                    <Text style={styles.aiOcrTitle}>AI Vision & OCR Detected</Text>
+                  </View>
+                  <View style={styles.aiConfidenceBadge}>
+                    <ShieldCheck size={12} color="#059669" />
+                    <Text style={styles.aiConfidenceText}>{ocrResult.confidence}% Match</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.ocrDetectedProduce}>{ocrResult.cropName}</Text>
+                <Text style={styles.ocrVarietyText}>{ocrResult.variety}</Text>
+
+                {/* Badges Row */}
+                <View style={styles.ocrBadgeRow}>
+                  <View style={styles.ocrPill}>
+                    <Text style={styles.ocrPillText}>{ocrResult.category}</Text>
+                  </View>
+                  <View style={[styles.ocrPill, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+                    <Text style={[styles.ocrPillText, { color: '#065F46' }]}>
+                      ✨ {ocrResult.freshness} Freshness
+                    </Text>
+                  </View>
+                  <View style={[styles.ocrPill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                    <Text style={[styles.ocrPillText, { color: '#92400E' }]}>
+                      🏆 {ocrResult.grade}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* OCR Text Recognition Display */}
+                <View style={styles.ocrTextContainer}>
+                  <View style={styles.ocrTextHeader}>
+                    <FileText size={13} color="#D97706" />
+                    <Text style={styles.ocrTextLabel}>OCR SACK / LABEL SCAN:</Text>
+                  </View>
+                  <Text style={styles.ocrTextValue}>"{ocrResult.ocrExtractedText}"</Text>
+                </View>
+
+                {/* Visual Attributes Chips */}
+                <View style={styles.ocrAttributesRow}>
+                  {ocrResult.detectedAttributes.map((attr, idx) => (
+                    <View key={idx} style={styles.ocrAttrTag}>
+                      <Text style={styles.ocrAttrTagText}>✓ {attr}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* One-Tap Auto Fill Action */}
+                <Pressable
+                  style={[
+                    styles.ocrAutoFillBtn,
+                    ocrApplied && styles.ocrAutoFillBtnDone,
+                  ]}
+                  onPress={applyOcrResultsToForm}
+                >
+                  {ocrApplied ? (
+                    <>
+                      <CheckCircle2 size={16} color="#FFFFFF" />
+                      <Text style={styles.ocrAutoFillText}>
+                        Form Auto-Filled from AI Scan!
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} color="#FFFFFF" />
+                      <Text style={styles.ocrAutoFillText}>
+                        Auto-Fill All Form Details from AI Scan
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            )}
           </View>
 
           {/* ── Step 6: Expected Price & Mandi Reference ────────── */}
@@ -907,6 +1225,71 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 10,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  premiumBadgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    gap: 4,
+  },
+  premiumBadgeHeaderText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#92400E',
+    letterSpacing: 0.3,
+  },
+  customPresetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    gap: 5,
+  },
+  customPresetChipSelected: {
+    backgroundColor: '#D97706',
+    borderColor: '#B45309',
+  },
+  customPresetChipText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  customPresetChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  customInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 8,
+  },
+  customInfoText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#92400E',
+    lineHeight: 16,
+    fontWeight: '600',
+  },
   presetChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -1130,6 +1513,175 @@ const styles = StyleSheet.create({
   photoHintText: {
     fontSize: 10,
     color: MKColors.textSecondary,
+    marginTop: 8,
+    lineHeight: 14,
+  },
+  aiBadgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    gap: 4,
+  },
+  aiBadgeHeaderText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  ocrManualTriggerBtn: {
+    borderColor: '#F59E0B',
+    backgroundColor: '#FFFBEB',
+  },
+  ocrScanningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
+    gap: 10,
+  },
+  ocrScanningText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+  },
+  aiOcrCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    padding: 14,
+    marginTop: 12,
+    shadowColor: '#10B981',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  aiOcrHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  aiOcrTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  aiOcrTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  aiConfidenceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    gap: 4,
+  },
+  aiConfidenceText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  ocrDetectedProduce: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: MKColors.textPrimary,
+  },
+  ocrVarietyText: {
+    fontSize: 12,
+    color: MKColors.textSecondary,
+    marginBottom: 10,
+  },
+  ocrBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  ocrPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: MKColors.borderLight,
+  },
+  ocrPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: MKColors.textSecondary,
+  },
+  ocrTextContainer: {
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  ocrTextHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  ocrTextLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#F59E0B',
+    letterSpacing: 0.5,
+  },
+  ocrTextValue: {
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#F1F5F9',
+    lineHeight: 16,
+  },
+  ocrAttributesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  ocrAttrTag: {
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  ocrAttrTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  ocrAutoFillBtn: {
+    backgroundColor: '#059669',
+    borderRadius: 10,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  ocrAutoFillBtnDone: {
+    backgroundColor: '#047857',
+  },
+  ocrAutoFillText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 
   // Mandi Benchmark

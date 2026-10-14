@@ -103,13 +103,14 @@ export class FarmerNegotiationsController {
   static async sendMessage(req: Request, res: Response): Promise<void> {
     const farmerId = req.user?.id || 'd1111111-1111-1111-1111-111111111111';
     const id = String(req.params.id);
-    const { text, messageId } = req.body;
+    const { text, messageId, messageType, location } = req.body;
 
-    if (!text || !text.trim()) {
+    const isLocationMsg = messageType === 'LOCATION' || !!location;
+    if (!isLocationMsg && (!text || !text.trim())) {
       res.status(400).json({
         data: null,
         meta: null,
-        error: { code: 'VALIDATION_ERROR', message: 'Text message is required' },
+        error: { code: 'VALIDATION_ERROR', message: 'Text message or location is required' },
       });
       return;
     }
@@ -154,8 +155,11 @@ export class FarmerNegotiationsController {
       senderId: farmerId,
       senderRole: 'FARMER',
       senderName: target.farmerName || 'Farmer (You)',
-      messageType: 'TEXT',
-      text: text.trim(),
+      messageType: isLocationMsg ? 'LOCATION' : 'TEXT',
+      text: isLocationMsg
+        ? (location?.address ? `🌾 Shared Farmgate Location: ${location.address}` : '🌾 Shared Farmgate GPS Location')
+        : text.trim(),
+      location: isLocationMsg ? location : undefined,
       timestamp: new Date().toISOString(),
       isRead: false,
     };
@@ -213,22 +217,18 @@ export class FarmerNegotiationsController {
       );
       resultData = updated || target;
     } else if (action === 'COUNTER') {
-      if (!counterPrice) {
-        res.status(400).json({
-          data: null,
-          meta: null,
-          error: { code: 'VALIDATION_ERROR', message: 'counterPrice is required for COUNTER action' },
-        });
-        return;
-      }
+      const { selectedItems } = req.body;
+      const effectiveCounterPrice = Number(counterPrice) || (Array.isArray(selectedItems) && selectedItems.length > 0 ? selectedItems[0].farmerPrice : target.offeredPrice);
+
       const updated = NegotiationRegistryService.counterNegotiation(
         id,
         'FARMER',
         farmerId,
         target.farmerName || 'Farmer (You)',
-        Number(counterPrice),
+        Number(effectiveCounterPrice),
         Number(counterQty || target.quantity),
-        message
+        message,
+        selectedItems
       );
       resultData = updated || target;
     } else {

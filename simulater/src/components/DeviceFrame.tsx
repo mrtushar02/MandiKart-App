@@ -44,6 +44,7 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
   const [iframeKey, setIframeKey] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>('09:41');
+  const [currentDate, setCurrentDate] = useState<string>('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const currentPreset: DevicePreset = 
@@ -53,16 +54,19 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
   const viewportWidth = isLandscape ? currentPreset.height : currentPreset.width;
   const viewportHeight = isLandscape ? currentPreset.width : currentPreset.height;
 
-  // Real clock update
+  // Realtime clock and date update
   useEffect(() => {
-    const updateTime = () => {
+    const updateTimeAndDate = () => {
       const now = new Date();
       setCurrentTime(
         now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
       );
+      setCurrentDate(
+        now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+      );
     };
-    updateTime();
-    const timer = setInterval(updateTime, 10000);
+    updateTimeAndDate();
+    const timer = setInterval(updateTimeAndDate, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -257,7 +261,10 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({
             >
               {/* Android Status Bar */}
               <div className="w-full h-7 bg-black/95 px-5 flex items-center justify-between text-slate-300 text-[11px] font-medium tracking-tight z-30 select-none">
-                <span className="font-semibold text-slate-200">{currentTime}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-100">{currentTime}</span>
+                  {currentDate && <span className="text-[10px] text-slate-400 font-medium tracking-normal">• {currentDate}</span>}
+                </div>
                 <div className="w-12 h-1 bg-slate-800 rounded-full border border-slate-700/50" />
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono tracking-tighter opacity-80">5G</span>
