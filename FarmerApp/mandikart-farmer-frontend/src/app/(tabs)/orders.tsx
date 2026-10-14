@@ -416,6 +416,32 @@ export default function OrdersScreen() {
                 </View>
               </View>
 
+              {/* Advance Paid via Stripe & Delivery OTP verification strip */}
+              {(Boolean(order.advancePaid) || Boolean(order.deliveryOtp)) && (
+                <View style={styles.advancePaymentFarmerStrip}>
+                  <View style={styles.advancePaymentRow}>
+                    <View style={styles.advancePaymentPill}>
+                      <CreditCard size={12} color="#059669" />
+                      <Text style={styles.advancePaymentPillText}>
+                        ₹{Number(order.advancePaid || 0).toLocaleString('en-IN')} Paid (Stripe 30%)
+                      </Text>
+                    </View>
+                    {Boolean(order.remainingAmount) && (
+                      <Text style={styles.remainingDueText}>
+                        Bal ₹{Number(order.remainingAmount || 0).toLocaleString('en-IN')} on Delivery
+                      </Text>
+                    )}
+                  </View>
+                  {Boolean(order.deliveryOtp) && (
+                    <View style={styles.farmerOtpBadge}>
+                      <ShieldCheck size={13} color="#B45309" />
+                      <Text style={styles.farmerOtpLabel}>Buyer Delivery OTP:</Text>
+                      <Text style={styles.farmerOtpValue}>{order.deliveryOtp}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
               {/* Timeline Status Stepper (For Active & Completed) */}
               {order.tab !== 'Pending' && (
                 <View style={styles.stepperBox}>
@@ -642,6 +668,41 @@ export default function OrdersScreen() {
                     <Text style={styles.modalTotalLabel}>Net Farmer Payout</Text>
                     <Text style={styles.modalTotalVal}>{selectedOrderDetails.netPayout}</Text>
                   </View>
+
+                  {/* Advance payment breakdown if paid via Stripe */}
+                  {Boolean(selectedOrderDetails.advancePaid) && (
+                    <View style={styles.modalAdvancePaymentBox}>
+                      <View style={styles.modalRow}>
+                        <Text style={styles.modalRowLabel}>Advance Received (Stripe 30%)</Text>
+                        <Text style={[styles.modalRowVal, { color: '#059669', fontWeight: '800' }]}>
+                          ₹{Number(selectedOrderDetails.advancePaid).toLocaleString('en-IN')} ✓ Escrowed
+                        </Text>
+                      </View>
+                      <View style={styles.modalRow}>
+                        <Text style={styles.modalRowLabel}>Remaining Due on Handover (70%)</Text>
+                        <Text style={[styles.modalRowVal, { color: '#D97706', fontWeight: '700' }]}>
+                          ₹{Number(selectedOrderDetails.remainingAmount || 0).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Delivery Handover OTP */}
+                  {Boolean(selectedOrderDetails.deliveryOtp) && (
+                    <View style={styles.modalDeliveryOtpBox}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <ShieldCheck size={16} color="#B45309" />
+                        <Text style={styles.modalDeliveryOtpTitle}>Handover Verification Code</Text>
+                      </View>
+                      <Text style={styles.modalDeliveryOtpSub}>
+                        Verify this 6-digit code with the buyer or logistics partner before releasing your crop lot.
+                      </Text>
+                      <View style={styles.modalDeliveryOtpPill}>
+                        <Text style={styles.modalDeliveryOtpCode}>{selectedOrderDetails.deliveryOtp}</Text>
+                      </View>
+                    </View>
+                  )}
+
                   <View style={styles.paymentModeBox}>
                     <CreditCard size={14} color="#15803D" />
                     <Text numberOfLines={1} style={styles.paymentModeText}>{selectedOrderDetails.paymentMode}</Text>
@@ -2039,5 +2100,105 @@ const styles = StyleSheet.create({
     color: '#15803D',
     fontSize: 13,
     fontWeight: '800',
+  },
+  advancePaymentFarmerStrip: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 6,
+    gap: 6,
+  },
+  advancePaymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  advancePaymentPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    gap: 4,
+  },
+  advancePaymentPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  remainingDueText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#D97706',
+  },
+  farmerOtpBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 6,
+  },
+  farmerOtpLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#92400E',
+  },
+  farmerOtpValue: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#B45309',
+    letterSpacing: 1.5,
+  },
+  modalAdvancePaymentBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    marginVertical: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalDeliveryOtpBox: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    padding: 12,
+    marginVertical: 8,
+  },
+  modalDeliveryOtpTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  modalDeliveryOtpSub: {
+    fontSize: 11,
+    color: '#78350F',
+    lineHeight: 15,
+    marginBottom: 8,
+  },
+  modalDeliveryOtpPill: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+  },
+  modalDeliveryOtpCode: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#B45309',
+    letterSpacing: 2,
   },
 });

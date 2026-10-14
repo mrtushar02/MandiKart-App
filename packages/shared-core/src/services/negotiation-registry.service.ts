@@ -220,7 +220,15 @@ export class NegotiationRegistryService {
     actorRole: 'BUYER' | 'FARMER',
     actorId: string,
     actorName: string,
-    deliveryAddress?: string
+    deliveryAddress?: string,
+    paymentDetails?: {
+      advancePaid?: number;
+      remainingAmount?: number;
+      paymentMethod?: string;
+      stripePaymentId?: string;
+      deliveryOtp?: string;
+      paymentStatus?: string;
+    }
   ): { negotiation: RegisteredNegotiation; order: any } | undefined {
     const target = this.getNegotiationById(id);
     if (!target) return undefined;
@@ -237,7 +245,8 @@ export class NegotiationRegistryService {
         target.buyerId || 'buyer_default_01',
         target.buyerName || 'MandiKart Buyer',
         deliveryAddress || 'Farmgate Direct Collection Point',
-        target.buyerPhone
+        target.buyerPhone,
+        paymentDetails
       );
       if (res && res.negotiation) {
         const farmerAcceptMsg: NegotiationMessageItem = {
@@ -263,7 +272,8 @@ export class NegotiationRegistryService {
       actorId,
       actorName,
       deliveryAddress,
-      target.buyerPhone
+      target.buyerPhone,
+      paymentDetails
     );
   }
 
@@ -276,7 +286,15 @@ export class NegotiationRegistryService {
     buyerId: string,
     buyerName: string,
     deliveryAddress?: string,
-    buyerPhone?: string
+    buyerPhone?: string,
+    paymentDetails?: {
+      advancePaid?: number;
+      remainingAmount?: number;
+      paymentMethod?: string;
+      stripePaymentId?: string;
+      deliveryOtp?: string;
+      paymentStatus?: string;
+    }
   ): { negotiation: RegisteredNegotiation; order: any } | undefined {
     const target = this.getNegotiationById(id);
     if (!target) return undefined;
@@ -294,10 +312,16 @@ export class NegotiationRegistryService {
     const finalPrice = target.counterPrice || target.offeredPrice;
     const finalQty = target.quantity;
     const totalAmount = Math.round(finalPrice * finalQty);
+    const advancePaid = paymentDetails?.advancePaid ?? Math.round(totalAmount * 0.3);
+    const remainingAmount = paymentDetails?.remainingAmount ?? (totalAmount - advancePaid);
+    const deliveryOtp = paymentDetails?.deliveryOtp || Math.floor(100000 + Math.random() * 900000).toString();
+    const pickupOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const stripePaymentId = paymentDetails?.stripePaymentId || `pi_stripe_${Date.now()}`;
+    const paymentMethod = paymentDetails?.paymentMethod || 'STRIPE';
+    const paymentStatus = paymentDetails?.paymentStatus || 'ADVANCE_PAID';
+
     const orderNumber = `MK-ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const orderId = `ord_neg_${Date.now()}`;
-    const pickupOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const deliveryOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const now = new Date().toISOString();
 
     const createdOrder = {
@@ -320,11 +344,16 @@ export class NegotiationRegistryService {
       pricePerKg: finalPrice,
       totalAmount,
       totalPrice: totalAmount,
+      advancePaid,
+      remainingAmount,
+      deliveryOtp,
+      pickupOtp,
+      stripePaymentId,
+      paymentMethod,
+      paymentStatus,
       status: OrderStatus.PLACED,
       escrowStatus: 'HELD_IN_ESCROW',
       deliveryAddress: deliveryAddress || 'Selected Delivery Location',
-      pickupOtp,
-      deliveryOtp,
       imageUrl: target.cropImage,
       createdAt: now,
       timestamp: now,
@@ -358,7 +387,7 @@ export class NegotiationRegistryService {
       senderRole: 'BUYER',
       senderName: buyerName,
       messageType: 'SYSTEM',
-      text: `✅ ${buyerName} confirmed and placed the order for ₹${finalPrice}/${target.unit || 'kg'} (${finalQty} ${target.unit || 'kg'}).`,
+      text: `✅ ${buyerName} paid ₹${advancePaid} Advance via Stripe and placed Order #${orderNumber} (Agreed: ₹${finalPrice}/${target.unit || 'kg'} for ${finalQty} ${target.unit || 'kg'}). Remaining ₹${remainingAmount} payable on delivery.`,
       timestamp: now,
     };
 
@@ -369,7 +398,7 @@ export class NegotiationRegistryService {
       senderRole: 'SYSTEM',
       senderName: 'MandiKart System',
       messageType: 'ORDER_EVENT',
-      text: `Order #${orderNumber} placed! Awaiting farmer confirmation in Farmer App Pending section.`,
+      text: `Order #${orderNumber} placed! ₹${advancePaid} Advance Paid via Stripe. Delivery OTP: ${deliveryOtp}. Awaiting farmer dispatch in Farmer App.`,
       orderId,
       orderNumber,
       totalAmount,

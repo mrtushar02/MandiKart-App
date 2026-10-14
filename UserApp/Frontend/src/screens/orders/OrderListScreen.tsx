@@ -67,11 +67,19 @@ export default function OrderListScreen({ navigation }: any) {
           };
         });
 
+        const tot = Number(o.total || o.totalAmount || (rawItems.reduce((sum: number, it: any) => sum + ((it.quantity || 1) * (it.pricePerUnit || 30)), 0) + 25));
+        const adv = o.advancePaid ? Number(o.advancePaid) : Math.round(tot * 0.3);
+        const rem = o.remainingAmount ? Number(o.remainingAmount) : Math.max(0, tot - adv);
+
         return {
           id: o.orderNumber || o.id,
+          orderNumber: o.orderNumber || o.id,
           date: dateStr,
           status: o.status || 'PLACED',
-          total: o.total || o.totalAmount || (rawItems.reduce((sum: number, it: any) => sum + ((it.quantity || 1) * (it.pricePerUnit || 30)), 0) + 25),
+          total: tot,
+          advancePaid: adv,
+          remainingAmount: rem,
+          stripePaymentId: o.stripePaymentId,
           itemsCount: rawItems.length || 1,
           itemsPreview,
           deliveryAddress: typeof o.deliveryAddress === 'object' ? (o.deliveryAddress?.line1 || 'Pune, Maharashtra') : (o.deliveryAddress || 'Pune, Maharashtra'),
@@ -247,6 +255,22 @@ export default function OrderListScreen({ navigation }: any) {
                 </View>
               </View>
 
+              {/* Advance Paid via Stripe & Delivery OTP Strip */}
+              <View style={styles.paymentInfoRow}>
+                <View style={styles.advancePaidTag}>
+                  <Ionicons name="card" size={12} color="#047857" />
+                  <Text style={styles.advancePaidTagText}>
+                    ₹{item.advancePaid} Paid via Stripe (30%) • ₹{item.remainingAmount} on Handover
+                  </Text>
+                </View>
+                {item.deliveryOtp && (
+                  <View style={styles.deliveryOtpBadge}>
+                    <Ionicons name="key" size={11} color="#B45309" />
+                    <Text style={styles.deliveryOtpBadgeText}>OTP: {item.deliveryOtp}</Text>
+                  </View>
+                )}
+              </View>
+
               {/* Card Footer */}
               <View style={styles.cardFooter}>
                 <View>
@@ -417,4 +441,46 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   emptySub: { fontSize: 12, color: Colors.textSecondary },
+
+  // Advance Payment & OTP Status Strip
+  paymentInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: BorderRadius.md,
+    marginTop: 6,
+    marginBottom: 4,
+    gap: 6,
+  },
+  advancePaidTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  advancePaidTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  deliveryOtpBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  deliveryOtpBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#92400E',
+    letterSpacing: 0.5,
+  },
 });

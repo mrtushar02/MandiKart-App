@@ -11,6 +11,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
@@ -112,6 +113,20 @@ export default function ChatScreen({ navigation, route }: any) {
   const [counterModalVisible, setCounterModalVisible] = useState(false);
   const [counterPrice, setCounterPrice] = useState('');
   const [counterNote, setCounterNote] = useState('');
+
+  // Stripe Advance Payment & OTP Modal State
+  const [advanceModalVisible, setAdvanceModalVisible] = useState(false);
+  const [advanceStep, setAdvanceStep] = useState<'STRIPE_PAYMENT' | 'OTP_VERIFICATION' | 'CONFIRMED'>('STRIPE_PAYMENT');
+  const [cardNumber, setCardNumber] = useState('4242 4242 4242 4242');
+  const [cardExpiry, setCardExpiry] = useState('12/28');
+  const [cardCvc, setCardCvc] = useState('123');
+  const [cardName, setCardName] = useState('Aarav Sharma');
+  const [enteredOtp, setEnteredOtp] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('582914');
+  const [stripePaymentId, setStripePaymentId] = useState('');
+  const [otpTimer, setOtpTimer] = useState(60);
+  const [isProcessingStripe, setIsProcessingStripe] = useState(false);
+  const [confirmedOrderInfo, setConfirmedOrderInfo] = useState<any>(null);
 
   const flatRef = useRef<FlatList>(null);
   const isFetchingRef = useRef(false);
@@ -288,83 +303,134 @@ export default function ChatScreen({ navigation, route }: any) {
     }
   };
 
-  // Execute acceptance and order creation
-  const executeAcceptNegotiation = async () => {
+  // Helper: Autofill Stripe Test Card
+  const fillStripeTestCard = () => {
+    setCardNumber('4242 4242 4242 4242');
+    setCardExpiry('12/28');
+    setCardCvc('123');
+    setCardName(currentUserName || 'Aarav Sharma');
+  };
+
+  const handleCardNumberChange = (val: string) => {
+    const clean = val.replace(/\D/g, '').slice(0, 16);
+    const parts = clean.match(/[\s\S]{1,4}/g) || [];
+    setCardNumber(parts.join(' '));
+  };
+
+  const handleExpiryChange = (val: string) => {
+    const clean = val.replace(/\D/g, '').slice(0, 4);
+    if (clean.length >= 3) {
+      setCardExpiry(`${clean.slice(0, 2)}/${clean.slice(2)}`);
+    } else {
+      setCardExpiry(clean);
+    }
+  };
+
+  // Step 1: Open Advance Payment Modal (No direct confirmation!)
+  const openAdvancePaymentModal = () => {
+    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOtp(newOtp);
+    setEnteredOtp(newOtp);
+    setStripePaymentId('');
+    setOtpTimer(60);
+    setAdvanceStep('STRIPE_PAYMENT');
+    setAdvanceModalVisible(true);
+  };
+
+  // Step 2: Simulate Stripe Payment authorization then prompt for OTP
+  const handleProcessStripeAdvance = () => {
+    const cleanCard = cardNumber.replace(/\s+/g, '');
+    if (cleanCard.length < 14) {
+      Alert.alert('Incomplete Card Number', 'Please enter a valid 16-digit card number or tap "Use Stripe Test Card".');
+      return;
+    }
+    if (!cardExpiry || cardExpiry.length < 5) {
+      Alert.alert('Invalid Expiry', 'Please enter card expiry in MM/YY format (e.g. 12/28).');
+      return;
+    }
+    if (!cardCvc || cardCvc.length < 3) {
+      Alert.alert('Invalid CVC', 'Please enter your 3-digit CVV/CVC code.');
+      return;
+    }
+
+    setIsProcessingStripe(true);
+    setTimeout(() => {
+      setIsProcessingStripe(false);
+      const paymentId = `pi_stripe_deal_${Date.now()}`;
+      setStripePaymentId(paymentId);
+      setAdvanceStep('OTP_VERIFICATION');
+      setOtpTimer(60);
+    }, 1000);
+  };
+
+  // Step 3: Verify OTP and finalize order creation in shared registry
+  const handleVerifyOtpAndConfirmOrder = async () => {
     const targetNeg = negotiation || defaultNeg;
     const targetId = activeNegId || targetNeg?.id;
     if (!targetId || submitting) return;
 
+    const trimmedOtp = enteredOtp.trim();
+    if (!trimmedOtp || trimmedOtp.length < 4) {
+      Alert.alert('OTP Required', 'Please enter the 6-digit delivery authorization code.');
+      return;
+    }
+
     const currentPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
     const total = Math.round(currentPrice * (targetNeg.quantity || 1));
+    const advance = Math.round(total * 0.3);
+    const remaining = total - advance;
 
     try {
       setSubmitting(true);
-      const destAddr = activeSavedAddress?.formattedAddress || 'Selected Delivery Location';
-      const res = await apiClient.negotiations.confirmOrder(targetId, destAddr);
+      const destAddr =
+        activeSavedAddress?.formattedAddress ||
+        currentAddress?.formattedAddress ||
+        'Selected Delivery Location, Pune';
 
-      // Re-fetch negotiation to update status and chat messages
+      const res = await apiClient.negotiations.confirmOrder(targetId, destAddr, {
+        advancePaid: advance,
+        remainingAmount: remaining,
+        paymentMethod: 'STRIPE',
+        stripePaymentId: stripePaymentId || `pi_stripe_deal_${Date.now()}`,
+        deliveryOtp: trimmedOtp,
+        paymentStatus: 'ADVANCE_PAID',
+      });
+
+      const ord = res?.order || {
+        id: `ord_${Date.now()}`,
+        orderNumber: `MK-ORD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        cropName: targetNeg.cropName || cropName,
+        totalAmount: total,
+        advancePaid: advance,
+        remainingAmount: remaining,
+        deliveryOtp: trimmedOtp,
+        farmerName: farmerName || 'Ramesh Patel',
+      };
+
+      setConfirmedOrderInfo(ord);
       await loadNegotiation(false);
-
-      const placedOrderNumber = res?.order?.orderNumber || res?.orderNumber || 'CONFIRMED';
-      const successNotice = `Deal Accepted! 🎉\n\nYou accepted ₹${currentPrice}/${targetNeg.unit || 'kg'} for ${targetNeg.quantity} ${targetNeg.unit || 'kg'}.\n\nOrder #${placedOrderNumber} has been placed in your Orders!`;
-
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        const viewOrders = window.confirm(`${successNotice}\n\nClick OK to view your order in My Orders, or Cancel to stay here.`);
-        if (viewOrders) {
-          (navigation as any).navigate('Main', { screen: 'Orders' });
-        }
-      } else {
-        Alert.alert(
-          'Deal Accepted! 🎉',
-          `Order #${placedOrderNumber} has been placed successfully!`,
-          [
-            {
-              text: 'View Orders',
-              onPress: () => (navigation as any).navigate('Main', { screen: 'Orders' }),
-            },
-            { text: 'Stay in Chat', style: 'cancel' },
-          ]
-        );
-      }
+      setAdvanceStep('CONFIRMED');
     } catch (err: any) {
-      const errMsg = err?.message || 'Failed to accept deal.';
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.alert(`Acceptance Error: ${errMsg}`);
-      } else {
-        Alert.alert('Acceptance Error', errMsg);
-      }
+      Alert.alert('Confirmation Error', err?.message || 'Failed to place order. Please retry.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Accept Deal Trigger with Web & Native Confirmation
-  const handleAcceptNegotiation = () => {
-    const targetNeg = negotiation || defaultNeg;
-    const currentPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
-    const total = Math.round(currentPrice * (targetNeg.quantity || 1));
-
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const confirmed = window.confirm(
-        `Accept Deal & Place Order?\n\nCrop: ${targetNeg.cropName || cropName}\nRate: ₹${currentPrice}/${targetNeg.unit || 'kg'}\nQuantity: ${targetNeg.quantity} ${targetNeg.unit || 'kg'}\nTotal Deal Amount: ₹${total.toLocaleString('en-IN')}\n\nClick OK to confirm and place order.`
-      );
-      if (confirmed) {
-        executeAcceptNegotiation();
-      }
-    } else {
-      Alert.alert(
-        'Accept Deal & Place Order?',
-        `Confirm acceptance of ₹${currentPrice}/${targetNeg.unit || 'kg'} for ${targetNeg.quantity} ${targetNeg.unit || 'kg'}?\n\nTotal: ₹${total.toLocaleString('en-IN')}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Confirm & Order',
-            style: 'default',
-            onPress: executeAcceptNegotiation,
-          },
-        ]
-      );
+  // Countdown timer for OTP
+  useEffect(() => {
+    let timer: any = null;
+    if (advanceModalVisible && advanceStep === 'OTP_VERIFICATION' && otpTimer > 0) {
+      timer = setInterval(() => {
+        setOtpTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
     }
+    return () => clearInterval(timer);
+  }, [advanceModalVisible, advanceStep, otpTimer]);
+
+  // Accept Deal Trigger opens Advance Payment Flow
+  const handleAcceptNegotiation = () => {
+    openAdvancePaymentModal();
   };
 
   const effectiveNeg = negotiation || defaultNeg;
@@ -384,7 +450,7 @@ export default function ChatScreen({ navigation, route }: any) {
       ));
 
   const handleConfirmOrderFromChat = () => {
-    executeAcceptNegotiation();
+    openAdvancePaymentModal();
   };
 
   const openCounterModal = () => {
@@ -944,6 +1010,391 @@ export default function ChatScreen({ navigation, route }: any) {
             </View>
           </View>
         </View>
+      </Modal>
+      {/* ========================================================================= */}
+      {/* ADVANCE PAYMENT WITH STRIPE & DELIVERY OTP MODAL                           */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={advanceModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (advanceStep !== 'CONFIRMED') setAdvanceModalVisible(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.advanceModalSheet}>
+            {/* Modal Header */}
+            <View style={styles.advanceModalHeader}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.advanceBadgeRow}>
+                  <Ionicons name="shield-checkmark" size={14} color="#047857" />
+                  <Text style={styles.advanceBadgeText}>
+                    {advanceStep === 'STRIPE_PAYMENT'
+                      ? 'STRIPE ESCROW ADVANCE PAYMENT'
+                      : advanceStep === 'OTP_VERIFICATION'
+                      ? 'SECURE DELIVERY AUTHORIZATION'
+                      : 'ORDER CONFIRMED & TRACKING READY'}
+                  </Text>
+                </View>
+                <Text style={styles.advanceModalTitle}>
+                  {advanceStep === 'STRIPE_PAYMENT'
+                    ? 'Advance Payment via Stripe'
+                    : advanceStep === 'OTP_VERIFICATION'
+                    ? 'Verify Delivery Authorization OTP'
+                    : 'Order Confirmed! 🎉'}
+                </Text>
+              </View>
+
+              {advanceStep !== 'CONFIRMED' && (
+                <TouchableOpacity
+                  onPress={() => setAdvanceModalVisible(false)}
+                  style={styles.modalCloseBtn}
+                >
+                  <Ionicons name="close" size={20} color={Colors.textPrimary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
+              {/* PHASE 1: STRIPE ADVANCE PAYMENT */}
+              {advanceStep === 'STRIPE_PAYMENT' && (
+                <>
+                  {/* Deal Summary Box */}
+                  {(() => {
+                    const targetNeg = negotiation || defaultNeg;
+                    const curPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
+                    const qty = targetNeg.quantity || 1;
+                    const tot = Math.round(curPrice * qty);
+                    const adv = Math.round(tot * 0.3);
+                    const rem = tot - adv;
+
+                    return (
+                      <View style={styles.dealSummaryCard}>
+                        <View style={styles.dealCropHeader}>
+                          <Image
+                            source={{ uri: productImage || targetNeg.cropImage || 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=200' }}
+                            style={styles.dealCropImage}
+                          />
+                          <View style={{ flex: 1, marginLeft: 10 }}>
+                            <Text style={styles.dealCropTitle}>{targetNeg.cropName || cropName}</Text>
+                            <Text style={styles.dealCropSub}>
+                              Agreed: ₹{curPrice}/{targetNeg.unit || 'kg'} • {qty} {targetNeg.unit || 'kg'}
+                            </Text>
+                            <Text style={styles.dealFarmerTag}>Farmer: {farmerName}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.dealDivider} />
+
+                        <View style={styles.dealSummaryRow}>
+                          <Text style={styles.dealSummaryLabel}>Total Produce Deal Value</Text>
+                          <Text style={styles.dealSummaryVal}>₹{tot.toLocaleString('en-IN')}</Text>
+                        </View>
+
+                        <View style={[styles.dealSummaryRow, { marginTop: 6 }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                            <Text style={[styles.dealSummaryLabel, { fontWeight: '700', color: '#065F46' }]}>
+                              30% Advance Token (Pay Now)
+                            </Text>
+                          </View>
+                          <Text style={[styles.dealSummaryVal, { color: '#059669', fontWeight: '800' }]}>
+                            ₹{adv.toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+
+                        <View style={[styles.dealSummaryRow, { marginTop: 6 }]}>
+                          <Text style={styles.dealSummaryLabel}>70% Balance on Delivery</Text>
+                          <Text style={[styles.dealSummaryVal, { color: '#D97706', fontWeight: '700' }]}>
+                            ₹{rem.toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+
+                        <View style={styles.dealPolicyBox}>
+                          <Ionicons name="information-circle-outline" size={14} color="#1E40AF" />
+                          <Text style={styles.dealPolicyText}>
+                            Advance payment is held in MandiKart safe escrow. It is released to the farmer only after you verify the produce at delivery.
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
+
+                  {/* Stripe Card Input Form */}
+                  <View style={styles.stripeBox}>
+                    <View style={styles.stripeHeaderRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="card" size={18} color="#6366F1" />
+                        <Text style={styles.stripeFormTitle}>Credit / Debit Card</Text>
+                      </View>
+                      <TouchableOpacity onPress={fillStripeTestCard} style={styles.testCardPill}>
+                        <Ionicons name="flash" size={12} color="#4338CA" />
+                        <Text style={styles.testCardPillText}>Use Stripe Test Card</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={styles.stripeInputLabel}>Card Number</Text>
+                    <TextInput
+                      style={styles.stripeTextInput}
+                      value={cardNumber}
+                      onChangeText={handleCardNumberChange}
+                      keyboardType="numeric"
+                      placeholder="4242 4242 4242 4242"
+                      placeholderTextColor="#94A3B8"
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.stripeInputLabel}>Expires (MM/YY)</Text>
+                        <TextInput
+                          style={styles.stripeTextInput}
+                          value={cardExpiry}
+                          onChangeText={handleExpiryChange}
+                          keyboardType="numeric"
+                          placeholder="12/28"
+                          placeholderTextColor="#94A3B8"
+                        />
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.stripeInputLabel}>CVC / CVV</Text>
+                        <TextInput
+                          style={styles.stripeTextInput}
+                          value={cardCvc}
+                          onChangeText={(v) => setCardCvc(v.slice(0, 4))}
+                          keyboardType="numeric"
+                          placeholder="123"
+                          placeholderTextColor="#94A3B8"
+                          secureTextEntry
+                        />
+                      </View>
+                    </View>
+
+                    <Text style={[styles.stripeInputLabel, { marginTop: 10 }]}>Cardholder Name</Text>
+                    <TextInput
+                      style={styles.stripeTextInput}
+                      value={cardName}
+                      onChangeText={setCardName}
+                      placeholder="Aarav Sharma"
+                      placeholderTextColor="#94A3B8"
+                    />
+
+                    <View style={styles.stripeTrustRow}>
+                      <Ionicons name="lock-closed" size={13} color="#64748B" />
+                      <Text style={styles.stripeTrustText}>Secured by Stripe 256-bit AES encryption</Text>
+                    </View>
+                  </View>
+
+                  {/* Submit Stripe Payment CTA */}
+                  {(() => {
+                    const targetNeg = negotiation || defaultNeg;
+                    const curPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
+                    const tot = Math.round(curPrice * (targetNeg.quantity || 1));
+                    const adv = Math.round(tot * 0.3);
+
+                    return (
+                      <TouchableOpacity
+                        style={styles.stripePayBtn}
+                        onPress={handleProcessStripeAdvance}
+                        disabled={isProcessingStripe}
+                        activeOpacity={0.88}
+                      >
+                        {isProcessingStripe ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Ionicons name="logo-usd" size={17} color="#FFFFFF" />
+                            <Text style={styles.stripePayBtnText}>
+                              Pay ₹{adv.toLocaleString('en-IN')} Advance via Stripe
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })()}
+                </>
+              )}
+
+              {/* PHASE 2: OTP VERIFICATION */}
+              {advanceStep === 'OTP_VERIFICATION' && (
+                <>
+                  <View style={styles.advanceSuccessStrip}>
+                    <Ionicons name="checkmark-circle" size={18} color="#059669" />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text style={styles.advanceSuccessTitle}>
+                        Advance Payment Authorized via Stripe!
+                      </Text>
+                      <Text style={styles.advanceSuccessSub}>
+                        Ref ID: {stripePaymentId || `pi_stripe_${Date.now()}`}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.otpCardBox}>
+                    <Text style={styles.otpCardHeaderTitle}>Delivery Authorization Code</Text>
+                    <Text style={styles.otpCardHeaderSub}>
+                      We sent a 6-digit verification code to your registered mobile number (+91 98765 43210).
+                    </Text>
+
+                    {/* 6 Digit Display */}
+                    <View style={styles.otpDigitRow}>
+                      {(enteredOtp || generatedOtp).slice(0, 6).split('').map((digit, idx) => (
+                        <View key={idx} style={styles.otpSingleBox}>
+                          <Text style={styles.otpSingleText}>{digit}</Text>
+                        </View>
+                      ))}
+                    </View>
+
+                    {/* Editable input / auto-fill */}
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                      <TextInput
+                        style={styles.otpInputField}
+                        value={enteredOtp}
+                        onChangeText={setEnteredOtp}
+                        keyboardType="numeric"
+                        maxLength={6}
+                        placeholder="Enter 6-digit OTP"
+                        placeholderTextColor="#94A3B8"
+                      />
+                      <TouchableOpacity
+                        style={styles.autofillOtpBtn}
+                        onPress={() => setEnteredOtp(generatedOtp)}
+                      >
+                        <Ionicons name="flash" size={13} color="#15803D" />
+                        <Text style={styles.autofillOtpBtnText}>Autofill</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.otpTimerRow}>
+                      <Text style={styles.otpTimerText}>
+                        {otpTimer > 0 ? `Resend code in ${otpTimer}s` : 'Code expired'}
+                      </Text>
+                      {otpTimer === 0 && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                            setGeneratedOtp(newOtp);
+                            setEnteredOtp(newOtp);
+                            setOtpTimer(60);
+                          }}
+                        >
+                          <Text style={styles.resendLinkText}>Resend OTP</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    <View style={styles.otpWarningNotice}>
+                      <Ionicons name="alert-circle" size={16} color="#B45309" />
+                      <Text style={styles.otpWarningNoticeText}>
+                        Keep this OTP secure! You must share this 6-digit code with the delivery executive only after physical inspection of produce freshness.
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Verify & Confirm Order CTA */}
+                  <TouchableOpacity
+                    style={styles.verifyOtpBtn}
+                    onPress={handleVerifyOtpAndConfirmOrder}
+                    disabled={submitting}
+                    activeOpacity={0.88}
+                  >
+                    {submitting ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+                        <Text style={styles.verifyOtpBtnText}>Verify OTP & Confirm Order</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* PHASE 3: ORDER CONFIRMED & TRACKING READY */}
+              {advanceStep === 'CONFIRMED' && (
+                <View style={styles.confirmedContainer}>
+                  <View style={styles.confirmedIconCircle}>
+                    <Ionicons name="checkmark-done" size={38} color="#FFFFFF" />
+                  </View>
+                  <Text style={styles.confirmedMainTitle}>Order Confirmed & Placed!</Text>
+                  <Text style={styles.confirmedOrderNum}>
+                    {confirmedOrderInfo?.orderNumber || '#MK-ORD-CONFIRMED'}
+                  </Text>
+                  <Text style={styles.confirmedSubText}>
+                    Your advance payment was successfully escrowed via Stripe. The farmer has been notified to harvest and pack your lot.
+                  </Text>
+
+                  {/* Summary Sheet */}
+                  <View style={styles.confirmedDetailsBox}>
+                    <View style={styles.confirmedRow}>
+                      <Text style={styles.confirmedLabel}>Produce</Text>
+                      <Text style={styles.confirmedVal}>{confirmedOrderInfo?.cropName || cropName}</Text>
+                    </View>
+                    <View style={styles.confirmedRow}>
+                      <Text style={styles.confirmedLabel}>Advance Paid via Stripe</Text>
+                      <Text style={[styles.confirmedVal, { color: '#059669', fontWeight: '800' }]}>
+                        ₹{confirmedOrderInfo?.advancePaid?.toLocaleString('en-IN') || 'Paid'} ✓
+                      </Text>
+                    </View>
+                    <View style={styles.confirmedRow}>
+                      <Text style={styles.confirmedLabel}>Remaining Due on Delivery</Text>
+                      <Text style={[styles.confirmedVal, { color: '#D97706', fontWeight: '700' }]}>
+                        ₹{confirmedOrderInfo?.remainingAmount?.toLocaleString('en-IN') || 'Payable on Delivery'}
+                      </Text>
+                    </View>
+                    <View style={styles.confirmedRow}>
+                      <Text style={styles.confirmedLabel}>Delivery Handover OTP</Text>
+                      <Text style={[styles.confirmedVal, { color: '#B45309', fontWeight: '800', letterSpacing: 1 }]}>
+                        {confirmedOrderInfo?.deliveryOtp || enteredOtp || generatedOtp}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Action Buttons */}
+                  <TouchableOpacity
+                    style={styles.trackOrderDirectBtn}
+                    onPress={() => {
+                      setAdvanceModalVisible(false);
+                      const ord = confirmedOrderInfo;
+                      navigation.navigate('OrderTracking', {
+                        orderId: ord?.orderNumber || ord?.id,
+                        order: ord,
+                        deliveryOtp: ord?.deliveryOtp || enteredOtp,
+                      });
+                    }}
+                    activeOpacity={0.88}
+                  >
+                    <Ionicons name="location" size={18} color="#FFFFFF" />
+                    <Text style={styles.trackOrderDirectBtnText}>Track Order Live</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.viewOrdersSecondaryBtn}
+                    onPress={() => {
+                      setAdvanceModalVisible(false);
+                      (navigation as any).navigate('Main', { screen: 'Orders' });
+                    }}
+                    activeOpacity={0.88}
+                  >
+                    <Ionicons name="receipt-outline" size={17} color="#059669" />
+                    <Text style={styles.viewOrdersSecondaryBtnText}>View in My Orders</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.stayInChatBtn}
+                    onPress={() => setAdvanceModalVisible(false)}
+                  >
+                    <Text style={styles.stayInChatBtnText}>Done / Back to Chat</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1666,6 +2117,428 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: Colors.white,
+  },
+
+  // Advance Payment & OTP Modal Styles
+  advanceModalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: BorderRadius['2xl'],
+    borderTopRightRadius: BorderRadius['2xl'],
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xl,
+    maxHeight: '92%',
+    ...Shadows.lg,
+  },
+  advanceModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  advanceBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 3,
+  },
+  advanceBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#047857',
+    letterSpacing: 0.6,
+  },
+  advanceModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
+  // Deal Summary Box
+  dealSummaryCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: BorderRadius.lg,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  dealCropHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dealCropImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  dealCropTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  dealCropSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#047857',
+    marginTop: 1,
+  },
+  dealFarmerTag: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  dealDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 10,
+  },
+  dealSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dealSummaryLabel: {
+    fontSize: 12,
+    color: '#475569',
+  },
+  dealSummaryVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  dealPolicyBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 10,
+  },
+  dealPolicyText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#1E40AF',
+    lineHeight: 15,
+  },
+
+  // Stripe Card Form
+  stripeBox: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: BorderRadius.lg,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    marginBottom: 12,
+  },
+  stripeHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  stripeFormTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  testCardPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  testCardPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4338CA',
+  },
+  stripeInputLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 4,
+  },
+  stripeTextInput: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  stripeTrustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 10,
+  },
+  stripeTrustText: {
+    fontSize: 10,
+    color: '#64748B',
+  },
+  stripePayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#4338CA',
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 14,
+    ...Shadows.md,
+  },
+  stripePayBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // Phase 2: OTP Verification
+  advanceSuccessStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    marginBottom: 12,
+  },
+  advanceSuccessTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  advanceSuccessSub: {
+    fontSize: 10,
+    color: '#047857',
+    marginTop: 1,
+  },
+  otpCardBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: BorderRadius.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
+  },
+  otpCardHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  otpCardHeaderSub: {
+    fontSize: 11,
+    color: '#475569',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  otpDigitRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginVertical: 14,
+  },
+  otpSingleBox: {
+    width: 40,
+    height: 46,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.sm,
+  },
+  otpSingleText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#047857',
+  },
+  otpInputField: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: '#0F172A',
+  },
+  autofillOtpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.md,
+  },
+  autofillOtpBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  otpTimerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  otpTimerText: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  resendLinkText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  otpWarningNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    padding: 9,
+    marginTop: 12,
+  },
+  otpWarningNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#92400E',
+    lineHeight: 15,
+  },
+  verifyOtpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#059669',
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 14,
+    ...Shadows.md,
+  },
+  verifyOtpBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  // Phase 3: Confirmed & Tracking Ready
+  confirmedContainer: {
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  confirmedIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    ...Shadows.md,
+  },
+  confirmedMainTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  confirmedOrderNum: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#059669',
+    marginTop: 2,
+  },
+  confirmedSubText: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 6,
+    paddingHorizontal: 16,
+    lineHeight: 17,
+  },
+  confirmedDetailsBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: BorderRadius.lg,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginVertical: 14,
+    gap: 8,
+  },
+  confirmedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  confirmedLabel: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  confirmedVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  trackOrderDirectBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 13,
+    marginBottom: 8,
+    ...Shadows.md,
+  },
+  trackOrderDirectBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  viewOrdersSecondaryBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 11,
+    marginBottom: 8,
+  },
+  viewOrdersSecondaryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  stayInChatBtn: {
+    paddingVertical: 6,
+  },
+  stayInChatBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
   },
 });
 

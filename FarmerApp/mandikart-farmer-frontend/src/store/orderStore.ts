@@ -43,6 +43,10 @@ export interface OrderItem {
   vehicleModel?: string;
   etaMins?: number;
   paymentMode?: string;
+  advancePaid?: string;
+  remainingAmount?: string;
+  deliveryOtp?: string;
+  stripePaymentId?: string;
   createdAt?: string;
 }
 
@@ -167,6 +171,13 @@ export const useOrderStore = create<OrderStoreState>()(
                 else cropImage = ONION_CROP_URI;
               }
 
+              const advNum = bo.advancePaid ?? (totalAmtNum ? Math.round(Number(totalAmtNum) * 0.3) : null);
+              const advStr = advNum ? `₹${Number(advNum).toLocaleString('en-IN')}` : undefined;
+              const remNum = bo.remainingAmount ?? (totalAmtNum && advNum ? Number(totalAmtNum) - Number(advNum) : null);
+              const remStr = remNum ? `₹${Number(remNum).toLocaleString('en-IN')}` : undefined;
+              const deliveryOtp = bo.deliveryOtp ? String(bo.deliveryOtp) : undefined;
+              const stripePaymentId = bo.stripePaymentId ? String(bo.stripePaymentId) : undefined;
+
               const existing = orderMap.get(bo.id);
               if (existing) {
                 const isLocallyAccepted = existing.tab === 'Active' && tab === 'Pending';
@@ -185,6 +196,10 @@ export const useOrderStore = create<OrderStoreState>()(
                   quantity: qtyStr,
                   totalValue,
                   netPayout,
+                  advancePaid: advStr || existing.advancePaid,
+                  remainingAmount: remStr || existing.remainingAmount,
+                  deliveryOtp: deliveryOtp || existing.deliveryOtp,
+                  stripePaymentId: stripePaymentId || existing.stripePaymentId,
                   orderNumber,
                   buyerName,
                   cropImage,
@@ -207,6 +222,10 @@ export const useOrderStore = create<OrderStoreState>()(
                   totalValue,
                   ratePerKg: `₹${ratePerKgVal}/kg`,
                   netPayout,
+                  advancePaid: advStr,
+                  remainingAmount: remStr,
+                  deliveryOtp,
+                  stripePaymentId,
                   transportDeduction: '₹0',
                   pickupDate: 'Today',
                   pickupTime: '10:00 AM - 12:00 PM',

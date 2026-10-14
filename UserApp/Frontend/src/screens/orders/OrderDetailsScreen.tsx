@@ -327,7 +327,23 @@ export default function OrderDetailsScreen({ navigation, route }: any) {
           <View style={styles.divider} />
 
           <View style={styles.summaryRow}>
-            <Text style={styles.totalLabel}>Total {orderStatus === 'CANCELLED' ? 'Refunded' : 'Paid (UPI)'}</Text>
+            <Text style={[styles.totalLabel, { color: '#047857' }]}>Advance Paid (Stripe 30% Token)</Text>
+            <Text style={[styles.totalValue, { color: '#047857', fontWeight: '800' }]}>
+              ₹{initialOrder.advancePaid || Math.round(initialOrder.total * 0.3)} <Text style={{ fontSize: 11, color: '#10B981' }}>✓ PAID</Text>
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Remaining Balance Due on Handover</Text>
+            <Text style={[styles.summaryValue, { fontWeight: '700', color: '#D97706' }]}>
+              ₹{initialOrder.remainingAmount || (initialOrder.total - (initialOrder.advancePaid || Math.round(initialOrder.total * 0.3)))}
+            </Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.totalLabel}>Total Order Deal Value</Text>
             <Text style={[styles.totalValue, orderStatus === 'CANCELLED' && { color: Colors.error }]}>₹{initialOrder.total}</Text>
           </View>
         </View>

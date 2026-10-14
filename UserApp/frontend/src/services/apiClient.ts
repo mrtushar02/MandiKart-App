@@ -1169,12 +1169,26 @@ export const apiClient = {
       return res.data;
     },
 
-    async confirmOrder(negotiationId: string, deliveryAddress?: string): Promise<any> {
+    async confirmOrder(
+      negotiationId: string,
+      deliveryAddress?: string,
+      paymentDetails?: {
+        advancePaid?: number;
+        remainingAmount?: number;
+        paymentMethod?: string;
+        stripePaymentId?: string;
+        deliveryOtp?: string;
+        paymentStatus?: string;
+      }
+    ): Promise<any> {
       const res = await safeFetch<any>(
         `/negotiations/${negotiationId}/confirm-order`,
         {
           method: 'POST',
-          body: JSON.stringify({ deliveryAddress: deliveryAddress || 'Selected Delivery Address' }),
+          body: JSON.stringify({
+            deliveryAddress: deliveryAddress || 'Selected Delivery Address',
+            ...(paymentDetails || {}),
+          }),
         },
         null
       );

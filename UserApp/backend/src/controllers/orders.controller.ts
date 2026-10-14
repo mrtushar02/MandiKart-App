@@ -82,21 +82,33 @@ export class BuyerOrdersController {
       );
     });
 
-    const mappedReg = realUserOrders.map((r: any) => ({
-      id: r.id,
-      orderNumber: r.orderNumber || `#MK-${r.id}`,
-      status: r.status || 'PLACED',
-      totalAmount: r.totalAmount || r.totalPrice || 1000,
-      deliveryOtp: r.deliveryOtp || '719284',
-      pickupOtp: r.pickupOtp || '482910',
-      items: r.items || [
-        { cropName: r.cropName || r.produceName || 'Fresh Produce', grade: 'A', quantity: r.quantityKg || 10, unit: 'kg', pricePerUnit: r.pricePerKg || 30 }
-      ],
-      deliveryAddress: r.deliveryAddress || 'Pune, Maharashtra',
-      driverName: r.driverName || 'Santosh Shinde',
-      driverPhone: r.driverPhone || '+91 9844001122',
-      createdAt: r.createdAt || r.timestamp || new Date().toISOString(),
-    }));
+    const mappedReg = realUserOrders.map((r: any) => {
+      const tot = Number(r.totalAmount || r.totalPrice || 1000);
+      const adv = Number(r.advancePaid ?? Math.round(tot * 0.3));
+      const rem = Number(r.remainingAmount ?? (tot - adv));
+      return {
+        id: r.id,
+        orderNumber: r.orderNumber || `#MK-${r.id}`,
+        status: r.status || 'PLACED',
+        totalAmount: tot,
+        advancePaid: adv,
+        remainingAmount: rem,
+        paymentMethod: r.paymentMethod || 'STRIPE',
+        paymentStatus: r.paymentStatus || 'ADVANCE_PAID',
+        stripePaymentId: r.stripePaymentId || null,
+        deliveryOtp: r.deliveryOtp || '719284',
+        pickupOtp: r.pickupOtp || '482910',
+        farmerName: r.farmerName || 'Ramesh Patel',
+        farmerPhone: r.farmerPhone || '+91 98220 11111',
+        items: r.items || [
+          { cropName: r.cropName || r.produceName || 'Fresh Produce', grade: 'A', quantity: r.quantityKg || 10, unit: 'kg', pricePerUnit: r.pricePerKg || 30 }
+        ],
+        deliveryAddress: r.deliveryAddress || 'Pune, Maharashtra',
+        driverName: r.driverName || 'Santosh Shinde',
+        driverPhone: r.driverPhone || '+91 9844001122',
+        createdAt: r.createdAt || r.timestamp || new Date().toISOString(),
+      };
+    });
 
     if (isMock) {
       res.status(200).json({
