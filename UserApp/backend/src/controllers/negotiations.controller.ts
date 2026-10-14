@@ -172,6 +172,7 @@ export class BuyerNegotiationsController {
       quantity,
       unit,
       remarks,
+      items: rawItems,
     } = req.body;
 
     if (!productId || !offeredPrice || !quantity) {
@@ -183,10 +184,39 @@ export class BuyerNegotiationsController {
       return;
     }
 
+    const items = Array.isArray(rawItems) && rawItems.length > 0
+      ? rawItems.map((item: any, idx: number) => ({
+          id: item.id || `item_${Date.now()}_${idx}`,
+          cropName: item.cropName || item.name || 'Specialty Produce',
+          variety: item.variety || 'Standard Selected',
+          category: item.category || 'Exotic Produce',
+          grade: item.grade || 'A',
+          quantity: Number(item.quantity || 10),
+          unit: item.unit || 'kg',
+          targetPrice: Number(item.targetPrice || item.price || item.offeredPrice || offeredPrice),
+          selectedByFarmer: true,
+          farmerPrice: Number(item.targetPrice || item.price || item.offeredPrice || offeredPrice),
+          imageUrl: item.imageUrl || '',
+        }))
+      : undefined;
+
     const negotiationId = `neg_${Date.now()}`;
     const now = new Date().toISOString();
-    const qtyNum = Number(quantity);
+    const qtyNum = items && items.length > 1
+      ? items.reduce((acc, i) => acc + i.quantity, 0)
+      : Number(quantity);
     const priceNum = Number(offeredPrice);
+    const totalVal = items && items.length > 1
+      ? items.reduce((acc, i) => acc + (i.quantity * i.targetPrice), 0)
+      : Math.round(priceNum * qtyNum);
+
+    const effectiveCropTitle = items && items.length > 1
+      ? `${items[0].cropName} + ${items.length - 1} more items (${items.map(i => i.cropName).join(', ')})`
+      : (cropName || 'Produce');
+
+    const multiSummaryText = items && items.length > 1
+      ? items.map((it, idx) => `  ${idx + 1}. ${it.cropName} (${it.quantity} ${it.unit}): @ ₹${it.targetPrice}/${it.unit}`).join('\n')
+      : '';
 
     const initialMessages: NegotiationMessageItem[] = [
       {
@@ -196,11 +226,13 @@ export class BuyerNegotiationsController {
         senderRole: 'BUYER',
         senderName: buyerName || 'MandiKart Buyer',
         messageType: 'OFFER',
-        text: `Initial Offer: ₹${priceNum}/${unit || 'kg'} for ${qtyNum} ${unit || 'kg'}`,
+        text: items && items.length > 1
+          ? `Buyer Demanded Products (${items.length} Items):\n${multiSummaryText}\nTotal Target Budget: ₹${totalVal.toLocaleString('en-IN')}`
+          : `Initial Offer: ₹${priceNum}/${unit || 'kg'} for ${qtyNum} ${unit || 'kg'}`,
         price: priceNum,
         quantity: qtyNum,
         unit: unit || 'kg',
-        totalAmount: Math.round(priceNum * qtyNum),
+        totalAmount: totalVal,
         offerStatus: 'PENDING',
         timestamp: now,
       },
@@ -222,9 +254,10 @@ export class BuyerNegotiationsController {
     const newNeg = {
       id: negotiationId,
       productId,
-      cropName: cropName || 'Produce',
-      cropImage: cropImage || '',
+      cropName: effectiveCropTitle,
+      cropImage: cropImage || (items && items[0]?.imageUrl) || '',
       grade: grade || 'A',
+      items,
       farmerId: farmerId || 'd1111111-1111-1111-1111-111111111111',
       farmerName: farmerName || 'Ramesh Patel',
       buyerId,
@@ -246,8 +279,12 @@ export class BuyerNegotiationsController {
           price: priceNum,
           pricePerKg: priceNum,
           quantityKg: qtyNum,
-          text: remarks || `Offer of ₹${priceNum}/${unit || 'kg'} submitted for ${qtyNum} ${unit || 'kg'}.`,
-          message: remarks || `Offer of ₹${priceNum}/${unit || 'kg'} submitted for ${qtyNum} ${unit || 'kg'}.`,
+          text: remarks || (items && items.length > 1
+            ? `Multi-product demand of ${items.length} commodities submitted.`
+            : `Offer of ₹${priceNum}/${unit || 'kg'} submitted for ${qtyNum} ${unit || 'kg'}.`),
+          message: remarks || (items && items.length > 1
+            ? `Multi-product demand of ${items.length} commodities submitted.`
+            : `Offer of ₹${priceNum}/${unit || 'kg'} submitted for ${qtyNum} ${unit || 'kg'}.`),
           timestamp: now,
         },
       ],

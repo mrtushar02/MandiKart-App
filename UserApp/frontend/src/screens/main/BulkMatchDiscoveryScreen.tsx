@@ -183,7 +183,13 @@ export default function BulkMatchDiscoveryScreen({ navigation, route }: any) {
                     onPress={() =>
                       navigation.navigate('ChatStack', {
                         screen: 'Chat',
-                        params: { farmerName: supplier.supplierName },
+                        params: {
+                          negotiationId: requirementId,
+                          id: requirementId,
+                          farmerName: supplier.supplierName,
+                          cropName: passedReq?.cropName,
+                          items: (passedReq as any)?.items,
+                        },
                       })
                     }
                   >

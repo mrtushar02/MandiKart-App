@@ -48,6 +48,7 @@ import {
   Send,
   Sparkles,
   Building2,
+  Package,
 } from 'lucide-react-native';
 import {
   useSellStore,
@@ -737,6 +738,14 @@ export default function BuyerRequestsScreen() {
                       {req.cropName}
                       {req.variety ? ` • ${req.variety}` : ''}
                     </Text>
+                    {req.items && req.items.length > 1 && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ECFDF5', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, marginVertical: 3, alignSelf: 'flex-start' }}>
+                        <Package size={11} color="#059669" />
+                        <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#047857' }} numberOfLines={1}>
+                          Multi-Product Demand ({req.items.length} commodities)
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.cropChipsRow}>
                       <View style={styles.gradeBadge}>
                         <Text style={styles.gradeBadgeText}>{req.qualityGrade}</Text>
@@ -848,8 +857,10 @@ export default function BuyerRequestsScreen() {
                               pathname: '/sell/chat',
                               params: {
                                 id: req.id,
+                                negotiationId: req.id,
                                 buyerName: req.buyerName,
                                 cropName: req.cropName,
+                                items: req.items && req.items.length > 0 ? JSON.stringify(req.items) : undefined,
                               },
                             })
                           }

@@ -143,6 +143,7 @@ export default function FarmerNegotiationChatScreen() {
     quantity?: string;
     qty?: string;
     unit?: string;
+    items?: string;
   }>();
   const negotiationId = params.id || params.negotiationId || 'neg_101';
   const effectiveBuyerName = params.buyerName || params.buyer || 'Verified Buyer';
@@ -150,6 +151,16 @@ export default function FarmerNegotiationChatScreen() {
   const effectivePrice = Number(params.price || params.ratePerKg || 30);
   const effectiveQty = Number(params.quantity || params.qty || 100);
   const effectiveUnit = params.unit || 'kg';
+
+  const parsedInitialItems = useMemo(() => {
+    if (!params.items) return [];
+    try {
+      const parsed = typeof params.items === 'string' ? JSON.parse(params.items) : params.items;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [params.items]);
 
   const defaultNeg: NegotiationDetail = useMemo(() => ({
     id: negotiationId,
@@ -165,9 +176,10 @@ export default function FarmerNegotiationChatScreen() {
     quantity: effectiveQty,
     unit: effectiveUnit,
     status: 'PENDING_FARMER',
+    items: parsedInitialItems,
     messages: [],
     updatedAt: new Date().toISOString(),
-  }), [negotiationId, effectiveCropName, effectiveBuyerName, effectivePrice, effectiveQty, effectiveUnit]);
+  }), [negotiationId, effectiveCropName, effectiveBuyerName, effectivePrice, effectiveQty, effectiveUnit, parsedInitialItems]);
 
   const defaultInitialOfferMsg: ChatMessage = useMemo(() => ({
     id: `msg_init_${negotiationId}`,
@@ -176,7 +188,9 @@ export default function FarmerNegotiationChatScreen() {
     senderRole: 'BUYER',
     senderName: effectiveBuyerName,
     messageType: 'OFFER',
-    text: `Buyer Offer: ₹${effectivePrice}/${effectiveUnit} for ${effectiveQty} ${effectiveUnit}`,
+    text: parsedInitialItems.length > 1
+      ? `Buyer Demanded Products (${parsedInitialItems.length} Items):\n${parsedInitialItems.map((i: any, idx: number) => `• ${i.cropName} (${i.quantity} ${i.unit || 'kg'}): Target ₹${i.targetPrice}/${i.unit || 'kg'}`).join('\n')}`
+      : `Buyer Offer: ₹${effectivePrice}/${effectiveUnit} for ${effectiveQty} ${effectiveUnit}`,
     price: effectivePrice,
     quantity: effectiveQty,
     unit: effectiveUnit,
@@ -213,12 +227,16 @@ export default function FarmerNegotiationChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const isFetchingRef = useRef(false);
 
-  // Synchronize farmerItemQuotes when negotiation with items arrives
+  // Synchronize farmerItemQuotes when negotiation with items arrives or from params
   useEffect(() => {
-    if (negotiation?.items && Array.isArray(negotiation.items) && negotiation.items.length > 0) {
+    const rawItems = (negotiation?.items && negotiation.items.length > 0)
+      ? negotiation.items
+      : (parsedInitialItems && parsedInitialItems.length > 0 ? parsedInitialItems : []);
+
+    if (rawItems && Array.isArray(rawItems) && rawItems.length > 0) {
       setFarmerItemQuotes((prev) => {
-        if (prev.length > 0 && prev.length === negotiation.items?.length) return prev;
-        return (negotiation.items || []).map((it: any) => ({
+        if (prev.length > 0 && prev.length === rawItems.length) return prev;
+        return rawItems.map((it: any) => ({
           id: it.id || `item_${Math.random()}`,
           cropName: it.cropName,
           variety: it.variety,
@@ -231,7 +249,7 @@ export default function FarmerNegotiationChatScreen() {
         }));
       });
     }
-  }, [negotiation?.items]);
+  }, [negotiation?.items, parsedInitialItems]);
 
   // Fetch negotiation details & messages
   const fetchNegotiation = async (silent = false) => {

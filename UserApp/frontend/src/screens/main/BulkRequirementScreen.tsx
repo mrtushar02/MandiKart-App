@@ -422,10 +422,40 @@ export default function BulkRequirementScreen({ route, navigation }: any) {
       });
 
       setLoading(false);
-      navigation.navigate('BulkMatchDiscovery', {
-        requirementId: res.id,
-        requirement: res,
-      });
+      const isMulti = finalItems.length > 1;
+      const demandTitle = isMulti ? `${finalItems.length} Demanded Commodities` : primaryItem.cropName;
+      const totalBudget = finalItems.reduce((acc, i) => acc + (i.quantity * i.targetPrice), 0);
+
+      Alert.alert(
+        'Demand Broadcast Active! 🌾',
+        `Your commercial demand for ${demandTitle} (Total Budget: ₹${totalBudget.toLocaleString('en-IN')}) has been dispatched to regional growers & FPO clusters.`,
+        [
+          {
+            text: '💬 Chat with Farmer',
+            onPress: () => {
+              navigation.navigate('ChatStack', {
+                screen: 'Chat',
+                params: {
+                  negotiationId: res.id,
+                  id: res.id,
+                  cropName: res.cropName,
+                  farmerName: 'Ramesh Patel',
+                  items: finalItems,
+                },
+              });
+            },
+          },
+          {
+            text: '🌾 View Matched Suppliers',
+            onPress: () => {
+              navigation.navigate('BulkMatchDiscovery', {
+                requirementId: res.id,
+                requirement: res,
+              });
+            },
+          },
+        ]
+      );
     } catch (err: any) {
       setLoading(false);
       Alert.alert('Error', err.message || 'Could not post bulk requirement.');
@@ -665,6 +695,53 @@ export default function BulkRequirementScreen({ route, navigation }: any) {
             <View style={styles.basketFooter}>
               <Text style={styles.basketFooterLabel}>Total Combined Demand Budget:</Text>
               <Text style={styles.basketFooterTotal}>₹{totalBasketBudget.toLocaleString('en-IN')}</Text>
+            </View>
+
+            {/* Quick Add Actions */}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E2E8F0' }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  paddingVertical: 10,
+                  backgroundColor: '#FFFBEB',
+                  borderRadius: 10,
+                  borderWidth: 1.5,
+                  borderColor: '#F59E0B',
+                }}
+                onPress={() => {
+                  handleSelectCustom();
+                  Alert.alert('Add Custom Product ✍️', 'Enter your custom product name and target price in Section 1, then tap "+ Add to Demanded Products Basket".');
+                }}
+              >
+                <Ionicons name="add-circle" size={16} color="#B45309" />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#B45309' }}>+ Add Custom Product</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  paddingVertical: 10,
+                  backgroundColor: '#ECFDF5',
+                  borderRadius: 10,
+                  borderWidth: 1.5,
+                  borderColor: '#10B981',
+                }}
+                onPress={() => {
+                  setIsCustomCrop(false);
+                  Alert.alert('Pick Another Product 🥑', 'Choose any commodity from the horizontal list in Section 1 to add to your demand.');
+                }}
+              >
+                <Ionicons name="leaf" size={15} color="#047857" />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#047857' }}>+ Pick Another Item</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}

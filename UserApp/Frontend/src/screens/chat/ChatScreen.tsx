@@ -68,6 +68,16 @@ export default function ChatScreen({ navigation, route }: any) {
   const [cropName, setCropName] = useState<string>(params.cropName || params.crop || 'Produce');
   const [productImage, setProductImage] = useState<string>(params.productImage || params.cropImage || '');
 
+  const parsedRouteItems = React.useMemo(() => {
+    if (!params.items) return [];
+    try {
+      const parsed = typeof params.items === 'string' ? JSON.parse(params.items) : params.items;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [params.items]);
+
   const defaultNeg = React.useMemo(() => {
     const p = Number(params.offeredPrice || params.price || params.ratePerKg || 30);
     const q = Number(params.quantity || params.qty || 100);
@@ -82,25 +92,37 @@ export default function ChatScreen({ navigation, route }: any) {
       counterPrice: null,
       quantity: q,
       unit: u,
+      items: parsedRouteItems,
       status: 'PENDING_FARMER',
     };
-  }, [params, activeNegId, cropName, farmerName, productImage]);
+  }, [params, activeNegId, cropName, farmerName, productImage, parsedRouteItems]);
 
-  const defaultInitialOfferMsg: ChatItem = React.useMemo(() => ({
-    id: `msg_init_${activeNegId || Date.now()}`,
-    negotiationId: activeNegId || defaultNeg.id,
-    senderId: currentUserId,
-    senderRole: 'BUYER',
-    senderName: currentUserName,
-    messageType: 'OFFER',
-    text: `Price Proposal: ₹${defaultNeg.offeredPrice}/${defaultNeg.unit} for ${defaultNeg.quantity} ${defaultNeg.unit}`,
-    price: defaultNeg.offeredPrice,
-    quantity: defaultNeg.quantity,
-    unit: defaultNeg.unit,
-    totalAmount: Math.round(defaultNeg.offeredPrice * defaultNeg.quantity),
-    offerStatus: 'PENDING',
-    timestamp: new Date().toISOString(),
-  }), [activeNegId, defaultNeg, currentUserId, currentUserName]);
+  const defaultInitialOfferMsg: ChatItem = React.useMemo(() => {
+    const hasItems = parsedRouteItems && parsedRouteItems.length > 0;
+    const computedTotal = hasItems
+      ? parsedRouteItems.reduce((s: number, it: any) => s + (it.quantity * (it.targetPrice || defaultNeg.offeredPrice)), 0)
+      : Math.round(defaultNeg.offeredPrice * defaultNeg.quantity);
+
+    const offerSummaryText = hasItems && parsedRouteItems.length > 1
+      ? `Buyer Demanded Products (${parsedRouteItems.length} Items):\n${parsedRouteItems.map((i: any, idx: number) => `• ${i.cropName} (${i.quantity} ${i.unit || 'kg'}): Target ₹${i.targetPrice}/${i.unit || 'kg'}`).join('\n')}\nTotal Budget: ₹${computedTotal.toLocaleString('en-IN')}`
+      : `Price Proposal: ₹${defaultNeg.offeredPrice}/${defaultNeg.unit} for ${defaultNeg.quantity} ${defaultNeg.unit}`;
+
+    return {
+      id: `msg_init_${activeNegId || Date.now()}`,
+      negotiationId: activeNegId || defaultNeg.id,
+      senderId: currentUserId,
+      senderRole: 'BUYER',
+      senderName: currentUserName,
+      messageType: 'OFFER',
+      text: offerSummaryText,
+      price: defaultNeg.offeredPrice,
+      quantity: defaultNeg.quantity,
+      unit: defaultNeg.unit,
+      totalAmount: computedTotal,
+      offerStatus: 'PENDING',
+      timestamp: new Date().toISOString(),
+    };
+  }, [activeNegId, defaultNeg, currentUserId, currentUserName, parsedRouteItems]);
 
   const { activeSavedAddress, currentLocation, currentAddress, fetchCurrentLocation } = useLocation();
   const [negotiation, setNegotiation] = useState<any>(null);
@@ -375,8 +397,11 @@ export default function ChatScreen({ navigation, route }: any) {
       return;
     }
 
+    const hasItems = targetNeg.items && targetNeg.items.length > 0;
     const currentPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
-    const total = Math.round(currentPrice * (targetNeg.quantity || 1));
+    const total = hasItems
+      ? targetNeg.items.reduce((s: number, it: any) => s + (it.quantity * (it.farmerPrice || it.targetPrice || currentPrice)), 0)
+      : Math.round(currentPrice * (targetNeg.quantity || 1));
     const advance = Math.round(total * 0.3);
     const remaining = total - advance;
 
@@ -467,7 +492,11 @@ export default function ChatScreen({ navigation, route }: any) {
   };
 
   const currentPrice = effectiveNeg ? effectiveNeg.counterPrice || effectiveNeg.offeredPrice : 0;
-  const currentTotal = effectiveNeg ? Math.round(currentPrice * effectiveNeg.quantity) : 0;
+  const currentTotal = effectiveNeg
+    ? (effectiveNeg.items && effectiveNeg.items.length > 0
+        ? effectiveNeg.items.reduce((s: number, it: any) => s + (it.quantity * (it.farmerPrice || it.targetPrice || currentPrice)), 0)
+        : Math.round(currentPrice * effectiveNeg.quantity))
+    : 0;
 
   const renderMessage = ({ item }: { item: ChatItem }) => {
     const isMine = item.senderRole === 'BUYER';
@@ -702,6 +731,49 @@ export default function ChatScreen({ navigation, route }: any) {
           <View style={styles.dealPill}>
             <Text style={styles.dealPillLabel}>CURRENT</Text>
             <Text style={styles.dealPillValue}>₹{currentPrice}/{effectiveNeg.unit}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Multi-Product Demanded Commodities Breakdown Card */}
+      {effectiveNeg && effectiveNeg.items && effectiveNeg.items.length > 0 && (
+        <View style={styles.buyerMultiDemandCard}>
+          <View style={styles.buyerMultiDemandHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="basket" size={16} color="#047857" />
+              <Text style={styles.buyerMultiDemandTitle}>
+                Demanded Products in this Order ({effectiveNeg.items.length} Items)
+              </Text>
+            </View>
+            <View style={styles.buyerMultiDemandPill}>
+              <Text style={styles.buyerMultiDemandPillText}>Multi-Product</Text>
+            </View>
+          </View>
+
+          <View style={styles.buyerMultiDemandList}>
+            {effectiveNeg.items.map((item: any, idx: number) => {
+              const itemRate = Number(item.farmerPrice || item.targetPrice || effectiveNeg.offeredPrice || 0);
+              const itemTotal = Math.round(Number(item.quantity || 0) * itemRate);
+              return (
+                <View key={item.id || idx} style={styles.buyerMultiDemandRow}>
+                  <View style={styles.buyerMultiDemandBadge}>
+                    <Text style={styles.buyerMultiDemandIndex}>{idx + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.buyerMultiDemandItemName} numberOfLines={1}>
+                      {item.cropName} {item.variety ? `• ${item.variety}` : ''}
+                    </Text>
+                    <Text style={styles.buyerMultiDemandItemMeta}>
+                      {item.quantity} {item.unit || 'kg'} • Grade {item.grade || 'A'}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                    <Text style={styles.buyerMultiDemandRate}>₹{itemRate}/{item.unit || 'kg'}</Text>
+                    <Text style={styles.buyerMultiDemandTotal}>₹{itemTotal.toLocaleString('en-IN')}</Text>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         </View>
       )}
@@ -1192,8 +1264,11 @@ export default function ChatScreen({ navigation, route }: any) {
                   {/* Submit Stripe Payment CTA */}
                   {(() => {
                     const targetNeg = negotiation || defaultNeg;
+                    const hasItems = targetNeg.items && targetNeg.items.length > 0;
                     const curPrice = targetNeg.counterPrice || targetNeg.offeredPrice || 30;
-                    const tot = Math.round(curPrice * (targetNeg.quantity || 1));
+                    const tot = hasItems
+                      ? targetNeg.items.reduce((s: number, it: any) => s + (it.quantity * (it.farmerPrice || it.targetPrice || curPrice)), 0)
+                      : Math.round(curPrice * (targetNeg.quantity || 1));
                     const adv = Math.round(tot * 0.3);
 
                     return (
@@ -2539,6 +2614,84 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#64748B',
+  },
+  buyerMultiDemandCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  buyerMultiDemandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  buyerMultiDemandTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  buyerMultiDemandPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  buyerMultiDemandPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  buyerMultiDemandList: {
+    gap: 6,
+  },
+  buyerMultiDemandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 8,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  buyerMultiDemandBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  buyerMultiDemandIndex: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  buyerMultiDemandItemName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  buyerMultiDemandItemMeta: {
+    fontSize: 10.5,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  buyerMultiDemandRate: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  buyerMultiDemandTotal: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: Colors.textSecondary,
   },
 });
 

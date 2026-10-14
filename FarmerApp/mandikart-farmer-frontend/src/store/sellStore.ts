@@ -82,6 +82,7 @@ export interface BuyerRequest {
   history: NegotiationMessage[];
   farmerNote?: string;
   rejectionReason?: string;
+  items?: any[];
 }
 
 export interface SellingListing {
@@ -695,6 +696,7 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
           status: statusMap[neg.status] || 'Negotiating',
           farmerNote: neg.farmerNote,
           rejectionReason: neg.rejectionReason,
+          items: Array.isArray(neg.items) ? neg.items : undefined,
           history: history.length > 0 ? history : [
             {
               id: `msg_init`,

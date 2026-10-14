@@ -357,18 +357,30 @@ export class NegotiationRegistryService {
       imageUrl: target.cropImage,
       createdAt: now,
       timestamp: now,
-      items: [
-        {
-          id: `item_${orderId}_0`,
-          productId: target.productId,
-          cropName: target.cropName,
-          grade: target.grade || 'A',
-          quantity: finalQty,
-          unit: target.unit || 'kg',
-          pricePerUnit: finalPrice,
-          subtotal: totalAmount,
-        },
-      ],
+      items: Array.isArray(target.items) && target.items.length > 0
+        ? target.items.map((it, idx) => ({
+            id: it.id || `item_${orderId}_${idx}`,
+            productId: target.productId,
+            cropName: it.cropName,
+            variety: it.variety,
+            grade: it.grade || target.grade || 'A',
+            quantity: it.quantity,
+            unit: it.unit || target.unit || 'kg',
+            pricePerUnit: it.farmerPrice || it.targetPrice || finalPrice,
+            subtotal: Math.round(it.quantity * (it.farmerPrice || it.targetPrice || finalPrice)),
+          }))
+        : [
+            {
+              id: `item_${orderId}_0`,
+              productId: target.productId,
+              cropName: target.cropName,
+              grade: target.grade || 'A',
+              quantity: finalQty,
+              unit: target.unit || 'kg',
+              pricePerUnit: finalPrice,
+              subtotal: totalAmount,
+            },
+          ],
     };
 
     OrderRegistryService.registerOrder(createdOrder);

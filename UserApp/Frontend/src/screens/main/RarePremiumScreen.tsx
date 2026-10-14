@@ -656,6 +656,17 @@ export default function RarePremiumScreen({ navigation }: any) {
         cropName: demandingItem.name,
         variety: demandingItem.variety,
         grade: 'A',
+        items: [{
+          id: `basket_${Date.now()}`,
+          cropName: demandingItem.name,
+          variety: demandingItem.variety,
+          category: 'Exotic Produce',
+          grade: 'A',
+          quantity: qtyNum,
+          unit: demandUnit,
+          targetPrice: priceNum,
+          imageUrl: demandingItem.imageUrl,
+        }],
         requiredQuantity: qtyNum,
         quantityUnit: demandUnit,
         maxTargetPricePerUnit: priceNum,
@@ -670,10 +681,55 @@ export default function RarePremiumScreen({ navigation }: any) {
       const msg = `Demand Dispatched to Farmers! 🌾\n\nProduct: ${demandingItem.name}\nQuantity: ${qtyNum} ${demandUnit}\nYour Target Price: ₹${priceNum}/${demandUnit}\nTotal Deal Value: ₹${totalBudget.toLocaleString('en-IN')}\n\nRegional growers and FPOs in ${demandingItem.origin} have received your demand broadcast.`;
 
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.alert(msg);
+        const wantsChat = window.confirm(`${msg}\n\nClick OK to open Live Farmer Negotiation Chat, or Cancel to stay.`);
+        if (wantsChat) {
+          (navigation as any).navigate('ChatStack', {
+            screen: 'Chat',
+            params: {
+              negotiationId: created.id,
+              id: created.id,
+              cropName: created.cropName,
+              farmerName: 'Ramesh Patel',
+              items: [{
+                id: `item_1`,
+                cropName: demandingItem.name,
+                variety: demandingItem.variety,
+                grade: 'A',
+                quantity: qtyNum,
+                unit: demandUnit,
+                targetPrice: priceNum,
+                imageUrl: demandingItem.imageUrl,
+              }],
+            },
+          });
+        }
       } else {
         Alert.alert('Demand Broadcast Active 🌾', msg, [
           { text: 'Great, Stay Here', style: 'cancel' },
+          {
+            text: '💬 Chat with Farmer',
+            onPress: () => {
+              (navigation as any).navigate('ChatStack', {
+                screen: 'Chat',
+                params: {
+                  negotiationId: created.id,
+                  id: created.id,
+                  cropName: created.cropName,
+                  farmerName: 'Ramesh Patel',
+                  items: [{
+                    id: `item_1`,
+                    cropName: demandingItem.name,
+                    variety: demandingItem.variety,
+                    grade: 'A',
+                    quantity: qtyNum,
+                    unit: demandUnit,
+                    targetPrice: priceNum,
+                    imageUrl: demandingItem.imageUrl,
+                  }],
+                },
+              });
+            },
+          },
           {
             text: 'Track in Orders',
             onPress: () => (navigation as any).navigate('MainTabs', { screen: 'Orders' }),
