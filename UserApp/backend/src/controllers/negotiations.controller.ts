@@ -365,7 +365,15 @@ export class BuyerNegotiationsController {
   static async convertToOrder(req: Request, res: Response): Promise<void> {
     const buyerId = req.user?.id || 'buyer_default_01';
     const negotiationId = String(req.params.id);
-    const { deliveryAddress } = req.body;
+    const {
+      deliveryAddress,
+      advancePaid,
+      remainingAmount,
+      paymentMethod,
+      stripePaymentId,
+      deliveryOtp,
+      paymentStatus,
+    } = req.body;
 
     const target = NegotiationRegistryService.getNegotiationById(negotiationId);
     if (!target) {
@@ -382,7 +390,15 @@ export class BuyerNegotiationsController {
       'BUYER',
       buyerId,
       target.buyerName || 'Buyer',
-      deliveryAddress
+      deliveryAddress,
+      {
+        advancePaid: advancePaid ? Number(advancePaid) : undefined,
+        remainingAmount: remainingAmount ? Number(remainingAmount) : undefined,
+        paymentMethod: paymentMethod || 'STRIPE',
+        stripePaymentId,
+        deliveryOtp,
+        paymentStatus: paymentStatus || 'ADVANCE_PAID',
+      }
     );
 
     if (!resAcc) {

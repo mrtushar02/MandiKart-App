@@ -561,11 +561,14 @@ export const apiClient = {
   },
 
   // ── Orders ───────────────────────────────────────────────────────
-  getOrders: async (token?: string | null) => {
+  getOrders: async (token?: string | null): Promise<any[]> => {
     try {
       const res: any = await apiClient.get('/orders', token);
-      return res?.data || [];
-    } catch {
+      if (Array.isArray(res?.data)) return res.data;
+      if (Array.isArray(res)) return res;
+      return [];
+    } catch (err) {
+      console.warn('Farmer getOrders fetch fallback:', err);
       return [];
     }
   },
@@ -577,6 +580,12 @@ export const apiClient = {
     } catch {
       return { success: true, id: orderId };
     }
+  },
+
+  orders: {
+    list: async (token?: string | null) => apiClient.getOrders(token),
+    accept: async (orderId: string, token?: string | null) => apiClient.post(`/orders/${orderId}/accept`, {}, token),
+    reject: async (orderId: string, reason?: string, token?: string | null) => apiClient.post(`/orders/${orderId}/reject`, { reason }, token),
   },
 
   // ── Earnings & Bank Payouts ───────────────────────────────────────
