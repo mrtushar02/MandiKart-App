@@ -62,6 +62,7 @@ import {
   Globe,
   Zap,
   AlertTriangle,
+  ClipboardList,
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import { useProduceStore, CropItem } from '@/store/produceStore';
@@ -216,14 +217,9 @@ export default function SellHomeScreen() {
 
   const fetchNegotiations = async () => {
     try {
-      const apiBase = resolveFarmerApiBaseUrl();
-      const token = useAuthStore.getState().token || '';
-      const res = await fetch(`${apiBase}/negotiations`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (json && json.data && Array.isArray(json.data)) {
-        useSellStore.getState().mergeBackendNegotiations(json.data);
+      const data = await apiClient.getNegotiations();
+      if (data && Array.isArray(data)) {
+        useSellStore.getState().mergeBackendNegotiations(data);
       }
     } catch (e) {}
   };
@@ -235,6 +231,7 @@ export default function SellHomeScreen() {
         useProduceStore.getState().syncWithBackend(),
         useOrderStore.getState().syncWithBackend(),
         fetchNegotiations(),
+        useSellStore.getState().fetchBulkDemands(),
       ]);
     } catch {}
     finally {
@@ -247,6 +244,7 @@ export default function SellHomeScreen() {
     // Initial fetch on mount
     useProduceStore.getState().syncWithBackend().catch(() => {});
     useOrderStore.getState().syncWithBackend().catch(() => {});
+    useSellStore.getState().fetchBulkDemands().catch(() => {});
     fetchNegotiations();
 
     const timer = setInterval(() => {
@@ -530,17 +528,7 @@ export default function SellHomeScreen() {
             const res = acceptRequest(req.id);
             if (res.success) {
               try {
-                const apiBase = resolveFarmerApiBaseUrl();
-                const token = useAuthStore.getState().token || '';
-                await fetch(`${apiBase}/negotiations/${req.id}/accept`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                    'Idempotency-Key': `idemp-acc-${Date.now()}`,
-                  },
-                  body: JSON.stringify({ action: 'ACCEPT' }),
-                });
+                await apiClient.acceptNegotiation(req.id);
               } catch (e) {}
 
               Alert.alert(
@@ -587,22 +575,13 @@ export default function SellHomeScreen() {
     );
 
     try {
-      const apiBase = resolveFarmerApiBaseUrl();
-      const token = useAuthStore.getState().token || '';
-      await fetch(`${apiBase}/negotiations/${selectedRequestForCounter.id}/respond`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'Idempotency-Key': `idemp-cnt-${Date.now()}`,
-        },
-        body: JSON.stringify({
-          action: 'COUNTER',
-          counterPrice: price,
-          counterQty: selectedRequestForCounter.quantityKg,
-          message: counterMessageInput.trim() || undefined,
-        }),
-      });
+      await apiClient.respondToNegotiation(
+        selectedRequestForCounter.id,
+        'COUNTER',
+        price,
+        selectedRequestForCounter.quantityKg,
+        counterMessageInput.trim() || undefined
+      );
     } catch (e) {}
 
     setCounterModalVisible(false);
@@ -622,20 +601,7 @@ export default function SellHomeScreen() {
           onPress: async () => {
             rejectRequest(req.id, 'Price not aligned with farmer target');
             try {
-              const apiBase = resolveFarmerApiBaseUrl();
-              const token = useAuthStore.getState().token || '';
-              await fetch(`${apiBase}/negotiations/${req.id}/respond`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                  'Idempotency-Key': `idemp-dec-${Date.now()}`,
-                },
-                body: JSON.stringify({
-                  action: 'REJECT',
-                  rejectionReason: 'Price not aligned with farmer target',
-                }),
-              });
+              await apiClient.respondToNegotiation(req.id, 'REJECT', undefined, undefined, 'Price not aligned with farmer target');
             } catch (e) {}
           },
         },
@@ -737,6 +703,67 @@ export default function SellHomeScreen() {
             <Text style={styles.quickActionText}>My Sales</Text>
           </Pressable>
         </View>
+
+        {/* ── Bulk Procurement Hub Feature Banner ──────────────────── */}
+        <Pressable
+          style={{
+            marginHorizontal: 16,
+            marginBottom: 16,
+            backgroundColor: '#0F172A',
+            borderRadius: 16,
+            padding: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderWidth: 1,
+            borderColor: '#334155',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.12,
+            shadowRadius: 6,
+            elevation: 3,
+          }}
+          onPress={() => router.push('/requirements' as any)}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+            <View
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: 'rgba(34, 197, 94, 0.16)',
+                borderWidth: 1,
+                borderColor: 'rgba(34, 197, 94, 0.35)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 12,
+              }}
+            >
+              <ClipboardList size={22} color="#4ADE80" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>
+                  Bulk Procurement Hub
+                </Text>
+                <View
+                  style={{
+                    backgroundColor: '#15803D',
+                    paddingHorizontal: 6,
+                    paddingVertical: 1,
+                    borderRadius: 4,
+                  }}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '800', color: '#FFFFFF' }}>NEW</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 12, color: '#94A3B8', lineHeight: 16 }}>
+                Create multi-product contracts, set target budgets & match with verified suppliers.
+              </Text>
+            </View>
+          </View>
+          <ChevronRight size={20} color="#94A3B8" />
+        </Pressable>
 
         {/* ── Priority 1: Sell Your Fasal ──────────────────────────── */}
         <View style={styles.sectionHeaderRow}>

@@ -108,6 +108,7 @@ const PEAS_PHOTO_URI =
   'https://images.unsplash.com/photo-1592394533824-9440e5d68530?w=300&auto=format&fit=crop&q=80';
 
 const SEARCH_SUGGESTIONS = [
+  { id: 's0', label: '🌱 Source Agricultural Produce & Inputs', type: 'service', query: 'Source', route: '/source' },
   { id: 's1', label: '🧅 Nashik Red Onion (High Demand)', type: 'crop', query: 'Onion', route: '/(tabs)/sell' },
   { id: 's2', label: '🍅 Hybrid Fresh Tomato (₹24/kg)', type: 'rate', query: 'Tomato', route: '/sell/best-options' },
   { id: 's3', label: '🏢 Reliance Fresh Sourcing Hub', type: 'buyer', query: 'Reliance', route: '/sell/requests' },

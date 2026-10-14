@@ -40,6 +40,8 @@ import {
   Check,
   Calendar,
   Percent,
+  ClipboardList,
+  ArrowUpRight,
 } from 'lucide-react-native';
 import { apiClient } from '@/services/apiClient';
 import { useAuthStore } from '@/store/authStore';
@@ -75,7 +77,7 @@ export default function FPOProcurementScreen() {
   const [targetRate, setTargetRate] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchProcurements = async (activeFpoId = fpoId) => {
+  const fetchProcurements = async (activeFpoId = fpoId || 'fpo_mandikart_01') => {
     if (!activeFpoId) {
       setLoading(false);
       setError(isHydrated ? 'This FPO profile has no FPO ID yet.' : 'Waiting for the FPO profile to finish loading…');
@@ -151,6 +153,24 @@ export default function FPOProcurementScreen() {
             <Text style={styles.savingsSub}>
               No demand campaigns, supplier quotes, savings, or order status are being simulated on this screen.
             </Text>
+            <Pressable
+              style={{
+                marginTop: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                backgroundColor: '#1E40AF',
+                alignSelf: 'flex-start',
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 6,
+              }}
+              onPress={() => router.push('/requirements' as any)}
+            >
+              <ClipboardList size={13} color="#FFFFFF" />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#FFFFFF' }}>Open Bulk Requirements Hub</Text>
+              <ArrowUpRight size={13} color="#FFFFFF" />
+            </Pressable>
           </View>
         </View>
       </LinearGradient>

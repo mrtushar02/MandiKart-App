@@ -29,6 +29,7 @@ import {
   BarChart3,
   ChevronRight,
   ArrowRight,
+  Compass,
 } from 'lucide-react-native';
 
 interface QuickActionItem {
@@ -48,6 +49,20 @@ interface QuickActionItem {
 }
 
 const QUICK_ACTIONS: QuickActionItem[] = [
+  {
+    id: 'source',
+    title: 'Source Produce',
+    subtitle: 'Find Suppliers',
+    route: '/source',
+    bgColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+    bottomBevelColor: '#86EFAC',
+    shadowColor: '#16A34A',
+    iconColor: '#16A34A',
+    titleColor: '#14532D',
+    subColor: '#166534',
+    Icon: Compass,
+  },
   {
     id: 'crops',
     title: 'My Crops',

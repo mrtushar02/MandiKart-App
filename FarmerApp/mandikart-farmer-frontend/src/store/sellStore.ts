@@ -143,9 +143,47 @@ export interface SellingOpportunity {
   };
 }
 
+export interface BulkCommercialDemand {
+  id: string;
+  buyerId?: string;
+  buyerName: string;
+  buyerPhone?: string;
+  buyerCompany?: string;
+  buyerType: 'Food Processor' | 'Retail Chain Hub' | 'Institutional Buyer' | 'Exporter' | 'Wholesaler' | string;
+  cropName: string;
+  grade?: 'A' | 'B' | 'C' | string;
+  requiredQuantity?: number;
+  quantityUnit?: 'quintal' | 'tonne' | 'kg' | string;
+  maxTargetPricePerUnit?: number;
+  deliveryLocation?: string;
+  requiredByDate?: string;
+  status: 'OPEN' | 'MATCHED' | 'NEGOTIATING' | 'FULFILLED' | 'PARTIALLY_FILLED' | 'CLOSED' | string;
+  matchedSupplierCount?: number;
+  inspectionRequirement?: string;
+  paymentTerms: string;
+  createdAt?: string;
+
+  // Additional rich matching & pricing fields
+  targetPricePerKg?: number;
+  marketBenchmarkPricePerKg?: number;
+  minVolumeKg?: number;
+  maxVolumeKg?: number;
+  urgency?: 'URGENT' | 'HIGH' | 'MEDIUM' | 'FLEXIBLE' | string;
+  deliveryDepot?: string;
+  distanceKm?: number;
+  qualityStandard?: string;
+  deadlineDate?: string;
+  verifiedBuyer?: boolean;
+  logisticsArrangedBy?: 'BUYER' | 'SELLER' | 'MANDIKART_ASSISTED' | string;
+  allowPartialFulfillment?: boolean;
+  matchScore?: number;
+  matchReasons?: string[];
+}
+
 interface SellStoreState {
   buyers: BuyerProfile[];
   requests: BuyerRequest[];
+  bulkDemands: BulkCommercialDemand[];
   listings: SellingListing[];
   salesHistory: CompletedSale[];
 
@@ -159,6 +197,8 @@ interface SellStoreState {
   getRequestById: (requestId: string) => BuyerRequest | undefined;
   getSaleById: (saleId: string) => CompletedSale | undefined;
   mergeBackendNegotiations: (negList: any[]) => void;
+  fetchBulkDemands: (cropFilter?: string) => Promise<void>;
+  submitBulkQuote: (id: string, priceOrData: any, qty?: number, notes?: string) => Promise<any>;
 }
 
 // Initial Realistic Buyers
@@ -229,6 +269,7 @@ const INITIAL_SALES: CompletedSale[] = [];
 export const useSellStore = create<SellStoreState>((set, get) => ({
   buyers: INITIAL_BUYERS,
   requests: INITIAL_REQUESTS,
+  bulkDemands: [],
   listings: INITIAL_LISTINGS,
   salesHistory: INITIAL_SALES,
 
@@ -391,10 +432,25 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
       ],
     }));
 
+    // 4. Trigger backend negotiation acceptance
+    try {
+      const { apiClient } = require('@/services/apiClient');
+      apiClient.acceptNegotiation(requestId).catch((e: any) => {
+        console.warn('[sellStore] Backend negotiation accept sync:', e);
+      });
+    } catch {}
+
     return { success: true, orderId };
   },
 
   counterOffer: (requestId: string, counterPrice: number, counterQty: number, message?: string) => {
+    try {
+      const { apiClient } = require('@/services/apiClient');
+      apiClient.respondToNegotiation(requestId, 'COUNTER', counterPrice, counterQty, message).catch((e: any) => {
+        console.warn('[sellStore] Backend counter sync:', e);
+      });
+    } catch {}
+
     set((state) => ({
       requests: state.requests.map((r) => {
         if (r.id === requestId) {
@@ -421,6 +477,13 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
   },
 
   rejectRequest: (requestId: string, reason?: string) => {
+    try {
+      const { apiClient } = require('@/services/apiClient');
+      apiClient.respondToNegotiation(requestId, 'REJECT', undefined, undefined, reason).catch((e: any) => {
+        console.warn('[sellStore] Backend reject sync:', e);
+      });
+    } catch {}
+
     set((state) => ({
       requests: state.requests.map((r) =>
         r.id === requestId
@@ -447,8 +510,66 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
 
   getOpportunitiesForCrop: (cropName: string, availableKg: number, grade: string) => {
     const buyers = get().buyers;
+    const bulkDemands = get().bulkDemands || [];
 
-    return buyers.map((buyer, index) => {
+    // Filter matching bulk commercial demands
+    const matchingBulk = bulkDemands.filter(
+      (d) => !cropName || d.cropName.toLowerCase().includes(cropName.toLowerCase()) || cropName.toLowerCase().includes(d.cropName.toLowerCase())
+    );
+
+    const bulkOpps: SellingOpportunity[] = matchingBulk.map((demand, bIdx) => {
+      const pricePerKg = demand.targetPricePerKg || (demand.quantityUnit === 'quintal'
+        ? (demand.maxTargetPricePerUnit || 2500) / 100
+        : demand.quantityUnit === 'tonne'
+        ? (demand.maxTargetPricePerUnit || 25000) / 1000
+        : (demand.maxTargetPricePerUnit || 25));
+      const requiredKg = demand.minVolumeKg || (demand.quantityUnit === 'quintal'
+        ? (demand.requiredQuantity || 10) * 100
+        : demand.quantityUnit === 'tonne'
+        ? (demand.requiredQuantity || 1) * 1000
+        : (demand.requiredQuantity || 1000));
+      const transportEst = 0.75;
+      const estNet = Math.max(1, Math.round((pricePerKg - transportEst) * 100) / 100);
+
+      const buyerProf: BuyerProfile = {
+        id: demand.buyerId || demand.id || 'buyer_bulk',
+        name: demand.buyerCompany || demand.buyerName || 'Commercial Buyer',
+        businessType: (demand.buyerType || 'Food Processor') as BuyerType,
+        verified: demand.verifiedBuyer ?? true,
+        rating: 4.9,
+        totalDeals: 350,
+        location: demand.deliveryDepot || demand.deliveryLocation || 'Nashik Central Depot',
+        distanceKm: demand.distanceKm || 25,
+        avatar: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=120&auto=format&fit=crop&q=80',
+        paymentTerms: demand.paymentTerms || 'Bank Transfer on Delivery',
+        pickupPreference: 'Direct Farmgate Collection',
+      };
+
+      return {
+        id: `opp_bulk_${demand.id}`,
+        buyer: buyerProf,
+        cropName: demand.cropName,
+        requiredKg: Math.min(availableKg, requiredKg),
+        requiredGrade: demand.grade ? `Grade ${demand.grade}` : (demand.qualityStandard || 'Grade A'),
+        offerPricePerKg: pricePerKg,
+        marketReferencePricePerKg: Math.round(pricePerKg * 0.96),
+        demandStatus: 'High',
+        estimatedTransportPerKg: transportEst,
+        estimatedNetReturnPerKg: estNet,
+        matchScorePct: 96 - bIdx * 2,
+        isRecommended: bIdx === 0,
+        recommendationReason: `Direct commercial bulk demand (${requiredKg.toLocaleString()} kg) from ${buyerProf.name}. Verified buyer with guaranteed escrow.`,
+        matchChecklist: {
+          cropMatches: true,
+          quantityMatches: availableKg >= 100,
+          qualityMatches: true,
+          locationSuitable: true,
+          availabilityMatches: true,
+        },
+      };
+    });
+
+    const standardOpps = buyers.map((buyer, index) => {
       // Benchmark adjustments based on crop
       let basePrice = 22;
       let marketRef = 22;
@@ -486,7 +607,7 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
         estimatedTransportPerKg: transportPerKg,
         estimatedNetReturnPerKg: estNet,
         matchScorePct: matchScore,
-        isRecommended: index === 0,
+        isRecommended: bulkOpps.length === 0 && index === 0,
         recommendationReason:
           index === 0
             ? "Your quantity and Grade A quality match this buyer's requirement, and the estimated transport cost is relatively low."
@@ -500,6 +621,8 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
         },
       };
     });
+
+    return [...bulkOpps, ...standardOpps];
   },
 
   getRequestById: (requestId: string) => {
@@ -598,5 +721,42 @@ export const useSellStore = create<SellStoreState>((set, get) => ({
         requests: [...newMapped, ...currentReqs],
       };
     });
+  },
+
+  fetchBulkDemands: async (cropFilter?: string) => {
+    try {
+      const { apiClient } = require('@/services/apiClient');
+      const demands = await apiClient.getBulkRequirements(cropFilter);
+      if (Array.isArray(demands) && demands.length > 0) {
+        const enriched = demands.map((d: any) => ({
+          ...d,
+          targetPricePerKg: d.targetPricePerKg || d.maxTargetPricePerUnit || 25,
+          marketBenchmarkPricePerKg: d.marketBenchmarkPricePerKg || Math.round((d.targetPricePerKg || d.maxTargetPricePerUnit || 25) * 0.92),
+          minVolumeKg: d.minVolumeKg || d.requiredQuantity || 1000,
+          maxVolumeKg: d.maxVolumeKg || (d.requiredQuantity ? d.requiredQuantity * 2 : 5000),
+          deliveryDepot: d.deliveryDepot || d.deliveryLocation || 'Nashik Central Depot',
+          urgency: d.urgency || 'HIGH',
+          qualityStandard: d.qualityStandard || `Grade ${d.grade || 'A'} Standard`,
+          deadlineDate: d.deadlineDate || d.requiredByDate || 'Within 7 Days',
+          verifiedBuyer: d.verifiedBuyer ?? true,
+          distanceKm: d.distanceKm || 35,
+          logisticsArrangedBy: d.logisticsArrangedBy || 'BUYER',
+        }));
+        set({ bulkDemands: enriched });
+      }
+    } catch (e) {
+      console.warn('fetchBulkDemands error:', e);
+    }
+  },
+
+  submitBulkQuote: async (id: string, priceOrData: any, qty?: number, notes?: string) => {
+    const { apiClient } = require('@/services/apiClient');
+    const quoteData = typeof priceOrData === 'object'
+      ? priceOrData
+      : { quotedPricePerUnit: priceOrData, offeredQuantity: qty || 0, notes };
+    const res = await apiClient.submitBulkQuote(id, quoteData);
+    // Refresh demands after quote
+    get().fetchBulkDemands().catch(() => {});
+    return res;
   },
 }));

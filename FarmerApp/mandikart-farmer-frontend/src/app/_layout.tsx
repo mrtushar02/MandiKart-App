@@ -81,6 +81,44 @@ export default function RootLayout() {
         <Stack.Screen name="market-prices" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="market-trends" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="search" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="requirements/index" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/create" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/select-products" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/specifications" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/quantity-budget" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/delivery" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/review" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/publish" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="requirements/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/edit" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="requirements/cancel" options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="requirements/recurring" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/matches" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/recommended" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/details" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/compare" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/delivered-cost" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/aggregation" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="matching/fulfillment" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/incoming" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/sent" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/details" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/make-offer" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/counter" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/chat" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/history" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/summary" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/accept" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="offers/reject" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/index" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/categories" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/search" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/suppliers/index" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/suppliers/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/suppliers/verification" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/prices/index" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="source/prices/history" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="ai-assistant" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </SafeAreaProvider>

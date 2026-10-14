@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { MarketRatesQuerySchema } from '@mandikart/shared-types';
 import { MarketPriceService, geminiAiService } from '@mandikart/shared-core';
+import { getPriceDetails, getPriceHistory } from '../controllers/market.controller.js';
 
 export const marketRouter = Router();
 
@@ -109,5 +110,7 @@ marketRouter.get('/trends', async (_req: Request, res: Response): Promise<void> 
   }
 });
 
+marketRouter.get('/prices/details', getPriceDetails);
+marketRouter.get('/prices/history', getPriceHistory);
 marketRouter.get('/rates', handleMarketRates);
 marketRouter.get('/prices', handleMarketRates);

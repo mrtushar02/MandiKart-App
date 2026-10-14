@@ -26,6 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
+  ArrowRight,
   Search,
   Filter,
   ShieldCheck,
@@ -46,20 +47,23 @@ import {
   Info,
   Send,
   Sparkles,
+  Building2,
 } from 'lucide-react-native';
 import {
   useSellStore,
   BuyerRequest,
   BuyerRequestStatus,
   NegotiationMessage,
+  BulkCommercialDemand,
 } from '../../store/sellStore';
 import { useProduceStore } from '../../store/produceStore';
 import { useAuthStore } from '../../store/authStore';
-import { resolveFarmerApiBaseUrl } from '../../services/apiClient';
+import { apiClient } from '../../services/apiClient';
 
 
-const TABS: { key: BuyerRequestStatus | 'All'; label: string }[] = [
+const TABS: { key: BuyerRequestStatus | 'All' | 'Bulk'; label: string }[] = [
   { key: 'All', label: 'All Requests' },
+  { key: 'Bulk', label: 'Bulk Commercial' },
   { key: 'New', label: 'New' },
   { key: 'Pending', label: 'Pending' },
   { key: 'Negotiating', label: 'Negotiating' },
@@ -71,11 +75,19 @@ export default function BuyerRequestsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ cropFilter?: string; tab?: string }>();
 
-  const { requests, acceptRequest, counterOffer, rejectRequest } = useSellStore();
+  const {
+    requests,
+    bulkDemands,
+    fetchBulkDemands,
+    submitBulkQuote,
+    acceptRequest,
+    counterOffer,
+    rejectRequest,
+  } = useSellStore();
   const { crops } = useProduceStore();
 
-  const [activeTab, setActiveTab] = useState<BuyerRequestStatus | 'All'>(
-    (params.tab as BuyerRequestStatus | 'All') || 'All'
+  const [activeTab, setActiveTab] = useState<BuyerRequestStatus | 'All' | 'Bulk'>(
+    (params.tab as BuyerRequestStatus | 'All' | 'Bulk') || 'All'
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCropFilter, setSelectedCropFilter] = useState<string>(
@@ -100,14 +112,23 @@ export default function BuyerRequestsScreen() {
   const [declineReason, setDeclineReason] = useState<string>('Price too low');
   const [declineNote, setDeclineNote] = useState<string>('');
 
+  // Bulk Procurement Quote form state
+  const [selectedBulkDemand, setSelectedBulkDemand] = useState<BulkCommercialDemand | null>(null);
+  const [quoteModalVisible, setQuoteModalVisible] = useState(false);
+  const [quotePrice, setQuotePrice] = useState<string>('');
+  const [quoteQty, setQuoteQty] = useState<string>('');
+  const [quoteNotes, setQuoteNotes] = useState<string>('');
+  const [isSubmittingQuote, setIsSubmittingQuote] = useState(false);
+
   // Unique crop names for filter
   const uniqueCropNames = useMemo(() => {
     const set = new Set<string>();
     requests.forEach((r) => set.add(r.cropName));
+    bulkDemands.forEach((b) => set.add(b.cropName));
     return ['All', ...Array.from(set)];
-  }, [requests]);
+  }, [requests, bulkDemands]);
 
-  // Filtered requests
+  // Filtered buyer requests
   const filteredRequests = useMemo(() => {
     return requests.filter((req) => {
       const matchesTab = activeTab === 'All' ? true : req.status === activeTab;
@@ -120,6 +141,23 @@ export default function BuyerRequestsScreen() {
       return matchesTab && matchesSearch && matchesCrop;
     });
   }, [requests, activeTab, searchQuery, selectedCropFilter]);
+
+  // Filtered bulk commercial demands
+  const filteredBulkDemands = useMemo(() => {
+    return bulkDemands.filter((demand) => {
+      const depot = demand.deliveryDepot || demand.deliveryLocation || '';
+      const matchesSearch =
+        demand.buyerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        demand.cropName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        depot.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCrop =
+        selectedCropFilter === 'All'
+          ? true
+          : demand.cropName.toLowerCase() === selectedCropFilter.toLowerCase();
+
+      return matchesSearch && matchesCrop;
+    });
+  }, [bulkDemands, searchQuery, selectedCropFilter]);
 
   // Open Details Modal
   const handleOpenDetails = (req: BuyerRequest) => {
@@ -150,25 +188,75 @@ export default function BuyerRequestsScreen() {
     setAcceptModalVisible(true);
   };
 
+  // Open Bulk Quote Modal
+  const handleOpenQuoteModal = (demand: BulkCommercialDemand) => {
+    setSelectedBulkDemand(demand);
+    const targetPrice = demand.targetPricePerKg ?? demand.maxTargetPricePerUnit ?? 25;
+    const minVol = demand.minVolumeKg ?? demand.requiredQuantity ?? 1000;
+    setQuotePrice(targetPrice.toString());
+    const matchingCrop = crops.find(
+      (c) => c.cropName.toLowerCase() === demand.cropName.toLowerCase()
+    );
+    const defaultQty = matchingCrop
+      ? Math.min(matchingCrop.availableKg, minVol)
+      : minVol;
+    setQuoteQty(defaultQty > 0 ? defaultQty.toString() : minVol.toString());
+    setQuoteNotes('');
+    setQuoteModalVisible(true);
+  };
+
+  // Submit Bulk Quote
+  const handleSubmitQuote = async () => {
+    if (!selectedBulkDemand) return;
+    const priceNum = parseFloat(quotePrice);
+    const qtyNum = parseInt(quoteQty, 10);
+
+    if (isNaN(priceNum) || priceNum <= 0) {
+      Alert.alert('Invalid Price', 'Please enter a valid price per kg.');
+      return;
+    }
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      Alert.alert('Invalid Quantity', 'Please enter a valid quantity in kg.');
+      return;
+    }
+
+    setIsSubmittingQuote(true);
+    try {
+      const res = await submitBulkQuote(selectedBulkDemand.id, priceNum, qtyNum, quoteNotes);
+      setQuoteModalVisible(false);
+      if (res.success) {
+        Alert.alert(
+          'Quote Transmitted! 🚀',
+          `Your commercial quote of ₹${priceNum}/kg for ${qtyNum.toLocaleString()} kg has been sent to ${selectedBulkDemand.buyerName}. You will receive a direct notification once reviewed.`
+        );
+      } else {
+        Alert.alert('Submission Error', res.error || 'Failed to submit quote.');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Failed to submit quote.');
+    } finally {
+      setIsSubmittingQuote(false);
+    }
+  };
+
   // Sync backend negotiations on mount and poll every 2.5s for real-time buyer requests
   React.useEffect(() => {
     let isMounted = true;
     const fetchNegotiations = async () => {
       try {
-        const apiBase = resolveFarmerApiBaseUrl();
-        const token = useAuthStore.getState().token || '';
-        const res = await fetch(`${apiBase}/negotiations`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json();
-        if (isMounted && json && json.data && Array.isArray(json.data)) {
-          useSellStore.getState().mergeBackendNegotiations(json.data);
+        const data = await apiClient.getNegotiations();
+        if (isMounted && Array.isArray(data)) {
+          useSellStore.getState().mergeBackendNegotiations(data);
         }
       } catch (e) {}
     };
 
     fetchNegotiations();
-    const interval = setInterval(fetchNegotiations, 2500);
+    useSellStore.getState().fetchBulkDemands().catch(() => {});
+    const interval = setInterval(() => {
+      fetchNegotiations();
+      useSellStore.getState().fetchBulkDemands().catch(() => {});
+    }, 2500);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -205,22 +293,7 @@ export default function BuyerRequestsScreen() {
     counterOffer(selectedRequest.id, priceNum, qtyNum, counterMessage);
 
     try {
-      const apiBase = resolveFarmerApiBaseUrl();
-        const token = useAuthStore.getState().token || '';
-        await fetch(`${apiBase}/negotiations/${selectedRequest.id}/respond`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            'Idempotency-Key': `idemp-cnt-${Date.now()}`,
-          },
-        body: JSON.stringify({
-          action: 'COUNTER',
-          counterPrice: priceNum,
-          counterQty: qtyNum,
-          message: counterMessage,
-        }),
-      });
+      await apiClient.respondToNegotiation(selectedRequest.id, 'COUNTER', priceNum, qtyNum, counterMessage);
     } catch (e) {}
 
     setCounterModalVisible(false);
@@ -238,20 +311,7 @@ export default function BuyerRequestsScreen() {
     rejectRequest(selectedRequest.id, reasonText);
 
     try {
-      const apiBase = resolveFarmerApiBaseUrl();
-        const token = useAuthStore.getState().token || '';
-        await fetch(`${apiBase}/negotiations/${selectedRequest.id}/respond`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            'Idempotency-Key': `idemp-dec-${Date.now()}`,
-          },
-        body: JSON.stringify({
-          action: 'REJECT',
-          rejectionReason: reasonText,
-        }),
-      });
+      await apiClient.respondToNegotiation(selectedRequest.id, 'REJECT', undefined, undefined, reasonText);
     } catch (e) {}
 
     setDeclineModalVisible(false);
@@ -270,19 +330,7 @@ export default function BuyerRequestsScreen() {
     }
 
     try {
-      const apiBase = resolveFarmerApiBaseUrl();
-        const token = useAuthStore.getState().token || '';
-        await fetch(`${apiBase}/negotiations/${selectedRequest.id}/accept`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            'Idempotency-Key': `idemp-acc-${Date.now()}`,
-          },
-        body: JSON.stringify({
-          action: 'ACCEPT',
-        }),
-      });
+      await apiClient.acceptNegotiation(selectedRequest.id);
     } catch (e) {}
 
     setCreatedOrderId(res.orderId || 'MK-ORD-CONFIRMED');
@@ -389,6 +437,8 @@ export default function BuyerRequestsScreen() {
             const count =
               tab.key === 'All'
                 ? requests.length
+                : tab.key === 'Bulk'
+                ? bulkDemands.length
                 : requests.filter((r) => r.status === tab.key).length;
             const isSelected = activeTab === tab.key;
             return (
@@ -451,8 +501,180 @@ export default function BuyerRequestsScreen() {
           </ScrollView>
         )}
 
-        {/* List of Requests */}
-        {filteredRequests.length === 0 ? (
+        {/* List of Content: Bulk Requirements or Buyer Requests */}
+        {activeTab === 'Bulk' ? (
+          filteredBulkDemands.length === 0 ? (
+            <View style={styles.emptyState}>
+              <AlertCircle size={44} color="#9CA3AF" />
+              <Text style={styles.emptyTitle}>No Bulk Requirements</Text>
+              <Text style={styles.emptyDesc}>
+                There are currently no institutional bulk requirements matching your search/crop filters.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyActionBtn}
+                onPress={() => {
+                  setSearchQuery('');
+                  setSelectedCropFilter('All');
+                }}
+              >
+                <Text style={styles.emptyActionText}>Reset Filters</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            filteredBulkDemands.map((demand) => {
+              const matchingCrop = crops.find(
+                (c) => c.cropName.toLowerCase() === demand.cropName.toLowerCase()
+              );
+              const targetPrice = demand.targetPricePerKg ?? demand.maxTargetPricePerUnit ?? 25;
+              const benchmarkPrice = demand.marketBenchmarkPricePerKg ?? Math.round(targetPrice * 0.92);
+              const priceDelta = targetPrice - benchmarkPrice;
+              const isAboveMarket = priceDelta >= 0;
+              const minVol = demand.minVolumeKg ?? demand.requiredQuantity ?? 1000;
+              const maxVol = demand.maxVolumeKg ?? (minVol * 2);
+              const depot = demand.deliveryDepot || demand.deliveryLocation || 'Nashik Central Depot';
+
+              return (
+                <View key={demand.id} style={styles.bulkCard}>
+                  {/* Top Bar: Buyer + Type + Urgency */}
+                  <View style={styles.bulkCardHeader}>
+                    <View style={styles.bulkBuyerRow}>
+                      <View style={styles.bulkAvatarWrap}>
+                        <Building2 size={20} color="#15803D" />
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.bulkBuyerName} numberOfLines={1}>
+                            {demand.buyerName}
+                          </Text>
+                          {demand.verifiedBuyer && (
+                            <ShieldCheck size={14} color="#15803D" />
+                          )}
+                        </View>
+                        <View style={styles.bulkTypeRow}>
+                          <Text style={styles.bulkTypeTag}>
+                            {demand.buyerType.replace(/_/g, ' ')}
+                          </Text>
+                          <Text style={styles.bulkDotSeparator}>•</Text>
+                          <Text style={styles.bulkDeadline}>Deadline: {demand.deadlineDate || 'Within 7 Days'}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <View
+                      style={[
+                        styles.bulkUrgencyBadge,
+                        demand.urgency === 'URGENT'
+                          ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }
+                          : { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.bulkUrgencyText,
+                          demand.urgency === 'URGENT' ? { color: '#B91C1C' } : { color: '#B45309' },
+                        ]}
+                      >
+                        {demand.urgency || 'HIGH'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Crop & Volume Banner */}
+                  <View style={styles.bulkCropBanner}>
+                    <View>
+                      <Text style={styles.bulkCropTitle}>{demand.cropName}</Text>
+                      <Text style={styles.bulkQualityText}>Spec: {demand.qualityStandard || `Grade ${demand.grade || 'A'}`}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.bulkVolumeLabel}>Required Volume</Text>
+                      <Text style={styles.bulkVolumeValue}>
+                        {minVol.toLocaleString()} - {maxVol.toLocaleString()} kg
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Pricing Comparison Grid */}
+                  <View style={styles.bulkPriceGrid}>
+                    <View style={styles.bulkPriceCol}>
+                      <Text style={styles.bulkPriceLabel}>Target Buying Rate</Text>
+                      <Text style={[styles.bulkPriceValue, { color: '#15803D' }]}>
+                        ₹{targetPrice}/kg
+                      </Text>
+                    </View>
+                    <View style={styles.bulkPriceDivider} />
+                    <View style={styles.bulkPriceCol}>
+                      <Text style={styles.bulkPriceLabel}>APMC Benchmark</Text>
+                      <Text style={styles.bulkPriceValueMuted}>
+                        ₹{benchmarkPrice}/kg
+                      </Text>
+                    </View>
+                    <View style={styles.bulkPriceDivider} />
+                    <View style={styles.bulkPriceCol}>
+                      <Text style={styles.bulkPriceLabel}>Price Advantage</Text>
+                      <Text
+                        style={[
+                          styles.bulkPriceAdvantage,
+                          { color: isAboveMarket ? '#15803D' : '#D97706' },
+                        ]}
+                      >
+                        {isAboveMarket ? `+₹${priceDelta}/kg` : `₹${priceDelta}/kg`}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Logistics and Delivery Details */}
+                  <View style={styles.bulkLogisticsRow}>
+                    <View style={styles.bulkLogisticsItem}>
+                      <MapPin size={13} color="#4B5563" />
+                      <Text style={styles.bulkLogisticsText} numberOfLines={1}>
+                        {depot} ({demand.distanceKm || 30} km)
+                      </Text>
+                    </View>
+                    <View style={styles.bulkLogisticsItem}>
+                      <Truck size={13} color="#4B5563" />
+                      <Text style={styles.bulkLogisticsText}>
+                        Logistics: {demand.logisticsArrangedBy || 'BUYER'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Match insights pill */}
+                  {demand.matchScore && (
+                    <View style={styles.bulkMatchBanner}>
+                      <Sparkles size={14} color="#15803D" />
+                      <Text style={styles.bulkMatchText}>
+                        <Text style={{ fontWeight: '700' }}>{demand.matchScore}% Match</Text>
+                        {demand.matchReasons && demand.matchReasons[0]
+                          ? ` • ${demand.matchReasons[0]}`
+                          : ' • High fulfillment alignment with your harvest'}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Inventory Status Note */}
+                  <View style={styles.bulkInventoryNote}>
+                    <Info size={13} color="#2563EB" />
+                    <Text style={styles.bulkInventoryText}>
+                      {matchingCrop
+                        ? `You have ${matchingCrop.availableKg.toLocaleString()} kg of ${demand.cropName} in inventory.`
+                        : `You have no ${demand.cropName} registered, but can fulfill if available.`}
+                    </Text>
+                  </View>
+
+                  {/* Action Bar */}
+                  <View style={styles.bulkActionRow}>
+                    <TouchableOpacity
+                      style={styles.bulkSubmitQuoteBtn}
+                      onPress={() => handleOpenQuoteModal(demand)}
+                    >
+                      <Text style={styles.bulkSubmitQuoteBtnText}>Submit Commercial Quote</Text>
+                      <ArrowRight size={15} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )
+        ) : filteredRequests.length === 0 ? (
           <View style={styles.emptyState}>
             <AlertCircle size={44} color="#9CA3AF" />
             <Text style={styles.emptyTitle}>No Requests Found</Text>
@@ -1275,6 +1497,117 @@ export default function BuyerRequestsScreen() {
                 onPress={() => setOrderSuccessModalVisible(false)}
               >
                 <Text style={styles.stayInSellBtnText}>Back to Requests</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: SUBMIT BULK COMMERCIAL QUOTE MODAL                                */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={quoteModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQuoteModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Submit Commercial Quote</Text>
+                <Text style={styles.modalSub}>
+                  {selectedBulkDemand?.cropName} • {selectedBulkDemand?.buyerName}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setQuoteModalVisible(false)}
+                style={styles.modalCloseBtn}
+              >
+                <X size={20} color="#4B5563" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 440 }}>
+              <View style={styles.quoteSpecBox}>
+                <View style={styles.quoteSpecRow}>
+                  <Text style={styles.quoteSpecLabel}>Target Buying Rate:</Text>
+                  <Text style={styles.quoteSpecValue}>₹{selectedBulkDemand?.targetPricePerKg ?? selectedBulkDemand?.maxTargetPricePerUnit ?? 25}/kg</Text>
+                </View>
+                <View style={styles.quoteSpecRow}>
+                  <Text style={styles.quoteSpecLabel}>Volume Range:</Text>
+                  <Text style={styles.quoteSpecValue}>
+                    {(selectedBulkDemand?.minVolumeKg ?? selectedBulkDemand?.requiredQuantity ?? 1000).toLocaleString()} - {(selectedBulkDemand?.maxVolumeKg ?? 5000).toLocaleString()} kg
+                  </Text>
+                </View>
+                <View style={styles.quoteSpecRow}>
+                  <Text style={styles.quoteSpecLabel}>Delivery Depot:</Text>
+                  <Text style={styles.quoteSpecValue}>{selectedBulkDemand?.deliveryDepot || selectedBulkDemand?.deliveryLocation || 'Depot'}</Text>
+                </View>
+                <View style={styles.quoteSpecRow}>
+                  <Text style={styles.quoteSpecLabel}>Payment Terms:</Text>
+                  <Text style={styles.quoteSpecValue}>{selectedBulkDemand?.paymentTerms || 'Standard Terms'}</Text>
+                </View>
+                <View style={styles.quoteSpecRow}>
+                  <Text style={styles.quoteSpecLabel}>Quality Spec:</Text>
+                  <Text style={styles.quoteSpecValue}>{selectedBulkDemand?.qualityStandard || `Grade ${selectedBulkDemand?.grade || 'A'}`}</Text>
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Your Offered Price (₹ / kg)</Text>
+                <TextInput
+                  style={styles.regularInput}
+                  keyboardType="numeric"
+                  value={quotePrice}
+                  onChangeText={setQuotePrice}
+                  placeholder="e.g. 26.50"
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Offered Quantity (kg)</Text>
+                <TextInput
+                  style={styles.regularInput}
+                  keyboardType="numeric"
+                  value={quoteQty}
+                  onChangeText={setQuoteQty}
+                  placeholder="e.g. 5000"
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Special Notes / Ready-by Date (Optional)</Text>
+                <TextInput
+                  style={[styles.textAreaInput, { height: 70, textAlignVertical: 'top' }]}
+                  multiline
+                  value={quoteNotes}
+                  onChangeText={setQuoteNotes}
+                  placeholder="e.g. Premium Grade A harvest ready for immediate collection."
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooterActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setQuoteModalVisible(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmQuoteBtn, isSubmittingQuote && { opacity: 0.6 }]}
+                disabled={isSubmittingQuote}
+                onPress={handleSubmitQuote}
+              >
+                <Send size={15} color="#FFFFFF" />
+                <Text style={styles.confirmQuoteBtnText}>
+                  {isSubmittingQuote ? 'Submitting...' : 'Send Quote'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2428,5 +2761,256 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#6B7280',
+  },
+
+  /* Bulk Demands Cards */
+  bulkCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  bulkCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  bulkBuyerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  bulkAvatarWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bulkBuyerName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  bulkTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  bulkTypeTag: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#15803D',
+    textTransform: 'uppercase',
+  },
+  bulkDotSeparator: {
+    marginHorizontal: 4,
+    color: '#9CA3AF',
+    fontSize: 11,
+  },
+  bulkDeadline: {
+    fontSize: 11,
+    color: '#6B7280',
+  },
+  bulkUrgencyBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  bulkUrgencyText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  bulkCropBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginBottom: 12,
+  },
+  bulkCropTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  bulkQualityText: {
+    fontSize: 12,
+    color: '#4B5563',
+    marginTop: 2,
+  },
+  bulkVolumeLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  bulkVolumeValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#15803D',
+    marginTop: 2,
+  },
+  bulkPriceGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0FDF4',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    marginBottom: 10,
+  },
+  bulkPriceCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  bulkPriceLabel: {
+    fontSize: 10,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+  bulkPriceValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  bulkPriceValueMuted: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  bulkPriceAdvantage: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  bulkPriceDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#BBF7D0',
+  },
+  bulkLogisticsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  bulkLogisticsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
+  bulkLogisticsText: {
+    fontSize: 12,
+    color: '#4B5563',
+  },
+  bulkMatchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+    marginBottom: 8,
+  },
+  bulkMatchText: {
+    fontSize: 11,
+    color: '#166534',
+    flex: 1,
+  },
+  bulkInventoryNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+    marginBottom: 12,
+  },
+  bulkInventoryText: {
+    fontSize: 11,
+    color: '#1E40AF',
+    flex: 1,
+  },
+  bulkActionRow: {
+    marginTop: 4,
+  },
+  bulkSubmitQuoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#15803D',
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  bulkSubmitQuoteBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  /* Quote Modal Spec Box */
+  quoteSpecBox: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 16,
+    gap: 6,
+  },
+  quoteSpecRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  quoteSpecLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  quoteSpecValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  confirmQuoteBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#15803D',
+    gap: 8,
+  },
+  confirmQuoteBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

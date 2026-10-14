@@ -12,6 +12,7 @@
 
 export const MKColors = {
   // ── Primary Brand ────────────────────────────────────────
+  primary: '#2E7D32',
   primaryGreen: '#2E7D32',
   primaryGreenLight: '#4CAF50',
   primaryGreenDark: '#1B5E20',

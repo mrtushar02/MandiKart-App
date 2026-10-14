@@ -14,6 +14,9 @@ import { consentRouter } from './routes/consent.routes.js';
 import { notificationRouter } from './routes/notification.routes.js';
 import { negotiationsRouter } from './routes/negotiations.routes.js';
 import { fpoRouter } from './routes/fpo.routes.js';
+import { bulkRequirementsRouter } from './routes/bulk-requirements.routes.js';
+import { offersRouter } from './routes/offers.routes.js';
+import { suppliersRouter } from './routes/suppliers.routes.js';
 import { errorHandler, sendSuccess } from './middlewares/errorHandler.js';
 import { InventoryService } from './services/inventory.service.js';
 
@@ -60,6 +63,9 @@ app.use('/api/v1/consent', consentRouter);
 app.use('/api/v1/notifications', notificationRouter);
 app.use('/api/v1/negotiations', negotiationsRouter);
 app.use('/api/v1/fpo', fpoRouter);
+app.use('/api/v1/bulk-requirements', bulkRequirementsRouter);
+app.use('/api/v1/offers', offersRouter);
+app.use('/api/v1/suppliers', suppliersRouter);
 
 // Centralized error handler
 app.use(errorHandler);

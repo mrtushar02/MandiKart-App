@@ -21,3 +21,10 @@ fpoRouter.put('/members/:id/status', FPOController.updateMemberStatus);
 // Bulk Produce Lots
 fpoRouter.get('/lots', FPOController.getLots);
 fpoRouter.post('/lots', FPOController.createLot);
+
+// Collective Bulk Procurement
+fpoRouter.get('/procurements', FPOController.getProcurements);
+fpoRouter.post('/procurements', FPOController.createProcurement);
+
+// Institutional B2B Buyers
+fpoRouter.get('/buyers', FPOController.getBuyers);

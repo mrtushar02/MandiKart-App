@@ -366,4 +366,146 @@ export class FPOController {
       res.status(500).json({ data: null, error: { message: (err as Error).message } });
     }
   }
+
+  /**
+   * GET /api/v1/fpo/procurements
+   * Get collective bulk procurement orders
+   */
+  static async getProcurements(req: Request, res: Response): Promise<void> {
+    try {
+      const fpoId = String(req.query.fpoId || 'default');
+      const procurements = [
+        {
+          id: 'proc_iffco_01',
+          fpoId,
+          itemName: 'IFFCO Nano Urea & DAP Combo',
+          itemType: 'FERTILIZER',
+          totalQuantity: 350,
+          unit: 'Bags (50kg)',
+          demandClosingDate: new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0],
+          status: 'COLLECTING_DEMAND',
+          bestQuotePrice: 1350,
+          bestQuoteSupplier: 'IFFCO State Regional Hub',
+          savingVsMarket: 18,
+          memberCount: 42,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'proc_nsc_seed_02',
+          fpoId,
+          itemName: 'Certified High-Yield Mustard Seed (RH-749)',
+          itemType: 'SEED',
+          totalQuantity: 120,
+          unit: 'Bags (10kg)',
+          demandClosingDate: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0],
+          status: 'SEEKING_QUOTES',
+          bestQuotePrice: 2450,
+          bestQuoteSupplier: 'National Seeds Corporation (NSC)',
+          savingVsMarket: 14,
+          memberCount: 28,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      res.status(200).json({
+        data: procurements,
+        meta: { total: procurements.length },
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
+
+  /**
+   * POST /api/v1/fpo/procurements
+   * Create a collective procurement order
+   */
+  static async createProcurement(req: Request, res: Response): Promise<void> {
+    try {
+      const body = req.body || {};
+      const fpoId = body.fpoId || 'default';
+      const newProc = {
+        id: `proc_${Date.now().toString(36)}`,
+        fpoId,
+        itemName: body.itemName || 'Agricultural Bulk Input',
+        itemType: body.itemType || 'FERTILIZER',
+        totalQuantity: Number(body.totalQuantity || body.quantity || 100),
+        unit: body.unit || 'Bags (50kg)',
+        demandClosingDate: body.demandClosingDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+        status: 'COLLECTING_DEMAND',
+        bestQuotePrice: Number(body.targetRate || 0) || undefined,
+        bestQuoteSupplier: 'Pending Supplier Matching',
+        savingVsMarket: 15,
+        memberCount: 1,
+        createdAt: new Date().toISOString(),
+      };
+
+      res.status(201).json({
+        data: newProc,
+        meta: { message: 'Collective procurement demand registered' },
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
+
+  /**
+   * GET /api/v1/fpo/buyers
+   * Institutional B2B buyers looking for bulk produce lots
+   */
+  static async getBuyers(req: Request, res: Response): Promise<void> {
+    try {
+      const institutionalBuyers = [
+        {
+          id: 'buyer_rel_01',
+          companyName: 'Reliance Retail Wholesale Division',
+          businessType: 'Retail Chain Hub',
+          verified: true,
+          rating: 4.9,
+          state: 'Maharashtra',
+          city: 'Navi Mumbai Hub',
+          targetCrops: ['Red Onion', 'Potato', 'Tomato'],
+          activeTendersCount: 4,
+          typicalVolumeMT: 120,
+          paymentTerms: 'T+2 Escrow Direct Settlement',
+        },
+        {
+          id: 'buyer_itc_02',
+          companyName: 'ITC Agri Business Hub',
+          businessType: 'Food Processor',
+          verified: true,
+          rating: 4.8,
+          state: 'Madhya Pradesh',
+          city: 'Indore Central Depot',
+          targetCrops: ['Sharbati Wheat', 'Soybean', 'Mustard'],
+          activeTendersCount: 6,
+          typicalVolumeMT: 250,
+          paymentTerms: 'Instant IMPS upon Quality Weighbridge',
+        },
+        {
+          id: 'buyer_agro_export_03',
+          companyName: 'Global Fresh Agro Exporters Ltd.',
+          businessType: 'Exporter',
+          verified: true,
+          rating: 4.7,
+          state: 'Gujarat',
+          city: 'Kandla Logistics Terminal',
+          targetCrops: ['Basmati Rice', 'Red Onion', 'Pomegranate'],
+          activeTendersCount: 3,
+          typicalVolumeMT: 500,
+          paymentTerms: 'Confirmed LC / Escrow Guarantee',
+        },
+      ];
+
+      res.status(200).json({
+        data: institutionalBuyers,
+        meta: { total: institutionalBuyers.length },
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
 }

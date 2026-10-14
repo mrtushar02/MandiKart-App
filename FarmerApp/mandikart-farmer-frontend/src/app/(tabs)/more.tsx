@@ -41,6 +41,7 @@ import {
   Camera,
   X,
   QrCode,
+  Compass,
 } from 'lucide-react-native';
 import { MKScreen, MKSection, MKCard, MKRow } from '@/components/ui';
 import { MKColors } from '@/constants/colors';
@@ -293,6 +294,13 @@ export default function MoreScreen() {
             icon={<WalletCards size={20} color="#1B6D24" strokeWidth={2.1} />}
             iconBgColor="#E8F5E9"
             onPress={() => router.push('/earnings')}
+          />
+          <MKRow
+            title="Source Produce & Inputs"
+            subtitle="Browse catalog & find verified suppliers"
+            icon={<Compass size={20} color="#15803D" strokeWidth={2.1} />}
+            iconBgColor="#E8F5E9"
+            onPress={() => router.push('/source' as any)}
           />
           {isFPO ? (
             <>

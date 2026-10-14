@@ -50,7 +50,7 @@ import {
 import { useSellStore } from '../../store/sellStore';
 import { useProduceStore } from '../../store/produceStore';
 import { useAuthStore } from '../../store/authStore';
-import { resolveFarmerApiBaseUrl } from '../../services/apiClient';
+import { apiClient } from '../../services/apiClient';
 
 
 interface ChatMessage {
@@ -173,18 +173,11 @@ export default function FarmerNegotiationChatScreen() {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const apiBase = resolveFarmerApiBaseUrl();
-      const token = useAuthStore.getState().token || '';
-      const res = await fetch(`${apiBase}/negotiations/${negotiationId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const json = await res.json();
-      if (json.data) {
-        setNegotiation(json.data);
-        if (Array.isArray(json.data.messages)) {
-          setMessages(json.data.messages);
+      const data = await apiClient.getNegotiationById(negotiationId);
+      if (data) {
+        setNegotiation(data);
+        if (Array.isArray(data.messages)) {
+          setMessages(data.messages);
         }
       }
     } catch (err) {
@@ -229,22 +222,8 @@ export default function FarmerNegotiationChatScreen() {
 
     try {
       setSubmitting(true);
-      const apiBase = resolveFarmerApiBaseUrl();
-      const token = useAuthStore.getState().token || '';
-      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'Idempotency-Key': `idemp-msg-${Date.now()}`,
-        },
-        body: JSON.stringify({
-          text: trimmed,
-          messageId: tempMsgId,
-        }),
-      });
-      const json = await res.json();
-      if (json.data) {
+      const res: any = await apiClient.sendNegotiationMessage(negotiationId, trimmed);
+      if (res?.data) {
         // Reconcile
         fetchNegotiation(true);
       }
@@ -271,27 +250,17 @@ export default function FarmerNegotiationChatScreen() {
 
     try {
       setSubmitting(true);
-      const apiBase = resolveFarmerApiBaseUrl();
-      const token = useAuthStore.getState().token || '';
-      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/respond`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'Idempotency-Key': `idemp-cnt-${Date.now()}`,
-        },
-        body: JSON.stringify({
-          action: 'COUNTER',
-          counterPrice: priceNum,
-          counterQty: qtyNum,
-          message: counterNote,
-        }),
-      });
-      const json = await res.json();
-      if (json.data) {
-        setNegotiation(json.data);
-        if (Array.isArray(json.data.messages)) {
-          setMessages(json.data.messages);
+      const res: any = await apiClient.respondToNegotiation(
+        negotiationId,
+        'COUNTER',
+        priceNum,
+        qtyNum,
+        counterNote
+      );
+      if (res?.data) {
+        setNegotiation(res.data);
+        if (Array.isArray(res.data.messages)) {
+          setMessages(res.data.messages);
         }
         setCounterModalVisible(false);
         setCounterNote('');
@@ -312,23 +281,12 @@ export default function FarmerNegotiationChatScreen() {
 
     try {
       setSubmitting(true);
-      const apiBase = resolveFarmerApiBaseUrl();
-      const token = useAuthStore.getState().token || '';
-      const res = await fetch(`${apiBase}/negotiations/${negotiationId}/accept`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          'Idempotency-Key': `idemp-acc-${Date.now()}`,
-        },
-        body: JSON.stringify({
-          action: 'ACCEPT',
-          deliveryAddress: 'Farmgate Direct Collection Point',
-        }),
-      });
-      const json = await res.json();
-      if (json.data) {
-        setNegotiation(json.data);
+      const res: any = await apiClient.acceptNegotiation(
+        negotiationId,
+        'Farmgate Direct Collection Point'
+      );
+      if (res?.data) {
+        setNegotiation(res.data);
         await fetchNegotiation(false);
 
         const noticeMsg = `Offer Accepted! 🌾\n\nYou accepted the deal (₹${currentPrice}/${effectiveNegotiation.unit} for ${effectiveNegotiation.quantity} ${effectiveNegotiation.unit} • Total ₹${total.toLocaleString('en-IN')}).\n\nThe buyer has been notified in their chat to confirm and submit their delivery address.\n\nOnce the buyer confirms, this order will appear in your Orders > Pending section for dispatch!`;
