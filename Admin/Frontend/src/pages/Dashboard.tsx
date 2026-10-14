@@ -88,7 +88,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
     if (isProduceFetching.current && !showSpinner) return;
     isProduceFetching.current = true;
     if (showSpinner) setIsProduceLoading(true);
-    fetch(`${getAdminApiBaseUrl()}/produce`)
+    fetch(`${getAdminApiBaseUrl()}/produce?t=${Date.now()}`)
       .then(res => res.json())
       .then(resData => {
         if (Array.isArray(resData?.data)) {
@@ -415,7 +415,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                         }`}
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
-                        <span>Pending ({liveProduce.filter(p => p.status === 'PENDING_APPROVAL').length})</span>
+                        <span>Pending ({liveProduce.filter(p => {
+                          const st = String(p.status || '').toUpperCase();
+                          return st === 'PENDING_APPROVAL' || st === 'PENDING' || st === 'UNDER_REVIEW' || !st;
+                        }).length})</span>
                       </button>
                       <button
                         type="button"
@@ -426,7 +429,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                             : 'text-zinc-400 hover:text-white'
                         }`}
                       >
-                        <span>Approved ({liveProduce.filter(p => p.status === 'ACTIVE' || p.status === 'APPROVED' || p.status === 'ADMIN_APPROVED').length})</span>
+                        <span>Approved ({liveProduce.filter(p => {
+                          const st = String(p.status || '').toUpperCase();
+                          return st === 'ACTIVE' || st === 'APPROVED' || st === 'ADMIN_APPROVED';
+                        }).length})</span>
                       </button>
                       <button
                         type="button"
@@ -465,9 +471,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
 
                 {(() => {
                   const filtered = liveProduce.filter(p => {
-                    if (produceFilterTab === 'PENDING') return p.status === 'PENDING_APPROVAL';
-                    if (produceFilterTab === 'ACTIVE') return p.status === 'ACTIVE' || p.status === 'APPROVED' || p.status === 'ADMIN_APPROVED';
-                    if (produceFilterTab === 'REJECTED') return p.status === 'REJECTED';
+                    const st = String(p.status || '').toUpperCase();
+                    if (produceFilterTab === 'PENDING') return st === 'PENDING_APPROVAL' || st === 'PENDING' || st === 'UNDER_REVIEW' || !st;
+                    if (produceFilterTab === 'ACTIVE') return st === 'ACTIVE' || st === 'APPROVED' || st === 'ADMIN_APPROVED';
+                    if (produceFilterTab === 'REJECTED') return st === 'REJECTED';
                     return true;
                   });
 
@@ -493,14 +500,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onNavigate
                     <div className="space-y-3">
                       <div className="divide-y divide-zinc-800/80">
                         {displayed.map((prod: any) => {
-                          const isPending = prod.status === 'PENDING_APPROVAL';
-                          const isApproved = prod.status === 'APPROVED' || prod.status === 'ADMIN_APPROVED';
-                          const isActive = prod.status === 'ACTIVE';
-                          const isRejected = prod.status === 'REJECTED';
+                          const st = String(prod.status || '').toUpperCase();
+                          const isPending = st === 'PENDING_APPROVAL' || st === 'PENDING' || st === 'UNDER_REVIEW' || !st;
+                          const isApproved = st === 'APPROVED' || st === 'ADMIN_APPROVED';
+                          const isActive = st === 'ACTIVE';
+                          const isRejected = st === 'REJECTED';
                           const rawImg = prod.imageUrl || (prod.images && prod.images[0]);
-                          const isOldHardcodedOnion = rawImg && rawImg.includes('AB6AXuC5ju') && !(prod.cropName || '').toLowerCase().includes('onion');
                           const fallbackImg = getCropFallbackImage(prod.cropName, prod.category);
-                          const cropImg = (rawImg && !rawImg.startsWith('file://') && !isOldHardcodedOnion) ? rawImg : fallbackImg;
+                          const cropImg = (rawImg && typeof rawImg === 'string' && !rawImg.startsWith('file://')) ? rawImg : fallbackImg;
                           const formattedDateTime = (prod.createdAt && !isNaN(new Date(prod.createdAt).getTime())) 
                             ? new Date(prod.createdAt).toLocaleString('en-IN', {
                                 day: '2-digit',

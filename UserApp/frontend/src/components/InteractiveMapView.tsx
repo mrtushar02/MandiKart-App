@@ -13,9 +13,10 @@ import { useLocation, GeoCoordinates } from '../context/LocationContext';
 import { apiClient } from '../services/apiClient';
 import RealOsmMapView from './RealOsmMapView';
 import {
-  generateRoutePolyline,
-  getVehicleTelemetryAlongPolyline,
-} from '../services/dijkstraRouting';
+  generateAStarRoutePolyline,
+  getVehicleTelemetryAlongAStarPolyline,
+  calculateHaversineDistance,
+} from '../services/aStarRouting';
 
 interface InteractiveMapViewProps {
   orderId?: string;
@@ -63,13 +64,13 @@ export default function InteractiveMapView({
   } = useLocation();
 
   const [mapMode, setMapMode] = useState<'street' | 'satellite'>('street');
-  const [driverProgress, setDriverProgress] = useState<number>(0.65); // 65% completed along Dijkstra polyline
+  const [driverProgress, setDriverProgress] = useState<number>(0.65); // 65% completed along A* polyline
   const [driverSpeed, setDriverSpeed] = useState<number>(36);
   const [liveTelemetry, setLiveTelemetry] = useState<any>(null);
 
-  // 1. Calculate optimal shortest path polyline using Dijkstra algorithm
+  // 1. Calculate optimal shortest path polyline using A* search algorithm (f(n) = g(n) + h(n))
   const fullPolyline = useMemo(() => {
-    return generateRoutePolyline(
+    return generateAStarRoutePolyline(
       origin.coordinates,
       destination.coordinates || { latitude: 18.5204, longitude: 73.8567 }
     );
@@ -80,9 +81,9 @@ export default function InteractiveMapView({
     destination.coordinates?.longitude,
   ]);
 
-  // 2. Compute dynamic vehicle position, heading, and distance along polyline
+  // 2. Compute dynamic vehicle position, heading, and distance along A* polyline
   const routeTelemetry = useMemo(() => {
-    return getVehicleTelemetryAlongPolyline(fullPolyline, driverProgress, driverSpeed);
+    return getVehicleTelemetryAlongAStarPolyline(fullPolyline, driverProgress, driverSpeed);
   }, [fullPolyline, driverProgress, driverSpeed]);
 
   React.useEffect(() => {
@@ -107,7 +108,7 @@ export default function InteractiveMapView({
             if (telemetry.speedKmh) setDriverSpeed(telemetry.speedKmh);
           }
         } catch {
-          // fallback to Dijkstra route progression
+          // fallback to A* route progression
         }
       }
 
@@ -133,11 +134,12 @@ export default function InteractiveMapView({
 
   const isSatellite = mapMode === 'satellite';
   const remainingDistKm = routeTelemetry.remainingDistanceKm;
+  const distanceFromFarmer = routeTelemetry.distanceFromFarmerKm;
   const remainingEtaMin = routeTelemetry.remainingEtaMinutes;
 
   return (
     <View style={[styles.container, isSatellite && styles.containerSatellite, style]}>
-      {/* Real OpenStreetMap View with Leaflet & Dijkstra Polyline */}
+      {/* Real OpenStreetMap View with Leaflet & A* Polyline */}
       <RealOsmMapView
         origin={{
           latitude: origin.coordinates.latitude,
@@ -202,7 +204,7 @@ export default function InteractiveMapView({
       {/* Floating GPS Live Indicator */}
       <View style={styles.gpsLivePill}>
         <View style={styles.gpsLiveDot} />
-        <Text style={styles.gpsLiveText}>OSM LIVE ROUTING</Text>
+        <Text style={styles.gpsLiveText}>⭐ A* LIVE GPS ROUTING</Text>
       </View>
 
       {/* Bottom Floating Telemetry Card */}
@@ -211,7 +213,7 @@ export default function InteractiveMapView({
           <Ionicons name="navigate-circle" size={19} color={Colors.primary} />
           <View>
             <Text style={styles.hudValue}>{remainingDistKm} km</Text>
-            <Text style={styles.hudLabel}>Dijkstra Route</Text>
+            <Text style={styles.hudLabel}>A* to Buyer (Farm: {distanceFromFarmer} km)</Text>
           </View>
         </View>
 

@@ -24,7 +24,7 @@ import { Platform, NativeModules } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from './supabaseClient';
 
-const PRIMARY_LAN_IP = '192.168.1.9';
+const PRIMARY_LAN_IP = '192.168.68.73';
 
 function isValidIpOrHost(host: string | undefined): boolean {
   if (!host) return false;
@@ -278,6 +278,96 @@ async function safeFetchInternal<T>(
 
 // Local in-memory store for freshly placed orders on this client session
 const localPlacedOrdersMemory: any[] = [];
+
+const getCropFallbackUrl = (cropName: string, category: string): string => {
+  const n = (cropName || '').toLowerCase();
+  const c = (category || '').toLowerCase();
+  if (n.includes('tomato'))      return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('onion'))       return 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('potato') || n.includes('alu') || n.includes('aloo')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('wheat') || n.includes('gehu')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('rice') || n.includes('basmati') || n.includes('paddy') || n.includes('chawal')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('soybean') || n.includes('soya')) return 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('corn') || n.includes('maize') || n.includes('makka')) return 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('mango') || n.includes('aam')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('apple') || n.includes('seb')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('banana') || n.includes('kela')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('pomegranate') || n.includes('anar')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('grapes') || n.includes('grape') || n.includes('angoor')) return 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('orange') || n.includes('santra')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('carrot') || n.includes('gajar')) return 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('chilli') || n.includes('chili') || n.includes('mirchi')) return 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('garlic') || n.includes('lahsun')) return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('ginger') || n.includes('adrak')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('cabbage') || n.includes('patta gobi')) return 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('cauliflower') || n.includes('phool gobi')) return 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('peas') || n.includes('matar')) return 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=500&auto=format&fit=crop&q=80';
+  if (n.includes('cucumber') || n.includes('kheera')) return 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=500&auto=format&fit=crop&q=80';
+  if (c.includes('fruit'))       return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=500&auto=format&fit=crop&q=80';
+  if (c.includes('grain') || c.includes('pulse')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
+  return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500&auto=format&fit=crop&q=80';
+};
+
+const sanitizeCatalogImg = (imgUrl: string | null | undefined, cropName: string, category: string): string => {
+  if (!imgUrl || typeof imgUrl !== 'string' || imgUrl.trim() === '') return getCropFallbackUrl(cropName, category);
+  if (imgUrl.startsWith('file://')) return getCropFallbackUrl(cropName, category);
+  const isOldHardcodedOnion = imgUrl.includes('AB6AXuC5ju') && !(cropName || '').toLowerCase().includes('onion');
+  if (isOldHardcodedOnion) return getCropFallbackUrl(cropName, category);
+  if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://') || imgUrl.startsWith('data:image/')) {
+    return imgUrl;
+  }
+  return getCropFallbackUrl(cropName, category);
+};
+
+export function mapRawProductToProduct(p: any): Product {
+  const category = p.category || 'Vegetables';
+  const catLower = category.toLowerCase();
+  let categoryId = 'cat-1';
+  if (catLower.includes('fruit')) categoryId = 'cat-2';
+  else if (catLower.includes('grain') || catLower.includes('wheat') || catLower.includes('rice')) categoryId = 'cat-3';
+  else if (catLower.includes('spice')) categoryId = 'cat-5';
+  else if (catLower.includes('pulse')) categoryId = 'cat-6';
+  else if (catLower.includes('oil')) categoryId = 'cat-7';
+  else if (catLower.includes('herb')) categoryId = 'cat-8';
+  else if (catLower.includes('poultry')) categoryId = 'cat-9';
+
+  const cropTitle = p.cropName || p.crop_name || 'Farm Produce';
+  const farmerName = p.farmerName || (p.farmers && p.farmers.full_name) || 'MandiKart Farmer';
+  const farmerLoc = p.location || p.pickupAddress || p.pickup_address || (p.farmers ? `${p.farmers.district || ''}, ${p.farmers.state || ''}` : 'Nashik, Maharashtra');
+
+  const rawImages: string[] = Array.isArray(p.images) ? p.images : (p.imageUrl ? [p.imageUrl] : []);
+  const safeImages = rawImages.map((img: string) => sanitizeCatalogImg(img, cropTitle, category));
+  if (safeImages.length === 0) safeImages.push(getCropFallbackUrl(cropTitle, category));
+  const safeImageUrl = safeImages[0];
+
+  return {
+    id: p.id,
+    name: cropTitle,
+    imageUrl: safeImageUrl,
+    images: safeImages,
+    price: Number(p.basePricePerUnit || p.base_price_per_unit || 30),
+    unit: p.quantityUnit || p.quantity_unit || 'kg',
+    minOrder: Number(p.minOrderQuantity || p.min_order_quantity || 1),
+    stock: Number(p.availableQuantity || p.available_quantity || 100),
+    category: category,
+    categoryId: categoryId,
+    farmer: {
+      id: p.farmerId || p.farmer_id || 'farmer-1',
+      name: farmerName,
+      location: farmerLoc,
+      state: (p.farmers && p.farmers.state) || 'Maharashtra',
+      rating: 4.9,
+      reviewCount: 128,
+      isVerified: true,
+      totalProducts: 15,
+      memberSince: '2023',
+    },
+    rating: 4.8,
+    reviewCount: 94,
+    description: `Freshly harvested ${cropTitle} direct from farm. Grade ${p.grade || 'A'}. Available for instant dispatch to all buyers across India.`,
+    isFreshDeal: true,
+  };
+}
 
 export const apiClient = {
   // 1. Auth Service
@@ -588,6 +678,7 @@ export const apiClient = {
   },
 
   // 2. Catalog Service
+
   catalog: {
     async search(params?: { crop?: string; category?: string; grade?: string; fresh?: boolean }): Promise<Product[]> {
       const queryParts: string[] = ['fresh=true'];
@@ -608,17 +699,13 @@ export const apiClient = {
         console.log('[Catalog] Backend safeFetch exception, falling back to Supabase directly:', err?.message);
       }
 
-      // 2. If backend was unreachable or returned empty, query Supabase cloud directly
+      // 2. If backend was unreachable or returned empty, query Supabase cloud directly with timeout
       if (!rawData || rawData.length === 0) {
         try {
-          console.log('[Catalog] Querying Supabase live products table directly...');
-          // NOTE: omit farmers(*) JOIN to avoid Supabase statement timeout (error 57014)
           let sbQuery = supabase
             .from('products')
             .select('*')
-            // Same dual-gate as backend: only farmer-confirmed global listings
-            .eq('is_active', true)
-            .eq('target_buyer', 'BOTH')
+            .in('status', ['ACTIVE', 'APPROVED', 'ADMIN_APPROVED'])
             .gt('available_quantity', 0)
             .order('created_at', { ascending: false });
 
@@ -626,12 +713,13 @@ export const apiClient = {
           if (params?.category) sbQuery = sbQuery.eq('category', params.category);
           if (params?.grade) sbQuery = sbQuery.eq('grade', params.grade);
 
-          const { data: sbData, error: sbError } = await sbQuery.limit(50);
+          const sbPromise = sbQuery.limit(50);
+          const timeoutPromise = new Promise<{ data: any[] | null; error: any }>((resolve) =>
+            setTimeout(() => resolve({ data: null, error: { message: 'Supabase direct timeout' } }), 1000)
+          );
+          const { data: sbData, error: sbError } = await Promise.race([sbPromise, timeoutPromise]);
           if (!sbError && sbData && sbData.length > 0) {
-            console.log(`[Catalog] Supabase direct fetch retrieved ${sbData.length} live products.`);
             rawData = sbData;
-          } else if (sbError) {
-            console.warn('[Catalog] Supabase direct query error:', sbError.message);
           }
         } catch (sbErr: any) {
           console.warn('[Catalog] Supabase query exception:', sbErr?.message);
@@ -652,109 +740,36 @@ export const apiClient = {
         return SAMPLE_PRODUCTS;
       }
 
-      /**
-       * Image sanitization helper — rejects base64 blobs and local file:// paths,
-       * returns a stable crop-name based Unsplash URL instead.
-       * base64 data URIs crash mobile image renderers and waste network bandwidth.
-       * file:// paths are only valid on the device that took the photo.
-       */
-      const getCropFallbackUrl = (cropName: string, category: string): string => {
-        const n = (cropName || '').toLowerCase();
-        const c = (category || '').toLowerCase();
-        if (n.includes('tomato'))      return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('onion'))       return 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('potato') || n.includes('alu') || n.includes('aloo')) return 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('wheat') || n.includes('gehu')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('rice') || n.includes('basmati') || n.includes('paddy') || n.includes('chawal')) return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('soybean') || n.includes('soya')) return 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('corn') || n.includes('maize') || n.includes('makka')) return 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('mango') || n.includes('aam')) return 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('apple') || n.includes('seb')) return 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('banana') || n.includes('kela')) return 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('pomegranate') || n.includes('anar')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('grapes') || n.includes('grape') || n.includes('angoor')) return 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('orange') || n.includes('santra')) return 'https://images.unsplash.com/photo-1611080626919-7cf5a9dbab5b?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('carrot') || n.includes('gajar')) return 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('chilli') || n.includes('chili') || n.includes('mirchi')) return 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('garlic') || n.includes('lahsun')) return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('ginger') || n.includes('adrak')) return 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('cabbage') || n.includes('patta gobi')) return 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('cauliflower') || n.includes('phool gobi')) return 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('peas') || n.includes('matar')) return 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=500&auto=format&fit=crop&q=80';
-        if (n.includes('cucumber') || n.includes('kheera')) return 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=500&auto=format&fit=crop&q=80';
-        if (c.includes('fruit'))       return 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=500&auto=format&fit=crop&q=80';
-        if (c.includes('grain') || c.includes('pulse')) return 'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=500&auto=format&fit=crop&q=80';
-        return 'https://images.unsplash.com/photo-1610348725531-843dff563e2c?w=500&auto=format&fit=crop&q=80';
-      };
+      return rawData.map(mapRawProductToProduct);
+    },
 
-      const sanitizeImg = (imgUrl: string | null | undefined, cropName: string, category: string): string => {
-        if (!imgUrl || typeof imgUrl !== 'string' || imgUrl.trim() === '') return getCropFallbackUrl(cropName, category);
-        if (imgUrl.startsWith('file://')) return getCropFallbackUrl(cropName, category); // local device path — useless remotely
-        const isOldHardcodedOnion = imgUrl.includes('AB6AXuC5ju') && !(cropName || '').toLowerCase().includes('onion');
-        if (isOldHardcodedOnion) return getCropFallbackUrl(cropName, category);
-        if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://') || imgUrl.startsWith('data:image/')) {
-          return imgUrl; // valid HTTP URL or base64 data URI — keep as-is
+    async getById(id: string): Promise<Product | null> {
+      if (!id) return null;
+      try {
+        const res = await safeFetch<any>(`/catalog/${id}`, { method: 'GET' }, null);
+        if (!res.isFallback && res.data) {
+          return mapRawProductToProduct(res.data);
         }
-        return getCropFallbackUrl(cropName, category);
-      };
+      } catch {}
 
-      // Map backend or Supabase products to frontend Product interface
-      return rawData.map((p) => {
-        const category = p.category || 'Vegetables';
-        const catLower = category.toLowerCase();
-        let categoryId = 'cat-1';
-        if (catLower.includes('fruit')) categoryId = 'cat-2';
-        else if (catLower.includes('grain') || catLower.includes('wheat') || catLower.includes('rice')) categoryId = 'cat-3';
-        else if (catLower.includes('spice')) categoryId = 'cat-5';
-        else if (catLower.includes('pulse')) categoryId = 'cat-6';
-        else if (catLower.includes('oil')) categoryId = 'cat-7';
-        else if (catLower.includes('herb')) categoryId = 'cat-8';
-        else if (catLower.includes('poultry')) categoryId = 'cat-9';
+      try {
+        const sbPromise = supabase.from('products').select('*').eq('id', id).single();
+        const timeoutPromise = new Promise<{ data: any | null; error: any }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: 'timeout' } }), 1000)
+        );
+        const { data: sbData } = await Promise.race([sbPromise, timeoutPromise]);
+        if (sbData) {
+          return mapRawProductToProduct(sbData);
+        }
+      } catch {}
 
-        const cropTitle = p.cropName || p.crop_name || 'Farm Produce';
-        const farmerName = p.farmerName || (p.farmers && p.farmers.full_name) || 'MandiKart Farmer';
-        const farmerLoc = p.location || p.pickupAddress || p.pickup_address || (p.farmers ? `${p.farmers.district || ''}, ${p.farmers.state || ''}` : 'Nashik, Maharashtra');
-
-        // Sanitize all images in the array — reject base64/file:// paths
-        const rawImages: string[] = Array.isArray(p.images) ? p.images : (p.imageUrl ? [p.imageUrl] : []);
-        const safeImages = rawImages.map((img: string) => sanitizeImg(img, cropTitle, category));
-        if (safeImages.length === 0) safeImages.push(getCropFallbackUrl(cropTitle, category));
-        const safeImageUrl = safeImages[0];
-
-        return {
-          id: p.id,
-          name: cropTitle,
-          imageUrl: safeImageUrl,
-          images: safeImages,
-          price: Number(p.basePricePerUnit || p.base_price_per_unit || 30),
-          unit: p.quantityUnit || p.quantity_unit || 'kg',
-          minOrder: Number(p.minOrderQuantity || p.min_order_quantity || 1),
-          stock: Number(p.availableQuantity || p.available_quantity || 100),
-          category: category,
-          categoryId: categoryId,
-          farmer: {
-            id: p.farmerId || p.farmer_id || 'farmer-1',
-            name: farmerName,
-            location: farmerLoc,
-            state: (p.farmers && p.farmers.state) || 'Maharashtra',
-            rating: 4.9,
-            reviewCount: 128,
-            isVerified: true,
-            totalProducts: 15,
-            memberSince: '2023',
-          },
-          rating: 4.8,
-          reviewCount: 94,
-          description: `Freshly harvested ${cropTitle} direct from farm. Grade ${p.grade || 'A'}. Available for instant dispatch to all buyers across India.`,
-          isFreshDeal: true,
-        };
-      });
+      const fromSample = SAMPLE_PRODUCTS.find((p) => p.id === id);
+      return fromSample || null;
     },
 
     getCategories(): Category[] {
       return SAMPLE_CATEGORIES;
     },
-
   },
 
   // 3. Orders Service
@@ -1053,12 +1068,24 @@ export const apiClient = {
       return res.data;
     },
 
-    async sendMessage(negotiationId: string, text: string): Promise<any> {
+    async sendMessage(
+      negotiationId: string,
+      text: string,
+      messageType: 'TEXT' | 'OFFER' | 'SYSTEM' | 'ORDER_EVENT' | 'LOCATION' = 'TEXT',
+      location?: {
+        latitude: number;
+        longitude: number;
+        address?: string;
+        name?: string;
+        placeType?: 'USER_LOCATION' | 'FARMER_LOCATION';
+        distanceKm?: number;
+      }
+    ): Promise<any> {
       const res = await safeFetch<any>(
         `/negotiations/${negotiationId}/messages`,
         {
           method: 'POST',
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, messageType, location }),
         },
         null
       );
@@ -1204,6 +1231,8 @@ export const apiClient = {
 
     async createRequirement(data: {
       cropName: string;
+      variety?: string;
+      items?: any[];
       grade: 'A' | 'B' | 'C';
       requiredQuantity: number;
       quantityUnit: 'kg' | 'quintal' | 'tonne';

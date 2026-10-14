@@ -17,13 +17,21 @@ import {
 } from '@mandikart/shared-core';
 
 let produceCache: { data: any[]; timestamp: number } | null = null;
-const PRODUCE_CACHE_TTL_MS = 2500;
+const PRODUCE_CACHE_TTL_MS = 1000;
 let farmersCache: { data: any[]; timestamp: number } | null = null;
 const FARMERS_CACHE_TTL_MS = 3500;
 
 export const invalidateProduceCache = () => {
   produceCache = null;
   farmersCache = null;
+};
+
+const withTimeout = <T>(promise: PromiseLike<T>, ms = 1200): Promise<T> => {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
 export class AdminController {
@@ -232,7 +240,8 @@ export class AdminController {
 
   static async getAllProduce(_req: Request, res: Response): Promise<void> {
     try {
-      if (produceCache && Date.now() - produceCache.timestamp < PRODUCE_CACHE_TTL_MS) {
+      const bypassCache = Boolean(_req.query.t || _req.query.nocache);
+      if (!bypassCache && produceCache && Date.now() - produceCache.timestamp < PRODUCE_CACHE_TTL_MS) {
         res.status(200).json({
           data: produceCache.data,
           meta: { total: produceCache.data.length },
@@ -241,21 +250,30 @@ export class AdminController {
         return;
       }
 
-      const supabase = getSupabaseAdmin();
-      // NOTE: We intentionally omit the farmers(*) JOIN here to avoid Supabase
-      // statement timeout (error 57014). Farmer info is resolved from ProductRegistryService.
-      const { data: dbProducts } = await supabase
-        .from('products')
-        .select('id, farmer_id, crop_name, crop_variety, grade, category, total_quantity, available_quantity, reserved_quantity, quantity_unit, base_price_per_unit, min_order_quantity, target_buyer, images, pickup_address, is_active, harvest_date, shelf_life_days, created_at, updated_at')
-        .order('created_at', { ascending: false });
+      let dbProducts: any[] = [];
+      try {
+        const supabase = getSupabaseAdmin();
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1200));
+        const sbPromise = supabase
+          .from('products')
+          .select('id, farmer_id, crop_name, crop_variety, grade, category, total_quantity, available_quantity, reserved_quantity, quantity_unit, base_price_per_unit, min_order_quantity, target_buyer, images, pickup_address, is_active, harvest_date, shelf_life_days, created_at, updated_at')
+          .neq('target_buyer', 'DELETED')
+          .order('created_at', { ascending: false });
+        const res: any = await Promise.race([sbPromise, timeoutPromise]);
+        if (res?.data && Array.isArray(res.data)) {
+          dbProducts = res.data;
+        }
+      } catch {
+        // Cloud Supabase lookup timed out or network offline; smoothly fall back to local shared registry
+      }
 
       const sanitizeImg = (imgUrl: string | undefined, cropName: string, category: string) => {
         if (!imgUrl || typeof imgUrl !== 'string' || imgUrl.trim() === '') {
           return getCropImageUrl(cropName, category);
         }
-        // Disallow large base64 data URIs (>50KB) to ensure lightning-fast responses (<20KB instead of 3.5MB)
+        // Allow base64 data URIs up to 10MB
         if (imgUrl.startsWith('data:image/')) {
-          if (imgUrl.length < 50000) return imgUrl;
+          if (imgUrl.length < 10000000) return imgUrl;
           return getCropImageUrl(cropName, category);
         }
         // Strip local device file:// paths — only valid on the device that took the photo
@@ -277,13 +295,19 @@ export class AdminController {
         regTargetBuyer: string | undefined,
         regIsActive: boolean | undefined
       ): 'PENDING_APPROVAL' | 'APPROVED' | 'ACTIVE' | 'REJECTED' => {
-        if (pStatus === 'REJECTED' || regStatus === 'REJECTED' || target_buyer === 'REJECTED' || regTargetBuyer === 'REJECTED') {
+        const s = (pStatus || regStatus || '').toUpperCase();
+        const tb = (target_buyer || regTargetBuyer || '').toUpperCase();
+
+        if (s === 'REJECTED' || tb === 'REJECTED') {
           return 'REJECTED';
+        }
+        if (s === 'PENDING' || s === 'PENDING_APPROVAL' || tb === 'PENDING_APPROVAL' || tb === 'PENDING') {
+          return 'PENDING_APPROVAL';
         }
         // ONLY ACTIVE if explicitly published (is_active is true or regIsActive is true)
         if (
           (is_active === true || regIsActive === true) &&
-          (pStatus === 'ACTIVE' || regStatus === 'ACTIVE' || target_buyer === 'BOTH' || regTargetBuyer === 'BOTH')
+          (s === 'ACTIVE' || tb === 'BOTH')
         ) {
           return 'ACTIVE';
         }
@@ -419,6 +443,115 @@ export class AdminController {
     }
   }
 
+  static async createProduce(req: Request, res: Response): Promise<void> {
+    try {
+      const {
+        farmerId,
+        farmerName,
+        farmerPhone,
+        cropName,
+        cropVariety,
+        category,
+        quantityKg,
+        totalQuantity,
+        pricePerKg,
+        basePricePerUnit,
+        grade,
+        imageUrl,
+        images,
+        mandiName,
+        location,
+        pickupAddress,
+        shelfLifeDays,
+      } = req.body;
+
+      if (!cropName || typeof cropName !== 'string' || cropName.trim().length === 0) {
+        res.status(400).json({ data: null, error: { message: 'Crop name is required' } });
+        return;
+      }
+
+      const cleanCropName = cropName.trim();
+      const cleanCategory = category || 'Vegetables';
+      const cleanVariety = cropVariety || 'Hybrid';
+      const cleanGrade = (grade === 'B' || grade === 'GRADE_B') ? 'B' : 'A';
+      const cleanQty = Number(quantityKg || totalQuantity || 100);
+      const cleanPrice = Number(pricePerKg || basePricePerUnit || 30);
+      const cleanFarmerId = farmerId || 'd1111111-1111-1111-1111-111111111111';
+      const cleanFarmerName = farmerName || 'Registered Farmer';
+      const cleanFarmerPhone = farmerPhone || '+91 98220 11111';
+      const cleanLocation = mandiName || location || pickupAddress || 'Nashik Mandi Area';
+
+      // Photo resolver ensuring high-res fallback
+      let finalImages: string[] = [];
+      if (Array.isArray(images) && images.length > 0 && typeof images[0] === 'string' && images[0].trim()) {
+        finalImages = [images[0].trim()];
+      } else if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim()) {
+        finalImages = [imageUrl.trim()];
+      } else {
+        finalImages = [getCropImageUrl(cleanCropName, cleanCategory)];
+      }
+
+      const newId = req.body.id || `prod_${Date.now()}`;
+      const nowIso = new Date().toISOString();
+      const initialStatus = req.body.status || 'PENDING_APPROVAL';
+      const initialTargetBuyer = req.body.targetBuyer || (initialStatus === 'ACTIVE' ? 'BOTH' : 'PENDING_APPROVAL');
+      const initialIsActive = req.body.isActive !== undefined ? Boolean(req.body.isActive) : (initialStatus === 'ACTIVE');
+
+      const newProduct = {
+        id: newId,
+        farmerId: cleanFarmerId,
+        farmerName: cleanFarmerName,
+        farmerPhone: cleanFarmerPhone,
+        location: cleanLocation,
+        pickupAddress: cleanLocation,
+        cropName: cleanCropName,
+        cropVariety: cleanVariety,
+        grade: cleanGrade,
+        category: cleanCategory,
+        totalQuantity: cleanQty,
+        availableQuantity: cleanQty,
+        reservedQuantity: 0,
+        quantityUnit: 'kg',
+        basePricePerUnit: cleanPrice,
+        minOrderQuantity: 1,
+        targetBuyer: initialTargetBuyer,
+        images: finalImages,
+        shelfLifeDays: Number(shelfLifeDays || 7),
+        isActive: initialIsActive,
+        status: initialStatus as any,
+        createdAt: nowIso,
+      };
+
+      ProductRegistryService.registerProduct(newProduct);
+      invalidateProduceCache();
+
+      await auditLog({
+        actorId: req.user?.id || 'admin_super_01',
+        role: UserRole.ADMIN,
+        action: 'CREATE_PRODUCE',
+        resourceType: 'PRODUCT',
+        resourceId: newId,
+        metadata: { cropName: cleanCropName, quantity: cleanQty, price: cleanPrice },
+      });
+
+      res.status(201).json({
+        data: {
+          ...newProduct,
+          farmerFullName: cleanFarmerName,
+          farmerCode: cleanFarmerPhone ? `FARM-${cleanFarmerPhone.slice(-4)}` : `FARM-${cleanFarmerId.slice(-4)}`,
+          qualityGrade: cleanGrade === 'B' ? 'GRADE_B' : 'GRADE_A',
+          availableKg: cleanQty,
+          pricePerKg: cleanPrice,
+          imageUrl: finalImages[0],
+          submittedAt: 'Today',
+        },
+        error: null,
+      });
+    } catch (err) {
+      res.status(500).json({ data: null, error: { message: (err as Error).message } });
+    }
+  }
+
   static async approveProduce(req: Request, res: Response): Promise<void> {
     const productId = String(req.params.productId);
     try {
@@ -429,27 +562,33 @@ export class AdminController {
       // Update in Supabase & retrieve row
       try {
         if (UUID_REGEX.test(productId)) {
-          const { data } = await supabase
-            .from('products')
-            .update({
-              target_buyer: 'BOTH',
-              is_active: false,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', productId)
-            .select();
-          if (data && data.length > 0) dbItem = data[0];
+          const res: any = await withTimeout(
+            supabase
+              .from('products')
+              .update({
+                target_buyer: 'BOTH',
+                is_active: false,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', productId)
+              .select(),
+            1000
+          );
+          if (res.data && res.data.length > 0) dbItem = res.data[0];
         } else {
-          const { data } = await supabase
-            .from('products')
-            .update({
-              target_buyer: 'BOTH',
-              is_active: false,
-              updated_at: new Date().toISOString(),
-            })
-            .or(`id.eq.${productId},crop_name.ilike.%${productId}%`)
-            .select();
-          if (data && data.length > 0) dbItem = data[0];
+          const res: any = await withTimeout(
+            supabase
+              .from('products')
+              .update({
+                target_buyer: 'BOTH',
+                is_active: false,
+                updated_at: new Date().toISOString(),
+              })
+              .or(`id.eq.${productId},crop_name.ilike.%${productId}%`)
+              .select(),
+            1000
+          );
+          if (res.data && res.data.length > 0) dbItem = res.data[0];
         }
       } catch (sbErr) {
         console.warn('Supabase approve update notice:', sbErr);
@@ -524,15 +663,21 @@ export class AdminController {
       
       try {
         if (UUID_REGEX.test(productId)) {
-          await supabase
-            .from('products')
-            .update({ status: 'REJECTED', is_active: false, updated_at: new Date().toISOString() })
-            .eq('id', productId);
+          await withTimeout(
+            supabase
+              .from('products')
+              .update({ status: 'REJECTED', is_active: false, updated_at: new Date().toISOString() })
+              .eq('id', productId),
+            1000
+          );
         } else {
-          await supabase
-            .from('products')
-            .update({ status: 'REJECTED', is_active: false, updated_at: new Date().toISOString() })
-            .or(`id.eq.${productId},crop_name.ilike.%${productId}%`);
+          await withTimeout(
+            supabase
+              .from('products')
+              .update({ status: 'REJECTED', is_active: false, updated_at: new Date().toISOString() })
+              .or(`id.eq.${productId},crop_name.ilike.%${productId}%`),
+            1000
+          );
         }
       } catch {}
 
@@ -573,10 +718,12 @@ export class AdminController {
 
       try {
         const supabase = getSupabaseAdmin();
-        const { data: dbOrders } = await supabase
+        const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1200));
+        const sbQuery = supabase
           .from('orders')
           .select('*, order_items(*), farmers(full_name, phone, district, state)')
           .order('created_at', { ascending: false });
+        const { data: dbOrders }: any = await Promise.race([sbQuery, timeout]);
 
         if (dbOrders && dbOrders.length > 0) {
           for (const d of dbOrders) {
@@ -648,10 +795,13 @@ export class AdminController {
 
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
-          .from('orders')
-          .update({ status: 'CONFIRMED', updated_at: new Date().toISOString() })
-          .eq('id', orderId);
+        await withTimeout(
+          supabase
+            .from('orders')
+            .update({ status: 'CONFIRMED', updated_at: new Date().toISOString() })
+            .eq('id', orderId),
+          1000
+        );
       } catch {}
 
       await auditLog({
@@ -681,10 +831,13 @@ export class AdminController {
 
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
-          .from('orders')
-          .update({ status: 'REJECTED', updated_at: new Date().toISOString() })
-          .eq('id', orderId);
+        await withTimeout(
+          supabase
+            .from('orders')
+            .update({ status: 'REJECTED', updated_at: new Date().toISOString() })
+            .eq('id', orderId),
+          1000
+        );
       } catch {}
 
       await auditLog({
@@ -716,10 +869,13 @@ export class AdminController {
 
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
-          .from('orders')
-          .update({ ...updates, updated_at: new Date().toISOString() })
-          .eq('id', orderId);
+        await withTimeout(
+          supabase
+            .from('orders')
+            .update({ ...updates, updated_at: new Date().toISOString() })
+            .eq('id', orderId),
+          1000
+        );
       } catch {}
 
       res.status(200).json({
@@ -741,14 +897,20 @@ export class AdminController {
 
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
-          .from('payments')
-          .update({ escrow_status: 'RELEASED', escrow_released_at: new Date().toISOString() })
-          .eq('order_id', orderId);
-        await supabase
-          .from('orders')
-          .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
-          .eq('id', orderId);
+        await withTimeout(
+          supabase
+            .from('payments')
+            .update({ escrow_status: 'RELEASED', escrow_released_at: new Date().toISOString() })
+            .eq('order_id', orderId),
+          800
+        );
+        await withTimeout(
+          supabase
+            .from('orders')
+            .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+            .eq('id', orderId),
+          800
+        );
       } catch {}
 
       res.status(200).json({
@@ -770,10 +932,13 @@ export class AdminController {
 
       try {
         const supabase = getSupabaseAdmin();
-        await supabase
-          .from('payments')
-          .update({ escrow_status: 'REFUNDED', refunded_at: new Date().toISOString() })
-          .eq('order_id', orderId);
+        await withTimeout(
+          supabase
+            .from('payments')
+            .update({ escrow_status: 'REFUNDED', refunded_at: new Date().toISOString() })
+            .eq('order_id', orderId),
+          800
+        );
       } catch {}
 
       res.status(200).json({
@@ -879,6 +1044,44 @@ export class AdminController {
         list.push(p);
         farmerProductsMap.set(p.farmer_id, list);
       }
+
+      // Also merge farmers and products from ProductRegistryService
+      try {
+        const regProducts = ProductRegistryService.getRegisteredProducts();
+        for (const reg of regProducts) {
+          if (!reg.farmerId || reg.farmerId === 'unknown') continue;
+          let f = dbFarmers.find((df: any) => df.id === reg.farmerId || (df.phone && reg.farmerPhone && df.phone.includes(reg.farmerPhone.slice(-10))));
+          if (!f) {
+            f = {
+              id: reg.farmerId,
+              phone: reg.farmerPhone || '+91 98220 11111',
+              full_name: reg.farmerName || 'Registered Farmer',
+              district: reg.location?.split(',')?.[0]?.trim() || 'Nashik',
+              state: reg.location?.split(',')?.[1]?.trim() || 'Maharashtra',
+              land_size: 5.0,
+              is_verified: true,
+              created_at: reg.createdAt || new Date().toISOString(),
+            };
+            dbFarmers.unshift(f);
+          }
+          const pList = farmerProductsMap.get(f.id) || [];
+          if (!pList.some((p: any) => p.id === reg.id)) {
+            pList.push({
+              id: reg.id,
+              farmer_id: f.id,
+              crop_name: reg.cropName,
+              category: reg.category,
+              available_quantity: reg.availableQuantity,
+              base_price_per_unit: reg.basePricePerUnit,
+              grade: reg.grade,
+              harvest_date: reg.harvestDate || 'Recent',
+              is_active: reg.isActive,
+              images: reg.images,
+            });
+            farmerProductsMap.set(f.id, pList);
+          }
+        }
+      } catch {}
 
       const farmerSalesMap = new Map<string, { totalSales: number; orderCount: number }>();
       for (const o of orders) {

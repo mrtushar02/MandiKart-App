@@ -424,7 +424,10 @@ export default function SellHomeScreen() {
 
   const handleCreateListing = async () => {
     if (!listingCrop) return;
-    const targetPrice = parseFloat(listingTargetPrice) || listingCrop.referencePricePerKg;
+    const cleanPrice = parseFloat(String(listingTargetPrice).replace(/[^\d.]/g, ''));
+    const targetPrice = !isNaN(cleanPrice) && cleanPrice > 0
+      ? cleanPrice
+      : listingCrop.referencePricePerKg || listingCrop.expectedPricePerKg || 25;
 
     // Resolve genuine crop thumbnail matching the produce
     const safeImages = [resolveCropThumbnail(listingCrop.cropName, listingCrop.category, listingCrop.imageUri)];
@@ -459,6 +462,11 @@ export default function SellHomeScreen() {
       } as any);
 
       // Update local store to reflect that this crop is now active/listed
+      useProduceStore.getState().updateCropDetails(listingCrop.id, {
+        status: 'ACTIVE',
+        expectedPricePerKg: targetPrice,
+        referencePricePerKg: targetPrice,
+      });
       useProduceStore.getState().updateCropStatus(listingCrop.id, 'ACTIVE');
 
       createListing({
@@ -908,17 +916,9 @@ export default function SellHomeScreen() {
                     <Pressable
                       style={[
                         styles.listForSaleBtn, 
-                        { flex: 1, backgroundColor: crop.status === 'APPROVED' ? '#166534' : '#1B6D24', borderColor: '#1B6D24' }
+                        { flex: 1, backgroundColor: '#166534', borderColor: '#166534' }
                       ]}
                       onPress={() => {
-                        if (crop.status === 'PENDING_APPROVAL') {
-                          Alert.alert(
-                            'Verification Required',
-                            'This produce is currently awaiting Admin quality verification. Once verified, you can confirm and list it globally for all buyers.',
-                            [{ text: 'OK', style: 'default' }]
-                          );
-                          return;
-                        }
                         handleOpenListingModal(crop);
                       }}
                     >

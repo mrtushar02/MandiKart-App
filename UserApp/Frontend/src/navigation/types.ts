@@ -1,4 +1,5 @@
 import { NavigatorScreenParams } from '@react-navigation/native';
+import { Product } from '../types';
 
 // Auth Stack
 export type AuthStackParamList = {
@@ -13,6 +14,7 @@ export type AuthStackParamList = {
 // Main Tab Navigator
 export type MainTabParamList = {
   Home: undefined;
+  RarePremium: undefined;
   Categories: undefined;
   Cart: undefined;
   Orders: undefined;
@@ -22,7 +24,7 @@ export type MainTabParamList = {
 // Product Stack
 export type ProductStackParamList = {
   ProductListing: { categoryId: string; categoryName: string };
-  ProductDetails: { productId: string };
+  ProductDetails: { productId: string; product?: Product };
   FarmerProfile: { farmerId: string };
   Search: undefined;
   AllCategories: undefined;

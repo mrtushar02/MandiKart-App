@@ -9,6 +9,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Colors, Spacing, BorderRadius, Shadows } from '../../theme';
 import PrimaryButton from '../../components/PrimaryButton';
 import { useAuth } from '../../context/AuthContext';
+import { compressImage } from '../../utils/imageCompressor';
 
 type Gender = 'Male' | 'Female' | 'Other';
 
@@ -34,12 +35,13 @@ export default function EditProfileScreen({ navigation }: any) {
   const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_OPTIONS[0]);
   const [userImageUri, setUserImageUri] = useState<string | null>(user?.avatarUrl || null);
   const [avatarModalVisible, setAvatarModalVisible] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
 
   // Preference toggles
   const [harvestAlerts, setHarvestAlerts] = useState(true);
   const [orderUpdates, setOrderUpdates] = useState(true);
 
-  // Pick Image from Gallery
+  // Pick Image from Gallery with Compression
   const pickImageFromGallery = async () => {
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -56,18 +58,70 @@ export default function EditProfileScreen({ navigation }: any) {
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.7,
+        base64: true,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const pickedUri = result.assets[0].uri;
-        setUserImageUri(pickedUri);
-        updateUser({ avatarUrl: pickedUri });
+        setIsCompressing(true);
+        const asset = result.assets[0];
+        let rawUri = asset.uri;
+        if (asset.base64) {
+          rawUri = `data:image/jpeg;base64,${asset.base64}`;
+        }
+        const compressedUri = await compressImage(rawUri, { maxWidth: 400, maxHeight: 400, quality: 0.7 });
+        setIsCompressing(false);
+
+        setUserImageUri(compressedUri);
+        updateUser({ avatarUrl: compressedUri });
         setAvatarModalVisible(false);
-        Alert.alert('Photo Selected! 📸', 'Your new profile photo has been updated.');
+        Alert.alert('Photo Compressed & Updated! 📸', 'Your new profile photo was compressed (<50KB) and saved.');
       }
     } catch (error) {
+      setIsCompressing(false);
       Alert.alert('Error', 'Failed to pick image from gallery.');
+    }
+  };
+
+  // Take Photo with Camera with Compression
+  const takePhotoFromCamera = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (!permissionResult.granted) {
+        Alert.alert(
+          'Permission Required 📷',
+          'Permission to access your camera is required to take a profile picture.'
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setIsCompressing(true);
+        const asset = result.assets[0];
+        let rawUri = asset.uri;
+        if (asset.base64) {
+          rawUri = `data:image/jpeg;base64,${asset.base64}`;
+        }
+        const compressedUri = await compressImage(rawUri, { maxWidth: 400, maxHeight: 400, quality: 0.7 });
+        setIsCompressing(false);
+
+        setUserImageUri(compressedUri);
+        updateUser({ avatarUrl: compressedUri });
+        setAvatarModalVisible(false);
+        Alert.alert('Photo Captured & Compressed! 📸', 'Your new profile photo was captured and saved securely.');
+      }
+    } catch (error) {
+      setIsCompressing(false);
+      Alert.alert('Error', 'Failed to take photo with camera.');
     }
   };
 
@@ -310,11 +364,26 @@ export default function EditProfileScreen({ navigation }: any) {
             <Text style={styles.modalTitle}>Update Profile Photo</Text>
             <Text style={styles.modalSub}>Select an option to update your picture</Text>
 
-            {/* Gallery Upload Action */}
-            <TouchableOpacity style={styles.galleryModalBtn} onPress={pickImageFromGallery}>
-              <Ionicons name="images" size={20} color={Colors.white} />
-              <Text style={styles.galleryModalBtnText}>Choose from Device Gallery 🖼️</Text>
-            </TouchableOpacity>
+            {/* Upload & Camera Actions */}
+            <View style={{ gap: 8, width: '100%' }}>
+              <TouchableOpacity style={styles.galleryModalBtn} onPress={pickImageFromGallery} disabled={isCompressing}>
+                <Ionicons name="images" size={20} color={Colors.white} />
+                <Text style={styles.galleryModalBtnText}>
+                  {isCompressing ? 'Compressing Photo...' : 'Choose from Device Gallery 🖼️'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.galleryModalBtn, { backgroundColor: Colors.textPrimary }]}
+                onPress={takePhotoFromCamera}
+                disabled={isCompressing}
+              >
+                <Ionicons name="camera" size={20} color={Colors.white} />
+                <Text style={styles.galleryModalBtnText}>
+                  {isCompressing ? 'Compressing Photo...' : 'Take Photo with Camera 📸'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             <View style={styles.orDividerRow}>
               <View style={styles.modalLine} />

@@ -40,7 +40,7 @@ export const PartnerProvider = ({ children }) => {
         endpoints.push(`http://${window.location.hostname}:4002/api/v1/tasks/available`);
       }
       endpoints.push('http://localhost:4002/api/v1/tasks/available');
-      endpoints.push('http://192.168.1.9:4002/api/v1/tasks/available');
+      endpoints.push('http://192.168.68.73:4002/api/v1/tasks/available');
       endpoints.push('http://10.0.2.2:4002/api/v1/tasks/available');
 
       for (const url of endpoints) {
@@ -103,7 +103,7 @@ export const PartnerProvider = ({ children }) => {
       endpoints.push(`http://${window.location.hostname}:4002/api/v1`);
     }
     endpoints.push('http://localhost:4002/api/v1');
-    endpoints.push('http://192.168.1.9:4002/api/v1');
+    endpoints.push('http://192.168.68.73:4002/api/v1');
     endpoints.push('http://10.0.2.2:4002/api/v1');
 
     for (const base of endpoints) {

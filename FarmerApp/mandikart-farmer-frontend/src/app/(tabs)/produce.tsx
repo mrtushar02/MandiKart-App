@@ -26,6 +26,7 @@ import {
   Modal,
   RefreshControl,
   Alert,
+  Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -56,12 +57,15 @@ import {
   Edit3,
   Trash2,
   Check,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react-native';
 import { MKColors } from '@/constants/colors';
 import { useProduceStore, CropItem, CropCondition } from '@/store/produceStore';
 import { useAuthStore } from '@/store/authStore';
 import FPOInventoryScreen from '@/components/fpo/FPOInventoryScreen';
 import { resolveCropThumbnail } from '@/utils/cropThumbnail';
+import { pickImageFromGallery, takePhotoWithCamera } from '@/services/imagePickerService';
 
 export default function ProduceScreen() {
   const user = useAuthStore((state) => state.user);
@@ -128,6 +132,8 @@ export default function ProduceScreen() {
   const [editPrice, setEditPrice] = useState('');
   const [editVariety, setEditVariety] = useState('');
   const [editCondition, setEditCondition] = useState<CropCondition>('Good');
+  const [editImageUri, setEditImageUri] = useState<string | null>(null);
+  const [isPhotoLoading, setIsPhotoLoading] = useState(false);
 
   const handleOpenEditModal = (crop: CropItem) => {
     setEditingCrop(crop);
@@ -135,7 +141,26 @@ export default function ProduceScreen() {
     setEditPrice((crop.expectedPricePerKg || crop.referencePricePerKg || 30).toString());
     setEditVariety(crop.variety || '');
     setEditCondition(crop.condition || 'Good');
+    setEditImageUri(crop.imageUri || null);
     setEditModalVisible(true);
+  };
+
+  const handlePickEditFromGallery = async () => {
+    setIsPhotoLoading(true);
+    const res = await pickImageFromGallery({ isCrop: true, maxWidth: 800, maxHeight: 800 });
+    setIsPhotoLoading(false);
+    if (!res.cancelled && res.uri) {
+      setEditImageUri(res.uri);
+    }
+  };
+
+  const handleTakeEditPhoto = async () => {
+    setIsPhotoLoading(true);
+    const res = await takePhotoWithCamera({ isCrop: true, maxWidth: 800, maxHeight: 800 });
+    setIsPhotoLoading(false);
+    if (!res.cancelled && res.uri) {
+      setEditImageUri(res.uri);
+    }
   };
 
   const handleSaveQuickEdit = () => {
@@ -157,28 +182,41 @@ export default function ProduceScreen() {
       variety: editVariety.trim() || editingCrop.variety,
       condition: editCondition,
       conditionUpdatedAt: 'Today',
+      imageUri: editImageUri || editingCrop.imageUri,
     });
 
     setEditModalVisible(false);
-    Alert.alert('Produce Updated 🌾', `${editingCrop.cropName} details have been saved.`);
+    Alert.alert('Produce Updated 🌾', `${editingCrop.cropName} details and photo have been saved.`);
   };
 
   const handleDeleteCrop = (crop: CropItem) => {
-    Alert.alert(
-      'Delete Produce Listing',
-      `Are you sure you want to remove ${crop.cropName} from your inventory? This action is permanent.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            useProduceStore.getState().deleteCrop(crop.id);
-            Alert.alert('Produce Deleted', `${crop.cropName} has been removed from your inventory.`);
+    const executeDelete = () => {
+      useProduceStore.getState().deleteCrop(crop.id);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.alert(`${crop.cropName} has been permanently removed from your inventory.`);
+      } else {
+        Alert.alert('Produce Deleted', `${crop.cropName} has been removed from your inventory.`);
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(`Are you sure you want to permanently delete "${crop.cropName}"? This action cannot be undone.`)) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Produce Listing',
+        `Are you sure you want to remove ${crop.cropName} from your inventory? This action is permanent.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: executeDelete,
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
   };
 
   // Filtered crops based on active search and activeFilter (Always sorted newest first)
@@ -842,19 +880,13 @@ export default function ProduceScreen() {
                     <Pressable
                       style={({ pressed }) => [
                         styles.sellCropButton,
-                        styles.sellCropButtonLocked,
+                        { backgroundColor: '#1B6D24' },
                         pressed && styles.pressedButton,
                       ]}
-                      onPress={() =>
-                        Alert.alert(
-                          'Produce Verification Protocol',
-                          'This harvest is currently awaiting MandiKart Admin quality verification. Selling is locked until approved by Mandi administrators to ensure market compliance and food standards.',
-                          [{ text: 'Understood', style: 'default' }]
-                        )
-                      }
+                      onPress={() => router.push('/(tabs)/sell')}
                     >
-                      <Lock size={13} color="#6B7280" style={{ marginRight: 4 }} />
-                      <Text style={styles.sellCropButtonTextLocked} numberOfLines={1}>Locked</Text>
+                      <Globe size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+                      <Text style={[styles.sellCropButtonText, { color: '#FFFFFF' }]} numberOfLines={1}>Sell to All</Text>
                     </Pressable>
                   ) : (
                     <Pressable
@@ -908,11 +940,7 @@ export default function ProduceScreen() {
                   ]}
                   onPress={() => {
                     if (crop.status === 'PENDING_APPROVAL') {
-                      Alert.alert(
-                        'Produce Verification Protocol',
-                        'This harvest is currently awaiting MandiKart Admin quality verification. Selling is locked until approved by Mandi administrators.',
-                        [{ text: 'Understood', style: 'default' }]
-                      );
+                      router.push('/(tabs)/sell');
                       return;
                     }
                     router.push({
@@ -925,17 +953,8 @@ export default function ProduceScreen() {
                     });
                   }}
                 >
-                  {crop.status === 'PENDING_APPROVAL' ? (
-                    <>
-                      <Lock size={13} color="#6B7280" style={{ marginRight: 4 }} />
-                      <Text style={[styles.alertActionText, { color: '#6B7280' }]}>Verification Pending</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.alertActionText}>Sell Now</Text>
-                      <ArrowRight size={14} color={MKColors.primaryGreen} />
-                    </>
-                  )}
+                  <Text style={styles.alertActionText}>Sell Now</Text>
+                  <ArrowRight size={14} color={MKColors.primaryGreen} />
                 </Pressable>
                 <Pressable
                   style={styles.alertSecondaryButton}
@@ -1073,6 +1092,76 @@ export default function ProduceScreen() {
             <Text style={styles.modalCropTitle}>
               {editingCrop?.cropName} {editingCrop?.grade ? `• ${editingCrop.grade}` : ''}
             </Text>
+
+            {/* Crop Photo Section with Compression */}
+            <View style={{ marginBottom: 14 }}>
+              <Text style={styles.editInputLabel}>Crop Photo</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 }}>
+                <Image
+                  source={{
+                    uri: editImageUri || resolveCropThumbnail(editingCrop?.cropName || '', editingCrop?.category, editingCrop?.imageUri),
+                  }}
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: editImageUri ? MKColors.primaryGreen : MKColors.border,
+                    backgroundColor: '#F3F4F6',
+                  }}
+                />
+                <View style={{ flex: 1, gap: 6 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#F0FDF4',
+                        borderWidth: 1,
+                        borderColor: MKColors.primaryGreen,
+                        borderRadius: 8,
+                        paddingVertical: 7,
+                        gap: 4,
+                      }}
+                      onPress={handleTakeEditPhoto}
+                      disabled={isPhotoLoading}
+                    >
+                      <Camera size={14} color={MKColors.primaryGreen} />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: MKColors.primaryGreenDark }}>
+                        {isPhotoLoading ? '...' : 'Camera'}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#F3F4F6',
+                        borderWidth: 1,
+                        borderColor: MKColors.border,
+                        borderRadius: 8,
+                        paddingVertical: 7,
+                        gap: 4,
+                      }}
+                      onPress={handlePickEditFromGallery}
+                      disabled={isPhotoLoading}
+                    >
+                      <ImageIcon size={14} color={MKColors.textSecondary} />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: MKColors.textSecondary }}>
+                        {isPhotoLoading ? '...' : 'Gallery'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text style={{ fontSize: 11, color: MKColors.textMuted }}>
+                    {editImageUri ? '✅ Photo selected & compressed (<80KB)' : 'Tap to change photo (auto-compressed)'}
+                  </Text>
+                </View>
+              </View>
+            </View>
 
             {/* Variety */}
             <View style={styles.editInputGroup}>

@@ -86,13 +86,14 @@ export class BuyerNegotiationsController {
   static async sendMessage(req: Request, res: Response): Promise<void> {
     const buyerId = req.user?.id || 'buyer_default_01';
     const id = String(req.params.id);
-    const { text, messageId } = req.body;
+    const { text, messageId, messageType, location } = req.body;
 
-    if (!text || !text.trim()) {
+    const isLocationMsg = messageType === 'LOCATION' || !!location;
+    if (!isLocationMsg && (!text || !text.trim())) {
       res.status(400).json({
         data: null,
         meta: null,
-        error: { code: 'VALIDATION_ERROR', message: 'Text message is required' },
+        error: { code: 'VALIDATION_ERROR', message: 'Text message or location is required' },
       });
       return;
     }
@@ -137,8 +138,11 @@ export class BuyerNegotiationsController {
       senderId: buyerId,
       senderRole: 'BUYER',
       senderName: target.buyerName || 'Buyer (You)',
-      messageType: 'TEXT',
-      text: text.trim(),
+      messageType: isLocationMsg ? 'LOCATION' : 'TEXT',
+      text: isLocationMsg
+        ? (location?.address ? `📍 Shared Location: ${location.address}` : '📍 Shared Live GPS Location')
+        : text.trim(),
+      location: isLocationMsg ? location : undefined,
       timestamp: new Date().toISOString(),
       isRead: false,
     };

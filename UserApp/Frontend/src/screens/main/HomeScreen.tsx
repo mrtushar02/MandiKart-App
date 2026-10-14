@@ -444,7 +444,7 @@ export default function HomeScreen() {
                   product={item}
                   onPress={() => navigation.navigate('ProductStack', {
                     screen: 'ProductDetails',
-                    params: { productId: item.id },
+                    params: { productId: item.id, product: item },
                   })}
                   onAddToCart={() => addToCart(item, 1)}
                   onWishlistToggle={() => toggleWishlist(item.id)}
@@ -467,7 +467,7 @@ export default function HomeScreen() {
                   product={item}
                   onPress={() => navigation.navigate('ProductStack', {
                     screen: 'ProductDetails',
-                    params: { productId: item.id },
+                    params: { productId: item.id, product: item },
                   })}
                   onAddToCart={() => addToCart(item, 1)}
                   onWishlistToggle={() => toggleWishlist(item.id)}

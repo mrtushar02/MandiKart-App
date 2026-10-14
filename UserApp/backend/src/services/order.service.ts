@@ -142,11 +142,13 @@ export class BuyerOrderService {
         let prodInSupabase = false;
 
         try {
-          const { data: prod } = await supabase
+          const prodPromise = supabase
             .from('products')
             .select('id, available_quantity, reserved_quantity, farmer_id')
             .eq('id', item.productId)
             .maybeSingle();
+          const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1200));
+          const { data: prod }: any = await Promise.race([prodPromise, timeout]);
 
           if (prod) {
             prodInSupabase = true;
@@ -209,7 +211,7 @@ export class BuyerOrderService {
 
       let order: any = null;
       try {
-        const { data: insertedOrder, error: orderErr } = await supabase
+        const insertPromise = supabase
           .from('orders')
           .insert({
             order_number: orderNumber,
@@ -225,6 +227,8 @@ export class BuyerOrderService {
           })
           .select()
           .single();
+        const timeout = new Promise<any>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500));
+        const { data: insertedOrder, error: orderErr }: any = await Promise.race([insertPromise, timeout]);
 
         if (insertedOrder && !orderErr) {
           // Insert order items into Supabase order_items table

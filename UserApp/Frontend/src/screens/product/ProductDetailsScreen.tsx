@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, StatusBar, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,7 @@ import { useLocation } from '../../context/LocationContext';
 import { useCart } from '../../context/CartContext';
 import { useWishlist } from '../../context/WishlistContext';
 import { useCatalog } from '../../context/CatalogContext';
+import { apiClient } from '../../services/apiClient';
 import FloatingCartBanner from '../../components/FloatingCartBanner';
 
 import { getFallbackProductImage } from '../../utils/imageUtils';
@@ -22,10 +23,14 @@ import { getFallbackProductImage } from '../../utils/imageUtils';
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductStack'>;
 
 export default function ProductDetailsScreen({ navigation, route }: any) {
-  const productParam = route.params?.product;
-  const productId = route.params?.productId || productParam?.id;
+  const productParam: Product | undefined = route.params?.product;
+  const productId: string | undefined = route.params?.productId || productParam?.id;
   const { getProductById } = useCatalog();
-  const product = productParam || (productId ? getProductById(productId) : null) || null;
+
+  const [product, setProduct] = useState<Product | null>(
+    productParam || (productId ? getProductById(productId) || null : null)
+  );
+  const [loading, setLoading] = useState<boolean>(!product && !!productId);
   const { currentAddress } = useLocation();
   const { addToCart } = useCart();
   const { toggleWishlist, isWishlisted } = useWishlist();
@@ -34,6 +39,62 @@ export default function ProductDetailsScreen({ navigation, route }: any) {
   const [isNegotiating, setIsNegotiating] = useState(false);
   const [imgUri, setImgUri] = useState<string>(product?.imageUrl || '');
 
+  // Keep imgUri synced if product loads later
+  useEffect(() => {
+    if (product?.imageUrl && !imgUri) {
+      setImgUri(product.imageUrl);
+    }
+  }, [product, imgUri]);
+
+  // If product wasn't passed in navigation or found immediately, fetch it reliably
+  useEffect(() => {
+    if (product) return;
+    if (!productId) {
+      setLoading(false);
+      return;
+    }
+
+    // 1. Try catalog context
+    const fromContext = getProductById(productId);
+    if (fromContext) {
+      setProduct(fromContext);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Fetch directly from backend/Supabase via apiClient
+    let isCancelled = false;
+    setLoading(true);
+    apiClient.catalog
+      .getById(productId)
+      .then((fetched) => {
+        if (!isCancelled) {
+          if (fetched) {
+            setProduct(fetched);
+          }
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) setLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [productId, product, getProductById]);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: Spacing.xl }]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={{ fontSize: 16, color: Colors.textSecondary, marginTop: Spacing.md }}>
+          Loading produce details...
+        </Text>
+      </View>
+    );
+  }
+
   if (!product) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: Spacing.xl }]}>
@@ -41,7 +102,16 @@ export default function ProductDetailsScreen({ navigation, route }: any) {
         <Text style={{ fontSize: 16, color: Colors.textSecondary, marginTop: Spacing.md }}>
           Product details unavailable.
         </Text>
-        <TouchableOpacity style={{ marginTop: Spacing.lg, paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl, backgroundColor: Colors.primary, borderRadius: BorderRadius.md }} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={{
+            marginTop: Spacing.lg,
+            paddingVertical: Spacing.md,
+            paddingHorizontal: Spacing.xl,
+            backgroundColor: Colors.primary,
+            borderRadius: BorderRadius.md,
+          }}
+          onPress={() => navigation.goBack()}
+        >
           <Text style={{ color: Colors.white, fontWeight: 'bold' }}>Go Back</Text>
         </TouchableOpacity>
       </View>

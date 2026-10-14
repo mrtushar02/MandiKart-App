@@ -291,7 +291,7 @@ export default function VerifyOtpScreen() {
   const handleSkipOrProceed = async (skipReason: 'email' | 'general' = 'general') => {
     const cleanPhone = displayPhone.replace(/\D/g, '').slice(-10);
     const farmerName = params.name || user?.name || `Farmer ${cleanPhone.slice(-4) || '9876'}`;
-    const token = useAuthStore.getState().token || `mks_farmer_${Date.now()}`;
+    const token = useAuthStore.getState().token || 'mock_jwt_token_farmer';
 
     const farmerObj = {
       ...(user || {}),

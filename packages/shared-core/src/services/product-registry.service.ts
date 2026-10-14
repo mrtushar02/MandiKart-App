@@ -52,7 +52,7 @@ function writeToDisk(products: RegisteredProduct[]): void {
     const sanitizedProducts = products.map(p => {
       const sanitizedImages = (p.images || []).filter(img => {
         if (!img || typeof img !== 'string') return false;
-        if (img.startsWith('data:image') && img.length > 2000000) return false;
+        if (img.startsWith('data:image') && img.length > 10000000) return false;
         return true;
       });
       return { ...p, images: sanitizedImages };
@@ -64,6 +64,41 @@ function writeToDisk(products: RegisteredProduct[]): void {
 export function getCropImageUrl(cropName: string = '', category: string = ''): string {
   const name = (cropName || '').toLowerCase().trim();
   const cat = (category || '').toLowerCase().trim();
+
+  // Rare & Premium Crops
+  if (name.includes('saffron') || name.includes('kesar') || name.includes('mongra')) {
+    return 'https://images.unsplash.com/photo-1599818816934-2e94828114c0?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('avocado') || name.includes('makhana') || name.includes('butter fruit')) {
+    return 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('dragon') || name.includes('kamalam') || name.includes('pitaya')) {
+    return 'https://images.unsplash.com/photo-1527325678964-54921661f888?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('gucchi') || name.includes('morel') || name.includes('mushroom')) {
+    return 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('black garlic')) {
+    return 'https://images.unsplash.com/photo-1615477550926-25ccbf3a9ec1?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('black rice') || name.includes('chak-hao') || name.includes('chak hao')) {
+    return 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('cardamom') || name.includes('elaichi')) {
+    return 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('vanilla')) {
+    return 'https://images.unsplash.com/photo-1509358271058-acd22cc93898?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('romanesco') || name.includes('broccoli')) {
+    return 'https://images.unsplash.com/photo-1568584711075-3d021a7c3ca3?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('blueberry') || name.includes('blueberries')) {
+    return 'https://images.unsplash.com/photo-1498557850523-fd3d118b962e?w=500&auto=format&fit=crop&q=80';
+  }
+  if (name.includes('badam') || name.includes('almond') || name.includes('mamra')) {
+    return 'https://images.unsplash.com/photo-1508061252224-414eb2949015?w=500&auto=format&fit=crop&q=80';
+  }
 
   if (name.includes('tomato') || name.includes('tamatar')) {
     return 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80';

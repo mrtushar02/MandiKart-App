@@ -43,29 +43,57 @@ export class BulkRequirementsController {
     const buyerId = req.user?.id || 'buyer_default_01';
     const buyerName = req.body?.buyerName || (req.user as any)?.fullName || 'Verified Bulk Buyer';
     const buyerPhone = req.body?.buyerPhone || (req.user as any)?.phone || '+91 98765 43210';
-    const { cropName, grade, requiredQuantity, quantityUnit, maxTargetPricePerUnit, deliveryLocation, requiredByDate } = req.body;
+    const { cropName, grade, requiredQuantity, quantityUnit, maxTargetPricePerUnit, deliveryLocation, requiredByDate, items: rawItems } = req.body;
 
-    if (!cropName || !requiredQuantity || !maxTargetPricePerUnit || !requiredByDate) {
-      res.status(400).json({
-        data: null,
-        meta: null,
-        error: { code: 'VALIDATION_ERROR', message: 'Missing required fields for bulk commercial demand.' },
-      });
-      return;
-    }
+    const items = Array.isArray(rawItems) && rawItems.length > 0
+      ? rawItems.map((item: any, idx: number) => ({
+          id: item.id || `item_${Date.now()}_${idx}`,
+          cropName: item.cropName || 'Specialty Produce',
+          variety: item.variety || 'Standard Selected',
+          category: item.category || 'Exotic Produce',
+          grade: item.grade || 'A',
+          quantity: Number(item.quantity || item.requiredQuantity || 10),
+          unit: item.unit || item.quantityUnit || 'kg',
+          targetPrice: Number(item.targetPrice || item.maxTargetPricePerUnit || 100),
+          selectedByFarmer: true,
+          farmerPrice: Number(item.targetPrice || item.maxTargetPricePerUnit || 100),
+        }))
+      : [
+          {
+            id: `item_${Date.now()}_0`,
+            cropName: cropName || 'Produce',
+            variety: req.body?.variety || 'Standard Selected',
+            category: req.body?.category || 'Exotic Produce',
+            grade: grade || 'A',
+            quantity: Number(requiredQuantity || 10),
+            unit: quantityUnit || 'kg',
+            targetPrice: Number(maxTargetPricePerUnit || 100),
+            selectedByFarmer: true,
+            farmerPrice: Number(maxTargetPricePerUnit || 100),
+          },
+        ];
+
+    const primaryCropName = items.length === 1 
+      ? items[0].cropName 
+      : `${items[0].cropName} + ${items.length - 1} other products (${items.map((i: any) => i.cropName).join(', ')})`;
+
+    const totalQty = items.reduce((acc: number, cur: any) => acc + cur.quantity, 0);
+    const totalAmount = items.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.targetPrice), 0);
+    const primaryUnit = items[0].unit;
+    const avgPrice = Math.round(totalAmount / (totalQty || 1));
 
     const newReq: BulkRequirement = {
       id: `breq_${Date.now()}`,
       buyerId,
       buyerName,
       buyerPhone,
-      cropName,
+      cropName: primaryCropName,
       grade: grade || 'A',
-      requiredQuantity: Number(requiredQuantity),
-      quantityUnit: quantityUnit || 'quintal',
-      maxTargetPricePerUnit: Number(maxTargetPricePerUnit),
+      requiredQuantity: totalQty,
+      quantityUnit: primaryUnit,
+      maxTargetPricePerUnit: avgPrice,
       deliveryLocation: deliveryLocation || 'Pune Wholesale Mandi',
-      requiredByDate,
+      requiredByDate: requiredByDate || new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
       status: 'MATCHED',
       matchedSupplierCount: 2,
       createdAt: new Date().toISOString(),
@@ -76,9 +104,12 @@ export class BulkRequirementsController {
     // Register Direct FPO Bulk Procurement request in shared NegotiationRegistryService
     const negotiationId = newReq.id;
     const now = new Date().toISOString();
-    const qtyNum = Number(requiredQuantity);
-    const priceNum = Number(maxTargetPricePerUnit);
-    const unitStr = quantityUnit || 'quintal';
+    const currentDateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const currentTimeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    const itemsSummaryText = items.map((i: any, idx: number) => 
+      `  ${idx + 1}. ${i.cropName} (${i.variety || 'Grade ' + i.grade}): ${i.quantity} ${i.unit} @ target ₹${i.targetPrice}/${i.unit}`
+    ).join('\n');
 
     const initialMessages: NegotiationMessageItem[] = [
       {
@@ -88,11 +119,13 @@ export class BulkRequirementsController {
         senderRole: 'BUYER',
         senderName: buyerName,
         messageType: 'OFFER',
-        text: `Direct FPO Procurement Requirement: ₹${priceNum}/${unitStr} for ${qtyNum} ${unitStr}`,
-        price: priceNum,
-        quantity: qtyNum,
-        unit: unitStr,
-        totalAmount: Math.round(priceNum * qtyNum),
+        text: items.length > 1 
+          ? `Direct FPO Multi-Product Procurement Demand (${items.length} Products):\n${itemsSummaryText}\nTotal Target Budget: ₹${totalAmount.toLocaleString()}`
+          : `Direct FPO Procurement Requirement: ₹${items[0].targetPrice}/${items[0].unit} for ${items[0].quantity} ${items[0].unit}`,
+        price: items.length === 1 ? items[0].targetPrice : avgPrice,
+        quantity: totalQty,
+        unit: primaryUnit,
+        totalAmount: totalAmount,
         offerStatus: 'PENDING',
         timestamp: now,
       },
@@ -103,7 +136,7 @@ export class BulkRequirementsController {
         senderRole: 'BUYER',
         senderName: buyerName,
         messageType: 'TEXT',
-        text: `[Direct FPO Procurement Demand] Required Date: ${requiredByDate}. Delivery Depot: ${deliveryLocation}. Quality Grade: Grade ${grade || 'A'}.`,
+        text: `[Direct FPO Procurement Demand • Posted ${currentDateStr} at ${currentTimeStr}]\nRequired Delivery Date: ${requiredByDate}\nDelivery Depot: ${deliveryLocation}\nQuality Grade: Grade ${grade || 'A'}\nFarmer Note: Please select the products you have available and counter with your pricing!`,
         timestamp: new Date(Date.now() + 50).toISOString(),
       },
     ];
@@ -111,19 +144,20 @@ export class BulkRequirementsController {
     const newNeg = {
       id: negotiationId,
       productId: `bulk_prod_${Date.now()}`,
-      cropName: cropName || 'Produce',
+      cropName: primaryCropName,
       grade: grade || 'A',
+      items,
       farmerId: 'd1111111-1111-1111-1111-111111111111',
       farmerName: 'Ramesh Patel',
       buyerId,
       buyerName,
       buyerPhone,
       buyerCompany: 'Direct FPO Procurement Buyer',
-      originalPrice: priceNum,
-      offeredPrice: priceNum,
+      originalPrice: items.length === 1 ? items[0].targetPrice : avgPrice,
+      offeredPrice: items.length === 1 ? items[0].targetPrice : avgPrice,
       counterPrice: null,
-      quantity: qtyNum,
-      unit: unitStr,
+      quantity: totalQty,
+      unit: primaryUnit,
       status: 'PENDING_FARMER' as const,
       remarks: `Delivery Depot: ${deliveryLocation} • Required By: ${requiredByDate}`,
       messages: initialMessages,
@@ -132,11 +166,11 @@ export class BulkRequirementsController {
           id: `hist_breq_${Date.now()}`,
           sender: 'BUYER' as const,
           senderName: buyerName,
-          price: priceNum,
-          pricePerKg: priceNum,
-          quantityKg: qtyNum,
-          text: `[Direct FPO Procurement] Target Price: ₹${priceNum}/${unitStr} for ${qtyNum} ${unitStr}. Delivery: ${deliveryLocation} by ${requiredByDate}.`,
-          message: `[Direct FPO Procurement] Target Price: ₹${priceNum}/${unitStr} for ${qtyNum} ${unitStr}. Delivery: ${deliveryLocation} by ${requiredByDate}.`,
+          price: items.length === 1 ? items[0].targetPrice : avgPrice,
+          pricePerKg: items.length === 1 ? items[0].targetPrice : avgPrice,
+          quantityKg: totalQty,
+          text: `[Direct FPO Procurement] Target Budget: ₹${totalAmount.toLocaleString()}. Delivery: ${deliveryLocation} by ${requiredByDate}.`,
+          message: `[Direct FPO Procurement] Target Budget: ₹${totalAmount.toLocaleString()}. Delivery: ${deliveryLocation} by ${requiredByDate}.`,
           timestamp: now,
         },
       ],

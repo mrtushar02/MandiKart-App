@@ -133,7 +133,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         primaryCrops,
       });
 
-      const token = res?.data?.token || `mks_jwt_${Date.now()}`;
+      const token = res?.data?.token || 'mock_jwt_token_farmer';
       const farmerObj = res?.data?.farmer || {
         id: `farmer_${Date.now()}`,
         fullName: name,
@@ -179,7 +179,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         role: 'FARMER',
         isVerified: true,
       };
-      const token = `mks_fallback_token_${Date.now()}`;
+      const token = 'mock_jwt_token_farmer';
 
       useAuthStore.getState().setAuthenticated(token, fallbackFarmer as any);
       useAuthStore.getState().setUser(fallbackFarmer);

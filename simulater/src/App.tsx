@@ -7,7 +7,7 @@ import { AppConfig, ChassisColor, LayoutMode } from './types/simulator';
 import { INITIAL_APPS, BACKEND_SERVICES } from './constants/devices';
 import { ArrowRightLeft, Plus, Smartphone, CheckCircle, AlertCircle } from 'lucide-react';
 
-const STORAGE_KEY = 'mandikart_simulator_apps_v2';
+const STORAGE_KEY = 'mandikart_simulator_apps_v3';
 
 export const App: React.FC = () => {
   // Persisted or default apps state

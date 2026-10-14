@@ -11,6 +11,7 @@ import { RootStackParamList } from '../../navigation/types';
 import { Colors, Spacing, BorderRadius, Shadows } from '../../theme';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '../../utils/imageCompressor';
 import { apiClient } from '../../services/apiClient';
 
 import { useLanguage, SupportedLanguage } from '../../context/LanguageContext';
@@ -46,14 +47,19 @@ export default function ProfileScreen() {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.7,
+        base64: true,
       });
 
       if (!result.canceled && result.assets[0]?.uri) {
-        const localUri = result.assets[0].uri;
-        updateUser({ avatarUrl: localUri });
+        let rawUri = result.assets[0].uri;
+        if (result.assets[0].base64) {
+          rawUri = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        }
+        const compressedUri = await compressImage(rawUri, { maxWidth: 400, maxHeight: 400, quality: 0.7 });
+        updateUser({ avatarUrl: compressedUri });
         setUploadingAvatar(true);
 
-        const uploadRes = await apiClient.storage.uploadImage(localUri, 'avatars');
+        const uploadRes = await apiClient.storage.uploadImage(compressedUri, 'avatars');
         setUploadingAvatar(false);
         if (uploadRes?.url) {
           updateUser({ avatarUrl: uploadRes.url });

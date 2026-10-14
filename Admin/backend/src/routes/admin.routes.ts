@@ -14,6 +14,7 @@ adminRouter.get('/ai-insights', AdminController.getAiInsights);
 
 // Produce moderation routes
 adminRouter.get('/produce', AdminController.getAllProduce);
+adminRouter.post('/produce', AdminController.createProduce);
 adminRouter.post('/produce/:productId/approve', AdminController.approveProduce);
 adminRouter.post('/produce/:productId/reject', AdminController.rejectProduce);
 

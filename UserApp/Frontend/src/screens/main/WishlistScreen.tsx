@@ -132,7 +132,7 @@ export default function WishlistScreen() {
               onPress={() =>
                 navigation.navigate('ProductStack', {
                   screen: 'ProductDetails',
-                  params: { productId: product.id },
+                  params: { productId: product.id, product },
                 })
               }
               onAddToCart={() => {

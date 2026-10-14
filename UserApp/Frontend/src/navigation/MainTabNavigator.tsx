@@ -6,6 +6,7 @@ import { Colors, Spacing, Typography } from '../theme';
 import { MainTabParamList } from './types';
 
 import HomeScreen from '../screens/main/HomeScreen';
+import RarePremiumScreen from '../screens/main/RarePremiumScreen';
 import CategoriesScreen from '../screens/main/CategoriesScreen';
 import CartScreen from '../screens/main/CartScreen';
 import OrdersNavigator from './OrdersNavigator';
@@ -14,7 +15,7 @@ import { useLanguage } from '../context/LanguageContext';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-type TabIconName = 'home' | 'grid' | 'cart' | 'receipt' | 'person';
+type TabIconName = 'home' | 'sparkles' | 'grid' | 'cart' | 'receipt' | 'person';
 
 interface TabConfig {
   name: keyof MainTabParamList;
@@ -25,6 +26,7 @@ interface TabConfig {
 
 const TABS: TabConfig[] = [
   { name: 'Home', translationKey: 'home', defaultLabel: 'Home', icon: 'home' },
+  { name: 'RarePremium', translationKey: 'rare_premium', defaultLabel: 'Rare & Premium', icon: 'sparkles' },
   { name: 'Categories', translationKey: 'categories', defaultLabel: 'Categories', icon: 'grid' },
   { name: 'Cart', translationKey: 'cart', defaultLabel: 'Cart', icon: 'cart' },
   { name: 'Orders', translationKey: 'orders', defaultLabel: 'Orders', icon: 'receipt' },
@@ -40,15 +42,16 @@ export default function MainTabNavigator() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
-        tabBarActiveTintColor: Colors.primary,
+        tabBarActiveTintColor: route.name === 'RarePremium' ? '#D97706' : Colors.primary,
         tabBarInactiveTintColor: Colors.textSecondary,
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
         tabBarIcon: ({ focused, color, size }) => {
           const tab = TABS.find((t) => t.name === route.name);
+          const iconColor = focused && route.name === 'RarePremium' ? '#D97706' : color;
           const iconName = `${tab?.icon}${focused ? '' : '-outline'}` as any;
-          return <Ionicons name={iconName} size={22} color={color} />;
+          return <Ionicons name={iconName} size={22} color={iconColor} />;
         },
       })}
     >
@@ -56,6 +59,11 @@ export default function MainTabNavigator() {
         name="Home"
         component={HomeScreen}
         options={{ tabBarLabel: t('home', 'Home') }}
+      />
+      <Tab.Screen
+        name="RarePremium"
+        component={RarePremiumScreen}
+        options={{ tabBarLabel: 'Rare & Premium' }}
       />
       <Tab.Screen
         name="Categories"

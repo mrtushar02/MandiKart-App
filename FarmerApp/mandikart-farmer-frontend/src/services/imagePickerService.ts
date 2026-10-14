@@ -7,6 +7,7 @@
 
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, Platform } from 'react-native';
+import { compressImage, ImageCompressionOptions } from '@/utils/imageCompressor';
 
 export interface ImagePickerResult {
   cancelled: boolean;
@@ -14,22 +15,27 @@ export interface ImagePickerResult {
   error?: string;
 }
 
-export async function pickImageFromGallery(): Promise<ImagePickerResult> {
+export interface PickerCustomOptions extends ImageCompressionOptions {
+  isCrop?: boolean;
+}
+
+export async function pickImageFromGallery(customOptions?: PickerCustomOptions): Promise<ImagePickerResult> {
   try {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert(
         'Permission Required',
-        'Please grant access to your photo library to select a profile picture.'
+        'Please grant access to your photo library to select an image.'
       );
       return { cancelled: true, error: 'Permission not granted' };
     }
 
+    const isCrop = customOptions?.isCrop ?? true;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.4,
+      aspect: isCrop ? [4, 3] : [1, 1],
+      quality: 0.6,
       base64: true,
     });
 
@@ -57,6 +63,14 @@ export async function pickImageFromGallery(): Promise<ImagePickerResult> {
       }
     }
 
+    // Apply client-side image compression
+    const maxDim = isCrop ? 800 : 400;
+    finalUri = await compressImage(finalUri, {
+      maxWidth: customOptions?.maxWidth || maxDim,
+      maxHeight: customOptions?.maxHeight || maxDim,
+      quality: customOptions?.quality || 0.7,
+    });
+
     return {
       cancelled: false,
       uri: finalUri,
@@ -70,22 +84,23 @@ export async function pickImageFromGallery(): Promise<ImagePickerResult> {
   }
 }
 
-export async function takePhotoWithCamera(): Promise<ImagePickerResult> {
+export async function takePhotoWithCamera(customOptions?: PickerCustomOptions): Promise<ImagePickerResult> {
   try {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert(
         'Permission Required',
-        'Please grant camera permission to take a profile picture.'
+        'Please grant camera permission to take a picture.'
       );
       return { cancelled: true, error: 'Permission not granted' };
     }
 
+    const isCrop = customOptions?.isCrop ?? true;
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.35,
+      aspect: isCrop ? [4, 3] : [1, 1],
+      quality: 0.6,
       base64: true,
     });
 
@@ -112,6 +127,14 @@ export async function takePhotoWithCamera(): Promise<ImagePickerResult> {
         console.warn('Could not convert web camera blob to data URL, using asset.uri:', blobErr);
       }
     }
+
+    // Apply client-side image compression
+    const maxDim = isCrop ? 800 : 400;
+    finalUri = await compressImage(finalUri, {
+      maxWidth: customOptions?.maxWidth || maxDim,
+      maxHeight: customOptions?.maxHeight || maxDim,
+      quality: customOptions?.quality || 0.7,
+    });
 
     return {
       cancelled: false,
